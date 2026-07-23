@@ -1,0 +1,5 @@
+{
+  "summary":  "실제 구현된 소스 코드(RobotSimulator.jsx 및 server.js)를 기반으로 작성한 1, 2, 3번 알고리즘의 세부 기술 명세서입니다. STT/TTS 처리 과정, AI 비전 분석 데이터 파이프라인, 그리고 AWS 연동 및 Web Audio 경보 제어 알고리즘을 상세히 다룹니다.",
+  "updatedAt":  "2026-07-13T02:43:53.776593500Z",
+  "userFacing":  true
+}

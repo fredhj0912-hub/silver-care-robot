@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" width="900" height="700">
+  <defs>
+    <!-- Arrow marker definition -->
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#333333" />
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="700" fill="#FFFFFF" />
+
+  <!-- Title -->
+  <text x="450" y="55" font-family="'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif" font-size="28" font-weight="bold" text-anchor="middle" fill="#111111">실버케어 로봇 시스템 메뉴 구상도</text>
+
+  <!-- ================= LEFT COLUMN: ROBOT UI ================= -->
+  <!-- Header: 로봇 디바이스 단말기 -->
+  <rect x="80" y="110" width="320" height="45" rx="8" fill="#2E4057" stroke="#111111" stroke-width="2" />
+  <text x="240" y="138" font-family="'Malgun Gothic', sans-serif" font-size="16" font-weight="bold" fill="#FFFFFF" text-anchor="middle">로봇 디바이스 터치 UI (ROB)</text>
+
+  <!-- Connections from header -->
+  <path d="M 240,155 L 240,620" fill="none" stroke="#333333" stroke-width="1.5" />
+
+  <!-- Menu Item 1: 메인 얼굴 -->
+  <line x1="240" y1="210" x2="280" y2="210" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)" />
+  <rect x="280" y="185" width="220" height="50" rx="6" fill="#F4F4F9" stroke="#333333" stroke-width="1.5" />
+  <text x="390" y="215" font-family="'Malgun Gothic', sans-serif" font-size="13" font-weight="bold" fill="#000000" text-anchor="middle">ROB-01. 메인 얼굴 화면</text>
+  <text x="390" y="230" font-family="'Malgun Gothic', sans-serif" font-size="10" fill="#666666" text-anchor="middle">실시간 감정 표정 드로잉 (미소/슬픔)</text>
+
+  <!-- Menu Item 2: 대화 피드 -->
+  <line x1="240" y1="310" x2="280" y2="310" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)" />
+  <rect x="280" y="285" width="220" height="50" rx="6" fill="#F4F4F9" stroke="#333333" stroke-width="1.5" />
+  <text x="390" y="315" font-family="'Malgun Gothic', sans-serif" font-size="13" font-weight="bold" fill="#000000" text-anchor="middle">ROB-02. 대화 기록 피드 화면</text>
+  <text x="390" y="330" font-family="'Malgun Gothic', sans-serif" font-size="10" fill="#666666" text-anchor="middle">최근 나눈 말동무 대화 내용 표출</text>
+
+  <!-- Menu Item 3: 기기 설정 -->
+  <line x1="240" y1="410" x2="280" y2="410" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)" />
+  <rect x="280" y="385" width="220" height="50" rx="6" fill="#F4F4F9" stroke="#333333" stroke-width="1.5" />
+  <text x="390" y="415" font-family="'Malgun Gothic', sans-serif" font-size="13" font-weight="bold" fill="#000000" text-anchor="middle">ROB-03. 기기 수동 설정 화면</text>
+  <text x="390" y="430" font-family="'Malgun Gothic', sans-serif" font-size="10" fill="#666666" text-anchor="middle">스피커 볼륨 제어 및 말하기 속도 조절</text>
+
+  <!-- Menu Item 4: 경보 해제 -->
+  <line x1="240" y1="510" x2="280" y2="510" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)" />
+  <rect x="280" y="485" width="220" height="50" rx="6" fill="#FBEBEB" stroke="#D32F2F" stroke-width="1.5" />
+  <text x="390" y="515" font-family="'Malgun Gothic', sans-serif" font-size="13" font-weight="bold" fill="#D32F2F" text-anchor="middle">ROB-04. 기기 수동 경보 해제</text>
+  <text x="390" y="530" font-family="'Malgun Gothic', sans-serif" font-size="10" fill="#C62828" text-anchor="middle">위급 시 '저 괜찮아요!' 터치 해제 버튼</text>
+
+
+  <!-- ================= RIGHT COLUMN: GUARDIAN DASHBOARD ================= -->
+  <!-- Header: 보호자 모니터링 웹 -->
+  <rect x="500" y="110" width="320" height="45" rx="8" fill="#1B4965" stroke="#111111" stroke-width="2" />
+  <text x="660" y="138" font-family="'Malgun Gothic', sans-serif" font-size="16" font-weight="bold" fill="#FFFFFF" text-anchor="middle">보호자 모니터링 웹앱 (GUA)</text>
+
+  <!-- Connections from header -->
+  <path d="M 660,155 L 660,620" fill="none" stroke="#333333" stroke-width="1.5" />
+
+  <!-- Menu Item 1: 안전 상황판 -->
+  <line x1="660" y1="210" x2="550" y2="210" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)" />
+  <rect x="320" y="185" width="220" height="50" rx="6" fill="#F4F4F9" stroke="#333333" stroke-width="1.5" />
+  <text x="430" y="215" font-family="'Malgun Gothic', sans-serif" font-size="13" font-weight="bold" fill="#000000" text-anchor="middle">GUA-01. 실시간 안전 상황판</text>
+  <text x="430" y="230" font-family="'Malgun Gothic', sans-serif" font-size="10" fill="#666666" text-anchor="middle">어르신 안전진단/CCTV 모니터링</text>
+
+  <!-- Menu Item 2: 대화방 -->
+  <line x1="660" y1="310" x2="550" y2="310" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)" />
+  <rect x="320" y="285" width="220" height="70" rx="6" fill="#EBF5FB" stroke="#1D89E4" stroke-width="1.5" />
+  <text x="430" y="308" font-family="'Malgun Gothic', sans-serif" font-size="13" font-weight="bold" fill="#000000" text-anchor="middle">GUA-02. 1:1 안심 대화방</text>
+  <text x="430" y="323" font-family="'Malgun Gothic', sans-serif" font-size="9" fill="#1D89E4" text-anchor="middle">• 실시간 텍스트 피드백 수신</text>
+  <text x="430" y="336" font-family="'Malgun Gothic', sans-serif" font-size="9" fill="#1D89E4" text-anchor="middle">• 보호자 ➔ 로봇 원격 음성(TTS) 송출</text>
+  <text x="430" y="349" font-family="'Malgun Gothic', sans-serif" font-size="9" fill="#1D89E4" text-anchor="middle">• 어르신 ➔ 보호자 자동 말소리(TTS) 청취</text>
+
+  <!-- Menu Item 3: 타임라인 -->
+  <line x1="660" y1="410" x2="550" y2="410" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)" />
+  <rect x="320" y="385" width="220" height="50" rx="6" fill="#F4F4F9" stroke="#333333" stroke-width="1.5" />
+  <text x="430" y="415" font-family="'Malgun Gothic', sans-serif" font-size="13" font-weight="bold" fill="#000000" text-anchor="middle">GUA-03. 안전/활동 타임라인</text>
+  <text x="430" y="430" font-family="'Malgun Gothic', sans-serif" font-size="10" fill="#666666" text-anchor="middle">날짜별 일상 행동 이력(식사/수면/대화) 조회</text>
+
+  <!-- Menu Item 4: 감지 이력 -->
+  <line x1="660" y1="510" x2="550" y2="510" stroke="#333333" stroke-width="1.5" marker-end="url(#arrow)" />
+  <rect x="320" y="485" width="220" height="50" rx="6" fill="#FBEBEB" stroke="#D32F2F" stroke-width="1.5" />
+  <text x="430" y="515" font-family="'Malgun Gothic', sans-serif" font-size="13" font-weight="bold" fill="#D32F2F" text-anchor="middle">GUA-04. 센서 감지/조치 이력</text>
+  <text x="430" y="530" font-family="'Malgun Gothic', sans-serif" font-size="10" fill="#C62828" text-anchor="middle">낙상 사고 로그 및 원격 조치해제 이력 관리</text>
+
+</svg>

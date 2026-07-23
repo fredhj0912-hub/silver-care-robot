@@ -1,0 +1,1 @@
+{"id":"3b919a47-6e87-4fdd-a717-69333abb0360", "recipient":"865ea0c1-3161-4606-b6d9-5f04b36a98c8", "sender":"865ea0c1-3161-4606-b6d9-5f04b36a98c8/task-558", "priority":"MESSAGE_PRIORITY_HIGH", "timestamp":"2026-07-13T10:29:28.495916600Z", "renderDetails":{"messageTitle":"Schedule wait for git push: Timer has expired"}, "content":"Check if the git push task has completed"}

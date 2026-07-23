@@ -1,0 +1,23 @@
+# Tasks - Silver Care Companion Robot Local Prototype
+
+- [x] Create project directories and setup packages
+  - [x] Create folders (`silver-care-robot`, `backend`, `frontend`)
+  - [x] Create root `package.json`
+  - [x] Create backend `package.json` and install dependencies (express, cors, dotenv)
+  - [x] Create frontend `package.json` and config (Vite, React)
+- [x] Build backend server
+  - [x] Implement `backend/server.js` (Express endpoints, simulated AWS client logging, local JSON DB database.json, Gemini API skeleton integration)
+  - [x] Initialize `backend/database.json`
+- [x] Build frontend application
+  - [x] Create `frontend/index.html` and entry files (`main.jsx`, `App.jsx`)
+  - [x] Implement `frontend/src/index.css` (dark/glassmorphism theme, face animations, keyframes)
+  - [x] Build `frontend/src/components/RobotSimulator.jsx` (animated face, Web Speech API integration, camera snapshot/upload simulator, emergency triggers)
+  - [x] Build `frontend/src/components/GuardianDashboard.jsx` (real-time status, charts, conversation list, alert control panel, remote announcement sender)
+- [x] Generate project diagrams (Images)
+  - [x] Generate `architecture_diagram.png` (using generate_image)
+  - [x] Generate `flowchart.png` (using generate_image)
+- [x] Verification and Walkthrough
+  - [x] Test communication loop (Voice -> Backend -> Speech)
+  - [x] Test emergency detection & guardian alert panel
+  - [x] Test camera input updates
+  - [x] Create `walkthrough.md`

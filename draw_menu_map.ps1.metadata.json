@@ -1,0 +1,4 @@
+{
+  "summary":  ".NET RectangleF 생성자 오버로딩 에러를 완벽하게 방지하기 위해 정적 멤버 인스턴스화([RectangleF]::new) 및 타입 캐스팅([float])을 적용한 PowerShell 그리기 스크립트입니다.",
+  "updatedAt":  "2026-07-13T06:18:11.741293700Z"
+}
