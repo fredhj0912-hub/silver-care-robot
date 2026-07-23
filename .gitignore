@@ -1,6 +1,8 @@
-*.db
-*.db-journal
-.system_generated/tasks/
-.system_generated/terminals/
-.tempmediaStorage/
-browser/
+node_modules/
+dist/
+.env
+backend/.env
+*.log
+.gstack/
+.agents/
+.system_generated/

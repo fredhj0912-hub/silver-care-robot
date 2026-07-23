@@ -1,0 +1,281 @@
+{
+  "status": {
+    "status": "online",
+    "battery": 92,
+    "lastActive": "2026-07-13T07:08:42.545Z",
+    "seniorExpression": "neutral",
+    "isEmergency": false
+  },
+  "history": [
+    {
+      "id": 1,
+      "timestamp": "2026-07-10T09:15:22+09:00",
+      "sender": "senior",
+      "text": "오늘 날씨 어떠니?",
+      "emotion": "neutral"
+    },
+    {
+      "id": 2,
+      "timestamp": "2026-07-10T09:15:25+09:00",
+      "sender": "robot",
+      "text": "할머니, 오늘 서울은 맑고 기온은 25도예요. 오후에 가벼운 산책을 하시기 딱 좋은 날씨랍니다. 나들이 다녀오시는 건 어떨까요?",
+      "emotion": "happy"
+    },
+    {
+      "id": 3,
+      "timestamp": "2026-07-10T10:30:10+09:00",
+      "sender": "senior",
+      "text": "몸이 조금 찌뿌둥하네...",
+      "emotion": "sad"
+    },
+    {
+      "id": 4,
+      "timestamp": "2026-07-10T10:30:14+09:00",
+      "sender": "robot",
+      "text": "그러셨군요. 가벼운 스트레칭이나 따뜻한 물을 한 잔 드시는 건 어떠세요? 제가 신나는 음악이라도 틀어드릴까요?",
+      "emotion": "neutral"
+    },
+    {
+      "id": 5,
+      "timestamp": "2026-07-10T02:10:40.449Z",
+      "sender": "guardian",
+      "text": "[원격 전송 메시지] dfgdf",
+      "emotion": "neutral"
+    },
+    {
+      "id": 6,
+      "timestamp": "2026-07-13T01:31:28.393Z",
+      "sender": "senior",
+      "text": "안녕하세요 뭐 해요",
+      "emotion": "neutral"
+    },
+    {
+      "id": 7,
+      "timestamp": "2026-07-13T01:31:28.393Z",
+      "sender": "robot",
+      "text": "헤헤, 저도 할머니가 세상에서 제일 좋고 고마워요! 오늘도 저랑 즐겁게 지내요. 사랑해요!",
+      "emotion": "happy"
+    },
+    {
+      "id": 8,
+      "timestamp": "2026-07-13T01:31:40.010Z",
+      "sender": "senior",
+      "text": "오늘 안양 날씨가 어떻게 돼",
+      "emotion": "neutral"
+    },
+    {
+      "id": 9,
+      "timestamp": "2026-07-13T01:31:40.010Z",
+      "sender": "robot",
+      "text": "오늘 날씨는 아주 화창해요! 방 안 환기를 한번 시켜주시면 상쾌해질 것 같아요. 조금 있다 같이 가벼운 손체조를 해볼까요?",
+      "emotion": "happy"
+    },
+    {
+      "id": 10,
+      "timestamp": "2026-07-13T01:31:54.334Z",
+      "sender": "senior",
+      "text": "2 + 3이 얼마야",
+      "emotion": "neutral"
+    },
+    {
+      "id": 11,
+      "timestamp": "2026-07-13T01:31:54.334Z",
+      "sender": "robot",
+      "text": "할머니께서 \"2 + 3이 얼마야\"라고 말씀해 주셨군요! 어르신 말씀 잘 기억해 둘게요. 오늘 하루 기분은 좀 어떠신가요?",
+      "emotion": "neutral"
+    },
+    {
+      "id": 12,
+      "timestamp": "2026-07-13T06:46:35.962Z",
+      "sender": "guardian",
+      "text": "[원격 전송 메시지] ㄴㅇㄹㅇㄴㄹ",
+      "emotion": "neutral"
+    },
+    {
+      "id": 13,
+      "timestamp": "2026-07-13T06:46:46.044Z",
+      "sender": "guardian",
+      "text": "[원격 전송 메시지] 안녕하세요",
+      "emotion": "neutral"
+    },
+    {
+      "id": 14,
+      "timestamp": "2026-07-13T06:47:56.161Z",
+      "sender": "senior",
+      "text": "안녕 오늘 날씨가 어떻게 돼",
+      "emotion": "neutral"
+    },
+    {
+      "id": 15,
+      "timestamp": "2026-07-13T06:47:56.161Z",
+      "sender": "robot",
+      "text": "오늘 날씨는 아주 화창해요! 방 안 환기를 한번 시켜주시면 상쾌해질 것 같아요. 조금 있다 같이 가벼운 손체조를 해볼까요?",
+      "emotion": "happy"
+    }
+  ],
+  "alerts": [
+    {
+      "id": 1,
+      "timestamp": "2026-07-09T18:42:00+09:00",
+      "type": "fall_sensor",
+      "description": "낙상 감지 센서 작동 (자동 감지)",
+      "resolved": true,
+      "resolvedAt": "2026-07-09T18:45:12+09:00",
+      "snapshotUrl": null
+    },
+    {
+      "id": 2,
+      "timestamp": "2026-07-10T02:08:45.029Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 물리 가속도 센서: 낙상 감지 신호 임계값 돌파 (H/W 시뮬레이션)",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T02:08:53.351Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 3,
+      "timestamp": "2026-07-10T02:10:29.433Z",
+      "type": "manual_panic_button",
+      "description": "🚨 기기 물리 비상 빨간 버튼 수동 입력",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T02:10:37.220Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 4,
+      "timestamp": "2026-07-10T04:02:23.519Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 물리 가속도 센서: 낙상 감지 신호 임계값 돌파 (H/W 시뮬레이션)",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T04:02:28.160Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 5,
+      "timestamp": "2026-07-10T04:02:32.532Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 물리 가속도 센서: 낙상 감지 신호 임계값 돌파 (H/W 시뮬레이션)",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T04:02:35.947Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 6,
+      "timestamp": "2026-07-10T04:04:10.318Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 물리 가속도 센서: 낙상 감지 신호 임계값 돌파 (H/W 시뮬레이션)",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T04:04:32.894Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 7,
+      "timestamp": "2026-07-10T04:06:09.511Z",
+      "type": "manual_panic_button",
+      "description": "🚨 기기 터치스크린 비상 버튼 직접 누름",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T04:06:11.368Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 8,
+      "timestamp": "2026-07-10T04:06:12.156Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 물리 가속도 센서: 낙상 감지 신호 임계값 돌파 (H/W 시뮬레이션)",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T04:06:13.154Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 9,
+      "timestamp": "2026-07-10T04:06:15.178Z",
+      "type": "manual_panic_button",
+      "description": "🚨 기기 터치스크린 비상 버튼 직접 누름",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T04:06:16.804Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 10,
+      "timestamp": "2026-07-10T04:07:49.961Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 낙상 위급 상황 감지: 어르신이 거실 바닥에 쓰러져 누워 계십니다!",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T04:07:53.020Z",
+      "snapshotUrl": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABh..."
+    },
+    {
+      "id": 11,
+      "timestamp": "2026-07-10T04:56:17.256Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 물리 가속도 센서: 낙상 감지 신호 임계값 돌파 (H/W 시뮬레이션)",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T04:57:55.620Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 12,
+      "timestamp": "2026-07-10T05:17:24.944Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 물리 가속도 센서: 낙상 감지 신호 임계값 돌파 (H/W 시뮬레이션)",
+      "resolved": true,
+      "resolvedAt": "2026-07-10T05:17:25.792Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 13,
+      "timestamp": "2026-07-13T01:30:36.327Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 물리 가속도 센서: 낙상 감지 신호 임계값 돌파 (H/W 시뮬레이션)",
+      "resolved": true,
+      "resolvedAt": "2026-07-13T01:30:39.851Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 14,
+      "timestamp": "2026-07-13T01:32:03.031Z",
+      "type": "manual_panic_button",
+      "description": "🚨 기기 터치스크린 비상 버튼 직접 누름",
+      "resolved": true,
+      "resolvedAt": "2026-07-13T01:32:04.327Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 15,
+      "timestamp": "2026-07-13T06:47:05.825Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 물리 가속도 센서: 낙상 감지 신호 임계값 돌파 (H/W 시뮬레이션)",
+      "resolved": true,
+      "resolvedAt": "2026-07-13T06:47:07.708Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 16,
+      "timestamp": "2026-07-13T06:47:11.745Z",
+      "type": "manual_panic_button",
+      "description": "🚨 기기 물리 비상 빨간 버튼 수동 입력",
+      "resolved": true,
+      "resolvedAt": "2026-07-13T06:47:13.061Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 17,
+      "timestamp": "2026-07-13T06:47:13.505Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 물리 가속도 센서: 낙상 감지 신호 임계값 돌파 (H/W 시뮬레이션)",
+      "resolved": true,
+      "resolvedAt": "2026-07-13T06:47:20.131Z",
+      "snapshotUrl": null
+    },
+    {
+      "id": 18,
+      "timestamp": "2026-07-13T06:47:44.427Z",
+      "type": "fall_sensor",
+      "description": "⚠️ 낙상 위급 상황 감지: 어르신이 거실 바닥에 쓰러져 누워 계십니다!",
+      "resolved": true,
+      "resolvedAt": "2026-07-13T06:47:49.871Z",
+      "snapshotUrl": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABh..."
+    }
+  ],
+  "remoteMessages": []
+}

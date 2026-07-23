@@ -1,0 +1,12 @@
+{
+  "name": "silver-care-robot-project",
+  "version": "1.0.0",
+  "description": "Local S/W Prototype for Multimodal LLM Silver Care Companion Robot",
+  "scripts": {
+    "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "dev": "node start-all.js"
+  },
+  "dependencies": {
+    "@runchr/gstack-antigravity": "github:giljae/gstack-antigravity"
+  }
+}
