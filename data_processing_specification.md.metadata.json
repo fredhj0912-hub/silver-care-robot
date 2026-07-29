@@ -1,5 +1,0 @@
-{
-  "summary":  "실버 케어 반려 로봇 시스템의 데이터 수집 및 처리 정의서(Data Collection & Processing Specification)입니다. 로봇이 감지하는 음성, 영상, 물리 센서 데이터의 수집 방식, 주기, 처리 및 클라우드 가공 절차를 명확하게 정의합니다.",
-  "updatedAt":  "2026-07-13T04:35:43.974926600Z",
-  "userFacing":  true
-}

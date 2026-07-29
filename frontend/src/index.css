@@ -1,4 +1,11 @@
-/* Reset and Base Styles */
+/* =============================================
+   실버 케어 로봇 — 라즈베리파이 7인치 (800×480) 키오스크 전용 CSS
+   ============================================= */
+
+/* Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+
+/* Reset */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -6,6 +13,10 @@
   font-family: 'Outfit', 'Noto Sans KR', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* 키오스크 — 텍스트 선택 및 터치 하이라이트 비활성화 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 :root {
@@ -14,133 +25,195 @@
   --bg-glass: rgba(22, 25, 41, 0.65);
   --bg-glass-hover: rgba(30, 34, 56, 0.8);
   --border-glass: rgba(255, 255, 255, 0.08);
-  
+
   --primary: #5c64ec;
   --primary-glow: rgba(92, 100, 236, 0.4);
   --primary-hover: #4a52d4;
-  
+
   --accent-emerald: #10b981;
   --accent-emerald-glow: rgba(16, 185, 129, 0.2);
   --accent-crimson: #ef4444;
   --accent-crimson-glow: rgba(239, 68, 68, 0.3);
   --accent-amber: #f59e0b;
-  
+
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
-  
+
   --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --shadow-premium: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
   --shadow-glow: 0 0 20px var(--primary-glow);
 }
 
+/* 전체 화면 배경 */
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   background-color: var(--bg-primary);
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(92, 100, 236, 0.15) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.1) 0px, transparent 50%),
+  background-image:
+    radial-gradient(at 0% 0%, rgba(92, 100, 236, 0.12) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
     radial-gradient(at 50% 50%, rgba(20, 21, 35, 0.5) 0px, transparent 80%);
   background-attachment: fixed;
   color: var(--text-primary);
-  min-height: 100vh;
-  overflow-x: hidden;
 }
 
-/* Custom Scrollbar */
+/* 스크롤바 숨기기 (키오스크 모드) */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.02);
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  display: none;
 }
 
-/* Layout Utilities */
-.app-container {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 1.5rem;
-  min-height: 100vh;
+/* ─────────────────────────────────────────────
+   키오스크 루트 레이아웃 (800×480 최적화)
+   ───────────────────────────────────────────── */
+.kiosk-root {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.kiosk-container {
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1rem 2rem;
 }
 
-/* Glassmorphism Panel */
-.glass-panel {
-  background: var(--bg-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border-glass);
-  border-radius: 20px;
-  padding: 1.75rem;
-  box-shadow: var(--shadow-premium);
+/* ─────────────────────────────────────────────
+   로봇 얼굴 영역
+   ───────────────────────────────────────────── */
+.face-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.robot-face {
+  width: min(55vh, 300px);
+  height: min(55vh, 300px);
+  border-radius: 60px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
   transition: var(--transition-smooth);
 }
 
-.glass-panel:hover {
-  border-color: rgba(255, 255, 255, 0.12);
+/* 안테나 */
+.antenna-stem {
+  position: absolute;
+  top: -22px;
+  left: calc(50% - 8px);
+  width: 16px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
 }
 
-/* Button Styles */
-.btn {
-  background: var(--bg-glass);
-  border: 1px solid var(--border-glass);
-  color: var(--text-primary);
-  padding: 0.6rem 1.2rem;
-  border-radius: 12px;
-  cursor: pointer;
-  font-weight: 500;
-  display: inline-flex;
+.antenna-tip {
+  position: absolute;
+  top: -36px;
+  left: calc(50% - 12px);
+  width: 24px;
+  height: 14px;
+  border-radius: 14px 14px 0 0;
+  transition: all 0.4s ease;
+}
+
+/* ─────────────────────────────────────────────
+   음성 인식 상태 표시
+   ───────────────────────────────────────────── */
+.voice-status {
+  display: flex;
   align-items: center;
   gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  border-radius: 20px;
+}
+
+.voice-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.voice-status-text {
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ─────────────────────────────────────────────
+   SOS 버튼 영역
+   ───────────────────────────────────────────── */
+.sos-area {
+  width: 100%;
+  max-width: 400px;
+  padding-bottom: 0.5rem;
+}
+
+.sos-btn {
+  width: 100%;
+  padding: 0.9rem 1.5rem;
+  border: none;
+  border-radius: 16px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  cursor: pointer;
   transition: var(--transition-smooth);
+  letter-spacing: -0.01em;
 }
 
-.btn:hover {
-  background: var(--bg-glass-hover);
-  border-color: rgba(255, 255, 255, 0.2);
-  transform: translateY(-1px);
+.sos-trigger {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--accent-crimson);
+  border: 2px solid rgba(239, 68, 68, 0.4);
 }
 
-.btn-primary {
-  background: var(--primary);
-  border-color: var(--primary);
-  box-shadow: var(--shadow-glow);
-}
-
-.btn-primary:hover {
-  background: var(--primary-hover);
-  border-color: var(--primary-hover);
-  box-shadow: 0 0 25px rgba(92, 100, 236, 0.6);
-  transform: translateY(-1.5px);
-}
-
-.btn-danger {
-  background: var(--accent-crimson);
+.sos-trigger:hover {
+  background: rgba(239, 68, 68, 0.2);
   border-color: var(--accent-crimson);
-  box-shadow: 0 0 15px var(--accent-crimson-glow);
+  box-shadow: 0 0 25px var(--accent-crimson-glow);
+  transform: translateY(-2px);
 }
 
-.btn-danger:hover {
+.sos-trigger:active {
+  transform: scale(0.97);
+}
+
+.sos-resolve {
+  background: var(--accent-crimson);
+  color: #ffffff;
+  border: 2px solid var(--accent-crimson);
+  box-shadow: 0 0 25px var(--accent-crimson-glow);
+  animation: emergency-pulse 1.5s infinite;
+}
+
+.sos-resolve:hover {
   background: #dc2626;
-  border-color: #dc2626;
-  box-shadow: 0 0 22px rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 35px rgba(239, 68, 68, 0.5);
 }
 
-.btn-disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none !important;
+.sos-resolve:active {
+  transform: scale(0.97);
 }
 
-/* Animations */
+/* ─────────────────────────────────────────────
+   애니메이션
+   ───────────────────────────────────────────── */
 @keyframes blink {
   0%, 96%, 100% {
     transform: scaleY(1);
@@ -150,65 +223,42 @@ body {
   }
 }
 
-@keyframes speak-pulse {
-  0% {
-    transform: scale(0.98);
-    box-shadow: 0 0 0 0 rgba(92, 100, 236, 0.5);
-  }
-  70% {
-    transform: scale(1.02);
-    box-shadow: 0 0 0 12px rgba(92, 100, 236, 0);
-  }
-  100% {
-    transform: scale(0.98);
-    box-shadow: 0 0 0 0 rgba(92, 100, 236, 0);
-  }
-}
-
-@keyframes listening-pulse {
-  0% {
-    transform: scale(0.98);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
-  }
-  70% {
-    transform: scale(1.02);
-    box-shadow: 0 0 0 12px rgba(16, 185, 129, 0);
-  }
-  100% {
-    transform: scale(0.98);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-  }
-}
-
-@keyframes emergency-pulse {
-  0%, 100% {
-    background-color: rgba(239, 68, 68, 0.05);
-    border-color: rgba(239, 68, 68, 0.3);
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.1);
-  }
-  50% {
-    background-color: rgba(239, 68, 68, 0.2);
-    border-color: rgba(239, 68, 68, 0.8);
-    box-shadow: 0 0 35px rgba(239, 68, 68, 0.4);
-  }
-}
-
 @keyframes float {
   0%, 100% {
     transform: translateY(0px);
   }
   50% {
-    transform: translateY(-8px);
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes emergency-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(239, 68, 68, 0.6);
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.7;
   }
 }
 
 @keyframes ripple {
   0% {
-    transform: scale(0.8);
-    opacity: 0.8;
+    transform: scale(0.85);
+    opacity: 0.6;
   }
   100% {
-    transform: scale(2.2);
+    transform: scale(1.8);
     opacity: 0;
   }
 }
@@ -227,160 +277,40 @@ body {
   transform-origin: center;
 }
 
-/* Chat bubble styling */
-.chat-bubble {
-  max-width: 80%;
-  padding: 0.8rem 1.1rem;
-  border-radius: 16px;
-  line-height: 1.5;
-  font-size: 0.95rem;
-  margin-bottom: 0.75rem;
+.ripple-animation {
+  animation: ripple 1.5s infinite linear;
 }
 
-.chat-bubble.senior {
-  background: var(--bg-glass-hover);
-  color: var(--text-primary);
-  align-self: flex-end;
-  border-bottom-right-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+/* ─────────────────────────────────────────────
+   접근성 — 포커스 표시
+   ───────────────────────────────────────────── */
+.sos-btn:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 3px;
 }
 
-.chat-bubble.robot {
-  background: linear-gradient(135deg, rgba(92, 100, 236, 0.15), rgba(92, 100, 236, 0.05));
-  color: #c7d2fe;
-  align-self: flex-start;
-  border-bottom-left-radius: 4px;
-  border: 1px solid rgba(92, 100, 236, 0.2);
+/* ─────────────────────────────────────────────
+   반응형 — 데스크톱 브라우저에서 테스트 시 
+   ───────────────────────────────────────────── */
+@media (min-width: 801px) {
+  .robot-face {
+    width: min(50vh, 340px);
+    height: min(50vh, 340px);
+  }
 }
 
-.chat-bubble.guardian {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
-  color: #a7f3d0;
-  align-self: flex-start;
-  border-bottom-left-radius: 4px;
-  border: 1px solid rgba(16, 185, 129, 0.2);
+@media (max-height: 400px) {
+  .kiosk-container {
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+  }
+  .robot-face {
+    width: min(45vh, 220px);
+    height: min(45vh, 220px);
+    border-radius: 40px;
+  }
+  .sos-btn {
+    padding: 0.6rem 1rem;
+    font-size: 1rem;
+  }
 }
-
-/* Premium Focus Indicators for Accessibility */
-input:focus-visible, select:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-
-/* Smartphone Mockup CSS Frame */
-.phone-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-  padding: 1rem 0;
-}
-
-.phone-mockup {
-  width: 385px;
-  height: 812px;
-  background: #090a0f;
-  border: 12px solid #1f2235;
-  border-radius: 44px;
-  position: relative;
-  box-shadow: 
-    0 25px 50px -12px rgba(0, 0, 0, 0.8),
-    0 0 0 2px rgba(255, 255, 255, 0.04),
-    inset 0 0 20px rgba(0, 0, 0, 0.6);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* Notch & Camera */
-.phone-notch {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 160px;
-  height: 28px;
-  background: #1f2235;
-  border-bottom-left-radius: 18px;
-  border-bottom-right-radius: 18px;
-  z-index: 100;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-}
-
-.phone-speaker {
-  width: 45px;
-  height: 4px;
-  background: #090a0f;
-  border-radius: 2px;
-}
-
-.phone-camera {
-  width: 8px;
-  height: 8px;
-  background: #090a0f;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-/* Screen */
-.phone-screen {
-  flex: 1;
-  padding: 2.25rem 1rem 1rem;
-  overflow-y: auto;
-  background: linear-gradient(180deg, #0e1017 0%, #06070a 100%);
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  position: relative;
-}
-
-/* Screen Scrollbar custom styling */
-.phone-screen::-webkit-scrollbar {
-  width: 4px;
-}
-.phone-screen::-webkit-scrollbar-track {
-  background: transparent;
-}
-.phone-screen::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 2px;
-}
-
-/* Home Indicator Bar */
-.phone-home-indicator {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 130px;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 2px;
-  z-index: 100;
-  pointer-events: none;
-}
-
-/* Status Bar Inside Phone Screen */
-.phone-status-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  padding: 0.25rem 0.6rem 0.1rem;
-  margin-top: 4px;
-  z-index: 90;
-  user-select: none;
-  font-weight: 500;
-}
-
-.phone-status-icons {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-

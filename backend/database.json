@@ -2,7 +2,7 @@
   "status": {
     "status": "online",
     "battery": 92,
-    "lastActive": "2026-07-13T07:08:42.545Z",
+    "lastActive": "2026-07-29T07:18:51.392Z",
     "seniorExpression": "neutral",
     "isEmergency": false
   },
@@ -275,6 +275,15 @@
       "resolved": true,
       "resolvedAt": "2026-07-13T06:47:49.871Z",
       "snapshotUrl": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABh..."
+    },
+    {
+      "id": 19,
+      "timestamp": "2026-07-29T07:18:02.417Z",
+      "type": "manual_panic_button",
+      "description": "🚨 기기 터치스크린 SOS 버튼 직접 누름",
+      "resolved": true,
+      "resolvedAt": "2026-07-29T07:18:16.308Z",
+      "snapshotUrl": null
     }
   ],
   "remoteMessages": []

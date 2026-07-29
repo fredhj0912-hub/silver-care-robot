@@ -51,48 +51,6 @@ function writeDB(data) {
   }
 }
 
-// Simulated AWS Command Logger
-function logAWSIntegration(alertDetail, base64Image) {
-  console.log('\n========================================================================');
-  console.log('📡 [LOCAL SIMULATION] CONNECTING TO AWS CLOUD SERVICES...');
-  console.log('========================================================================');
-  
-  // 1. Amazon S3 Upload Simulation
-  console.log(`[AWS S3] Uploading Snapshot to S3 Bucket...`);
-  const s3Key = `alerts/snapshot_${Date.now()}.jpg`;
-  console.log(`   - Command: S3Client.send(new PutObjectCommand({ ... }))`);
-  console.log(`   - Target Bucket: "silver-care-robot-storage-bucket"`);
-  console.log(`   - Object Key: "${s3Key}"`);
-  console.log(`   - Content-Type: "image/jpeg"`);
-  console.log(`   - Data: [Binary Buffer Length: ${base64Image ? base64Image.length : 0} bytes]`);
-  console.log(`   - Result: HTTP 200 OK (https://silver-care-robot-storage-bucket.s3.ap-northeast-2.amazonaws.com/${s3Key})`);
-  
-  // 2. Amazon SNS Notification Simulation
-  console.log(`\n[AWS SNS] Publishing Emergency Alert Message to Topic/SMS...`);
-  const smsMessage = `[위급상황 알림] 효도 AI 봇 감지: ${alertDetail.description || '낙상 감지'}. 일시: ${new Date().toLocaleString('ko-KR')}. 즉시 모니터링 대시보드를 확인하세요!`;
-  console.log(`   - Command: SNSClient.send(new PublishCommand({ ... }))`);
-  console.log(`   - TopicArn: "arn:aws:sns:ap-northeast-2:123456789012:SilverCareEmergencyTopic"`);
-  console.log(`   - Target Phone: "+82 10-XXXX-XXXX"`);
-  console.log(`   - Message: "${smsMessage}"`);
-  console.log(`   - MessageAttributes: { Importance: 'High', DataType: 'String' }`);
-  console.log(`   - Result: Published (MessageId: "${Math.random().toString(36).substring(2, 15)}")`);
-  
-  // 3. Amazon DynamoDB Database logging Simulation
-  console.log(`\n[AWS DynamoDB] Saving Alert Record to Table...`);
-  console.log(`   - Command: DynamoDBClient.send(new PutItemCommand({ ... }))`);
-  console.log(`   - TableName: "SilverCareAlerts"`);
-  console.log(`   - Item: {`);
-  console.log(`       AlertID: { S: "${Math.random().toString(36).substring(2, 10).toUpperCase()}" },`);
-  console.log(`       Timestamp: { S: "${new Date().toISOString()}" },`);
-  console.log(`       RobotID: { S: "BOT-HYODO-001" },`);
-  console.log(`       Type: { S: "${alertDetail.type}" },`);
-  console.log(`       Description: { S: "${alertDetail.description}" },`);
-  console.log(`       Resolved: { BOOL: false },`);
-  console.log(`       SnapshotURL: { S: "https://silver-care-robot-storage-bucket.s3.ap-northeast-2.amazonaws.com/${s3Key}" }`);
-  console.log(`     }`);
-  console.log(`   - Result: Item Saved Successfully (HTTP 200 OK)`);
-  console.log('========================================================================\n');
-}
 
 // Initialize database file if it doesn't exist
 if (!fs.existsSync(DB_PATH)) {
@@ -262,7 +220,7 @@ app.post('/api/chat', async (req, res) => {
         snapshotUrl: null
       };
       db.alerts.push(newAlert);
-      logAWSIntegration(newAlert, null);
+      console.log('[ALERT] Emergency alert triggered:', newAlert.description);
     } 
     // Weather
     else if (text.includes('날씨') || text.includes('비') || text.includes('눈') || text.includes('더워') || text.includes('추워')) {
@@ -392,36 +350,7 @@ Response JSON format:
     }
   }
 
-  // 2. Local Simulator States (Overrides or Fallbacks)
-  if (simulatedState) {
-    console.log(`Using simulated simulator state: ${simulatedState}`);
-    if (simulatedState === 'fell_down') {
-      hasPerson = true;
-      isEmergency = true;
-      expression = 'pain';
-      summary = '⚠️ 낙상 위급 상황 감지: 어르신이 거실 바닥에 쓰러져 누워 계십니다!';
-    } else if (simulatedState === 'smiling') {
-      hasPerson = true;
-      isEmergency = false;
-      expression = 'happy';
-      summary = '어르신이 활짝 웃으며 로봇을 바라보고 계십니다. 정서 안정 상태.';
-    } else if (simulatedState === 'sleeping') {
-      hasPerson = true;
-      isEmergency = false;
-      expression = 'sleeping';
-      summary = '어르신이 침대에서 편안하게 낮잠을 청하고 계십니다.';
-    } else if (simulatedState === 'sad') {
-      hasPerson = true;
-      isEmergency = false;
-      expression = 'sad';
-      summary = '어르신이 다소 쓸쓸하고 우울한 표정으로 휠체어에 앉아 계십니다.';
-    } else if (simulatedState === 'empty') {
-      hasPerson = false;
-      isEmergency = false;
-      expression = 'unknown';
-      summary = '거실에 사람이 없습니다. 로봇이 충전 스테이션 근처에서 순찰 중입니다.';
-    }
-  }
+
 
   // 3. Handle Emergency Flow
   if (isEmergency) {
@@ -439,8 +368,8 @@ Response JSON format:
     };
     db.alerts.push(newAlert);
     
-    // Output simulated AWS logs to the terminal console
-    logAWSIntegration(newAlert, image);
+    // TODO: 추후 AWS Lambda/S3 연동
+    console.log('[ALERT] Vision emergency alert:', newAlert.description);
   }
 
   db.status.seniorExpression = expression;
@@ -478,8 +407,8 @@ app.post('/api/alerts', (req, res) => {
   db.alerts.push(newAlert);
   writeDB(db);
   
-  // Console log AWS
-  logAWSIntegration(newAlert, image);
+  // TODO: 추후 AWS Lambda/S3 연동
+  console.log('[ALERT] Manual alert triggered:', newAlert.description);
   
   res.json({ success: true, alert: newAlert });
 });
@@ -559,17 +488,14 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n======================================================`);
-  console.log(`🤖 Silver Care Robot Local Backend is running!`);
-  console.log(`   URL: http://localhost:${PORT}`);
-  console.log(`   Database File: ${DB_PATH}`);
+  console.log(`🤖 효돌이 백엔드 서버 실행 중`);
+  console.log(`   URL: http://0.0.0.0:${PORT}`);
+  console.log(`   Database: ${DB_PATH}`);
   if (!process.env.GEMINI_API_KEY) {
-    console.log(`------------------------------------------------------`);
-    console.log(`⚠️  [INFO] GEMINI_API_KEY is currently empty in .env.`);
-    console.log(`   Webcam vision & voice will run in MOCK SIMULATION mode.`);
-    console.log(`   To enable real AI, get a FREE API key from Google AI Studio:`);
-    console.log(`   🔗 https://aistudio.google.com/`);
+    console.log(`   ⚠️ GEMINI_API_KEY 미설정 → Mock 대화 모드`);
+    console.log(`   🔗 https://aistudio.google.com/ 에서 API 키 발급`);
   }
   console.log(`======================================================\n`);
 });
