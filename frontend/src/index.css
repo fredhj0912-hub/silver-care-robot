@@ -151,7 +151,7 @@ body {
 }
 
 .voice-status-text {
-  font-size: 0.9rem;
+  font-size: 1.25rem;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -167,11 +167,12 @@ body {
 
 .sos-btn {
   width: 100%;
-  padding: 0.9rem 1.5rem;
+  min-height: 80px;
+  padding: 1.2rem 2rem;
   border: none;
-  border-radius: 16px;
-  font-size: 1.15rem;
-  font-weight: 700;
+  border-radius: 20px;
+  font-size: 1.5rem;
+  font-weight: 800;
   cursor: pointer;
   transition: var(--transition-smooth);
   letter-spacing: -0.01em;
