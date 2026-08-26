@@ -10,10 +10,16 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: 'Outfit', 'Noto Sans KR', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* 키오스크 — 텍스트 선택 및 터치 하이라이트 비활성화 */
+}
+
+/* 키오스크 화면만 이 폰트/터치 규칙을 쓴다.
+   보호자 앱은 자체 타이포그래피를 쓰고, 텍스트 선택도 가능해야 한다
+   (대화 로그를 복사하거나 알림 시각을 확인할 수 있어야 하므로). */
+.kiosk-root,
+.kiosk-root * {
+  font-family: 'Outfit', 'Noto Sans KR', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -45,14 +51,51 @@
   --shadow-glow: 0 0 20px var(--primary-glow);
 }
 
-/* 전체 화면 배경 */
+/* 개발용 AI 연결 상태 배지 — 어르신에게는 보이지 않고 개발 중에만 표시된다.
+   Gemini 호출이 실패해 mock 통조림 응답으로 떨어지는 상황을 즉시 알아채기 위한 것. */
+.ai-source-badge {
+  position: fixed;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 100;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  border: 1px solid transparent;
+}
+.ai-source-badge.is-live {
+  color: var(--accent-emerald);
+  background: var(--accent-emerald-glow);
+  border-color: var(--accent-emerald);
+}
+.ai-source-badge.is-mock {
+  color: var(--accent-amber);
+  background: rgba(245, 158, 11, 0.15);
+  border-color: var(--accent-amber);
+}
+
 html, body, #root {
   width: 100%;
-  height: 100%;
+  min-height: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   키오스크 루트 레이아웃 (800×480 최적화)
+   ───────────────────────────────────────────── */
+
+/* 키오스크가 떠 있을 때만 페이지 스크롤을 잠근다.
+   이 규칙이 전역이면 보호자 앱의 대화 로그가 스크롤되지 않는다. */
+body:has(.kiosk-root) {
   overflow: hidden;
 }
 
-body {
+.kiosk-root {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
   background-color: var(--bg-primary);
   background-image:
     radial-gradient(at 0% 0%, rgba(245, 158, 11, 0.08) 0px, transparent 50%),
@@ -62,18 +105,9 @@ body {
   color: var(--text-primary);
 }
 
-/* 스크롤바 숨기기 (키오스크 모드) */
-::-webkit-scrollbar {
+/* 스크롤바 숨기기 — 키오스크에만 적용 */
+.kiosk-root ::-webkit-scrollbar {
   display: none;
-}
-
-/* ─────────────────────────────────────────────
-   키오스크 루트 레이아웃 (800×480 최적화)
-   ───────────────────────────────────────────── */
-.kiosk-root {
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
 }
 
 .kiosk-container {
@@ -314,4 +348,85 @@ body {
     padding: 0.6rem 1rem;
     font-size: 1rem;
   }
+}
+
+/* ─────────────────────────────────────────────
+   텍스트 채팅 & 말풍선 스타일
+   ───────────────────────────────────────────── */
+.speech-bubble-container {
+  margin-bottom: 0.5rem;
+  max-width: 90%;
+  animation: float 4s ease-in-out infinite;
+}
+
+.speech-bubble {
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 0.75rem 1.25rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  text-align: center;
+}
+
+.speech-sender {
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: var(--primary);
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.speech-text {
+  font-size: 1rem;
+  color: #f8fafc;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.text-chat-form {
+  display: flex;
+  gap: 0.5rem;
+  width: min(90%, 500px);
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.text-chat-input {
+  flex: 1;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 24px;
+  padding: 0.6rem 1.2rem;
+  color: #ffffff;
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.text-chat-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+}
+
+.text-chat-submit {
+  background: linear-gradient(135deg, var(--primary) 0%, #4338ca 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 24px;
+  padding: 0.6rem 1.2rem;
+  font-size: 0.95rem;
+  font-weight: bold;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.text-chat-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.5);
+}
+
+.text-chat-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

@@ -6,3 +6,10 @@ backend/.env
 .gstack/
 .agents/
 .system_generated/
+
+# 런타임에 생성되는 로컬 DB — 어르신 대화/알림 로그가 담기므로 git에 올리지 않는다
+backend/database.json
+backend/data/
+
+# 낙상 스냅샷은 어르신의 실제 모습이 담긴 사진이다. 절대 커밋하지 않는다.
+backend/data/snapshots/
