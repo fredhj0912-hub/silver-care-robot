@@ -17,6 +17,7 @@ const PLAN_SCALE = 0.8;
 function ControlScreen({ isEmergency }) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [error, setError] = useState(null);
+  const [moving, setMoving] = useState(false);
 
   const refreshState = useCallback(async () => {
     try {
@@ -37,6 +38,8 @@ function ControlScreen({ isEmergency }) {
   }, [refreshState]);
 
   const move = async (direction) => {
+    if (moving) return; // 이전 요청이 끝나기 전엔 연타를 무시 — 응답 순서가 꼬이면 위치 표시가 튄다
+    setMoving(true);
     setError(null);
     try {
       const res = await apiFetch('/api/control/move', {
@@ -54,11 +57,15 @@ function ControlScreen({ isEmergency }) {
       }
     } catch {
       setError('로봇과 연결되지 않아요. 같은 Wi-Fi에 있는지 확인해 주세요.');
+    } finally {
+      setMoving(false);
     }
   };
 
-  const dotX = PLAN_SIZE / 2 + position.x * PLAN_SCALE;
-  const dotY = PLAN_SIZE / 2 + position.y * PLAN_SCALE;
+  // 평면도 밖으로 나가지 않도록 dot 반지름(7px)만큼 여유를 두고 클램핑한다.
+  const clamp = (v) => Math.min(Math.max(v, 7), PLAN_SIZE - 7);
+  const dotX = clamp(PLAN_SIZE / 2 + position.x * PLAN_SCALE);
+  const dotY = clamp(PLAN_SIZE / 2 + position.y * PLAN_SCALE);
 
   return (
     <main>
@@ -95,13 +102,13 @@ function ControlScreen({ isEmergency }) {
         }}
       >
         <div />
-        <button className="g-btn" style={{ gridColumn: 2 }} disabled={isEmergency} onClick={() => move('up')}>⬆️</button>
+        <button className="g-btn" style={{ gridColumn: 2 }} disabled={isEmergency || moving} onClick={() => move('up')}>⬆️</button>
         <div />
-        <button className="g-btn" style={{ gridRow: 2 }} disabled={isEmergency} onClick={() => move('left')}>⬅️</button>
+        <button className="g-btn" style={{ gridRow: 2 }} disabled={isEmergency || moving} onClick={() => move('left')}>⬅️</button>
         <div />
-        <button className="g-btn" style={{ gridRow: 2, gridColumn: 3 }} disabled={isEmergency} onClick={() => move('right')}>➡️</button>
+        <button className="g-btn" style={{ gridRow: 2, gridColumn: 3 }} disabled={isEmergency || moving} onClick={() => move('right')}>➡️</button>
         <div />
-        <button className="g-btn" style={{ gridColumn: 2 }} disabled={isEmergency} onClick={() => move('down')}>⬇️</button>
+        <button className="g-btn" style={{ gridColumn: 2 }} disabled={isEmergency || moving} onClick={() => move('down')}>⬇️</button>
         <div />
       </div>
 

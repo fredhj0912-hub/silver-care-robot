@@ -10,6 +10,8 @@
  * (네트워크가 끊긴 채로 계속 움직이면 안 된다).
  */
 
+const { nowISO } = require('../db');
+
 const DEADMAN_MS = 500;
 const MAX_DURATION_MS = 3000;
 const MAX_SPEED = 100;
@@ -33,10 +35,6 @@ let state = {
 };
 
 let deadmanTimer = null;
-
-function nowISO() {
-  return new Date().toISOString();
-}
 
 function move({ direction, speed = 50, durationMs = 500 }) {
   const vector = VECTORS[direction];

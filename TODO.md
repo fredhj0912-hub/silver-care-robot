@@ -60,14 +60,13 @@ Phase 7(원격조종)이 마지막으로 붙인 기능인데 미해결 항목이
 `services/motion.js`는 **데드맨 타이머·응급 잠금 같은 안전 로직인데 테스트가 하나도 없다**
 (지금까지 curl 수동 검증만 했음). 데모에서 심사위원이 직접 눌러보는 화면이기도 하다.
 
-- [ ] `services/motion.js` + `routes/control.js` 테스트 신설 — 데드맨 자동정지,
-      응급 중 423 잠금, 잘못된 방향 400, `durationMs`가 데드맨보다 길 때의 동작
-- [ ] `ControlScreen.jsx` 가상 위치 dot을 220×220 평면도 안으로 클램핑
-      (연타 시 화면 밖으로 나감)
-- [ ] `ControlScreen.jsx` D-패드 요청 진행 중 중복 요청 방지 — 응답 순서가 꼬이면
-      위치 표시가 튄다
-- [ ] `services/motion.js`의 자체 `nowISO()` → `db/index.js`의 공용 함수로 교체
-      (backend/CLAUDE.md 규칙)
+- [x] `services/motion.js` + `routes/control.js` 테스트 신설 ✅ 2026-08-27 —
+      데드맨 자동정지, 응급 중 423 잠금, 잘못된 방향 400, `durationMs`가 데드맨보다
+      길 때의 동작(회귀) 4가지 모두 커버 (`test/motion.test.js`, `test/control.test.js`)
+- [x] `ControlScreen.jsx` 가상 위치 dot을 220×220 평면도 안으로 클램핑 ✅ 2026-08-27
+- [x] `ControlScreen.jsx` D-패드 요청 진행 중 중복 요청 방지 ✅ 2026-08-27 —
+      `moving` 상태로 버튼 비활성화 + 응답 전 재클릭 무시
+- [x] `services/motion.js`의 자체 `nowISO()` → `db/index.js`의 공용 함수로 교체 ✅ 2026-08-27
 - [ ] 네트워크 지연/단절 시 동작 미정 — 500ms 데드맨보다 명령 전송이 늦어지면 로봇이
       끊겨 이동하거나 정지 요청이 유실될 수 있음. 실물 배포 전 정책 필요
 
