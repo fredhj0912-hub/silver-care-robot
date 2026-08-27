@@ -1,0 +1,226 @@
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+// config 는 require 시점에 환경변수를 읽는다. 반드시 app 을 부르기 전에 설정한다.
+// 실제 대화 로그(backend/data/hyodol.sqlite)를 건드리지 않도록 임시 DB를 쓴다.
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'hyodol-test-'));
+process.env.DB_PATH = path.join(TMP, 'test.sqlite');
+process.env.SNAPSHOT_DIR = path.join(TMP, 'snapshots');
+process.env.ROBOT_API_KEY = 'test-key';
+process.env.GEMINI_API_KEY = '';          // 결정론적 테스트를 위해 mock 경로 고정
+process.env.ALERT_COOLDOWN_MS = '60000';
+
+const { createApp } = require('../src/app');
+const { closeDB } = require('../src/db');
+
+let server;
+let BASE;
+
+const H = { 'Content-Type': 'application/json', 'x-api-key': 'test-key' };
+const get = (p) => fetch(BASE + p, { headers: H }).then(async (r) => ({ s: r.status, b: await r.json().catch(() => null) }));
+const post = (p, body) => fetch(BASE + p, { method: 'POST', headers: H, body: JSON.stringify(body) })
+  .then(async (r) => ({ s: r.status, b: await r.json().catch(() => null) }));
+
+test.before(async () => {
+  server = createApp().listen(0);
+  await new Promise((r) => server.once('listening', r));
+  BASE = `http://127.0.0.1:${server.address().port}`;
+});
+
+test.after(() => {
+  server.close();
+  closeDB();
+  fs.rmSync(TMP, { recursive: true, force: true });
+});
+
+test('인증: 키가 없으면 401, /api/health 는 공개', async () => {
+  assert.strictEqual((await fetch(BASE + '/api/status')).status, 401);
+  assert.strictEqual((await fetch(BASE + '/api/health')).status, 200);
+});
+
+test('알 수 없는 경로는 HTML이 아니라 JSON 404를 반환한다', async () => {
+  const r = await get('/api/nope');
+  assert.strictEqual(r.s, 404);
+  assert.strictEqual(r.b.error, 'Not Found');
+});
+
+test('무해한 발화는 알림을 만들지 않는다 (오탐 회귀)', async () => {
+  for (const text of ['한숨 한 번 쉬었어', '숨쉬기 운동을 했어', '숨기고 싶은 게 있어']) {
+    const r = await post('/api/chat', { text });
+    assert.strictEqual(r.b.alert, null, `오탐 발생: "${text}"`);
+  }
+  assert.strictEqual((await get('/api/status')).b.isEmergency, false);
+});
+
+test('위급 발화는 critical 알림을 만들고 비상 상태를 켠다', async () => {
+  const r = await post('/api/chat', { text: '가슴이 아프고 숨을 못 쉬겠어' });
+  assert.strictEqual(r.b.alert.severity, 'critical');
+  assert.ok(['gemini', 'mock'].includes(r.b.source));
+  assert.strictEqual((await get('/api/status')).b.isEmergency, true);
+});
+
+test('같은 유형 알림은 쿨다운으로 억제된다', async () => {
+  const r = await post('/api/chat', { text: '살려줘 도와줘' });
+  assert.strictEqual(r.b.alert, null);
+});
+
+test('모든 알림을 해제하면 비상 상태가 내려간다', async () => {
+  for (const a of (await get('/api/alerts?resolved=false')).b.alerts) {
+    await post('/api/alerts/resolve', { id: a.id, by: 'guardian' });
+  }
+  assert.strictEqual((await get('/api/status')).b.isEmergency, false);
+});
+
+test('명령 큐: 조회해도 큐가 비지 않고, ack 해야 사라진다 (구버전 버그 회귀)', async () => {
+  const created = await post('/api/commands', { kind: 'speak', payload: { text: '약 드실 시간이에요' } });
+  const id = created.b.command.id;
+
+  const first = (await get('/api/commands/pending')).b.commands;
+  const second = (await get('/api/commands/pending')).b.commands;
+  assert.ok(first.some((c) => c.id === id), '첫 조회에 명령이 없다');
+  assert.strictEqual(first.length, second.length, '조회만으로 큐가 비었다');
+
+  await post(`/api/commands/${id}/ack`, {});
+  const after = (await get('/api/commands/pending')).b.commands;
+  assert.ok(!after.some((c) => c.id === id), 'ack 후에도 명령이 남아 있다');
+});
+
+test('보호자 메시지는 대화 로그에도 기록된다', async () => {
+  const r = await get('/api/messages?sender=guardian&limit=10');
+  assert.ok(r.b.messages.some((m) => m.text === '약 드실 시간이에요'));
+});
+
+test('비전: 유효한 이미지를 받아 최신 스냅샷으로 노출한다', async () => {
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const r = await post('/api/vision', { image: tinyPng });
+  assert.strictEqual(r.s, 200);
+  assert.ok(['gemini', 'mock'].includes(r.b.source));
+  assert.strictEqual(typeof r.b.isEmergency, 'boolean');
+
+  const latest = await get('/api/vision/latest');
+  assert.strictEqual(latest.b.image, tinyPng);
+  assert.ok(latest.b.capturedAt);
+});
+
+test('감지 이벤트에 스냅샷을 첨부하면 파일로 저장되고 알림에서 열람 가능하다', async () => {
+  // 뒤이은 "감지 이벤트: 임계값" 테스트가 type:'fall' 을 쓰므로,
+  // 쿨다운(같은 유형 알림 억제)에 걸리지 않도록 다른 유형을 쓴다.
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const r = await post('/api/detections', {
+    source: 'mock', type: 'abnormal_posture', confidence: 0.99, snapshot: tinyPng,
+  });
+  assert.strictEqual(r.b.alertRaised, true);
+
+  const alert = (await get(`/api/alerts/${r.b.alert.id}`)).b;
+  assert.ok(alert.snapshotUrl, '스냅샷 URL이 비어 있다 (이전 버전은 base64를 100자로 잘라 저장해 열 수 없었다)');
+
+  const img = await fetch(BASE + alert.snapshotUrl, { headers: H });
+  assert.strictEqual(img.status, 200, '저장된 스냅샷 파일을 열 수 없다');
+});
+
+test('감지 이벤트: 임계값 미만은 기록만, 이상은 알림', async () => {
+  const low = await post('/api/detections', { source: 'mock', type: 'fall', confidence: 0.3 });
+  assert.strictEqual(low.b.alertRaised, false);
+  assert.strictEqual(low.b.accepted, true);
+
+  const high = await post('/api/detections', { source: 'mock', type: 'fall', confidence: 0.95 });
+  assert.strictEqual(high.b.alertRaised, true);
+
+  assert.ok((await get('/api/detections')).b.detections.length >= 2, '감지 원본이 기록되지 않았다');
+});
+
+test('메시지 커서 페이지네이션이 겹치지 않는다', async () => {
+  const p1 = await get('/api/messages?limit=3');
+  assert.strictEqual(p1.b.messages.length, 3);
+  if (p1.b.nextCursor) {
+    const p2 = await get(`/api/messages?limit=3&before=${p1.b.nextCursor}`);
+    assert.ok(p2.b.messages.every((m) => m.id < p1.b.nextCursor), '페이지가 겹친다');
+  }
+});
+
+test('메시지 검색(q)이 텍스트 부분일치로 동작한다', async () => {
+  const marker = `검색마커${Date.now()}`;
+  await post('/api/chat', { text: `${marker} 오늘 기분이 좋아요` });
+
+  const found = await get(`/api/messages?q=${encodeURIComponent(marker)}&limit=10`);
+  assert.ok(found.b.messages.some((m) => m.text.includes(marker)), '검색어가 포함된 메시지를 찾지 못했다');
+
+  const notFound = await get(`/api/messages?q=존재하지않는검색어${Date.now()}`);
+  assert.strictEqual(notFound.b.messages.length, 0);
+});
+
+test('일일 요약: KST 자정 기준으로 날짜 경계를 계산한다 (UTC 자정 기준이면 새벽 대화가 전날로 집계됨)', async () => {
+  // KST 2026-08-26 03:00 은 UTC로 2026-08-25T18:00:00Z 다.
+  // UTC 자정 기준이었다면 getUTCDate() 가 25일을 반환해 8/25로 잘못 집계됐을 시각이다.
+  const kstEarlyMorning = new Date('2026-08-25T18:00:00.000Z');
+  const db = require('../src/db').getDB();
+  db.prepare(`INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', ?, 'neutral', 'legacy')`)
+    .run(kstEarlyMorning.toISOString(), 'KST 새벽 3시 테스트 발화');
+
+  const summary = await get('/api/summary/daily?date=2026-08-26');
+  assert.strictEqual(summary.b.date, '2026-08-26');
+  assert.ok(
+    summary.b.conversationTurns >= 1,
+    `KST 새벽 3시(2026-08-26) 대화가 날짜 경계 밖으로 밀려났다 (turns=${summary.b.conversationTurns})`
+  );
+
+  // 같은 메시지가 UTC 기준 "전날"(2026-08-25) 요약에는 잡히지 않아야 한다
+  const prevDay = await get('/api/summary/daily?date=2026-08-25');
+  assert.strictEqual(prevDay.b.conversationTurns, 0, 'KST 새벽 대화가 UTC 기준 전날에 잘못 잡혔다');
+});
+
+test('일일 요약: 전체 메시지가 200건을 넘어도 과거 날짜를 정확히 조회한다', async () => {
+  // list({limit:200}) + JS 필터 방식이었다면, 이 200건 채우기 이후로는
+  // 과거 날짜 조회가 항상 0건을 반환했다 (그 날짜의 메시지가 "최신 200건" 밖으로 밀려나서).
+  const db = require('../src/db').getDB();
+  const targetDate = '2026-01-15T09:00:00.000Z'; // KST 2026-01-15 18:00
+  db.prepare(`INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', '과거 날짜 테스트', 'neutral', 'legacy')`)
+    .run(targetDate);
+
+  const insertMany = db.prepare(
+    `INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', '채우기', 'neutral', 'legacy')`
+  );
+  for (let i = 0; i < 205; i++) insertMany.run(new Date().toISOString());
+
+  const summary = await get('/api/summary/daily?date=2026-01-15');
+  assert.ok(summary.b.conversationTurns >= 1, '200건 초과 후 과거 날짜 조회가 누락되었다');
+});
+
+test('입력 검증', async () => {
+  assert.strictEqual((await post('/api/chat', { text: '' })).s, 400);
+  assert.strictEqual((await post('/api/chat', { text: 'a'.repeat(1001) })).s, 400);
+  assert.strictEqual((await post('/api/commands', { kind: 'launch' })).s, 400);
+  assert.strictEqual((await post('/api/detections', { source: 'mock', type: 'fall', confidence: 5 })).s, 400);
+  assert.strictEqual((await post('/api/vision', { image: 'not-a-data-uri' })).s, 400);
+});
+
+test('SSE: 연결 시 현재 상태를 보내고 이후 이벤트를 실시간 전달한다', async () => {
+  const ctrl = new AbortController();
+  const seen = [];
+
+  const reading = fetch(`${BASE}/api/events?role=guardian&key=test-key`, { signal: ctrl.signal })
+    .then(async (r) => {
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        for (const m of buf.matchAll(/event: (\S+)/g)) if (!seen.includes(m[1])) seen.push(m[1]);
+      }
+    })
+    .catch(() => {});
+
+  await new Promise((r) => setTimeout(r, 300));
+  await post('/api/commands', { kind: 'speak', payload: { text: 'SSE 확인' } });
+  await new Promise((r) => setTimeout(r, 500));
+  ctrl.abort();
+  await reading;
+
+  assert.ok(seen.includes('hello'), `hello 미수신 (수신: ${seen.join(', ')})`);
+  assert.ok(seen.includes('command.issued'), `command.issued 미수신 (수신: ${seen.join(', ')})`);
+});
