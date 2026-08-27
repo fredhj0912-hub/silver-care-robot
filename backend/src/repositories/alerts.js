@@ -76,14 +76,17 @@ function resolve(id, by = 'senior') {
 }
 
 /**
- * 같은 유형의 알림이 쿨다운 안에 이미 있는지 확인한다.
+ * 같은 유형·같은 severity의 알림이 쿨다운 안에 이미 있는지 확인한다.
  * 예전에는 "숨" 같은 헐거운 키워드가 매칭될 때마다 알림이 무제한 적재됐다.
+ *
+ * severity도 같이 봐야 한다 — 안 그러면 warning 알림 직후의 진짜 critical 발화가
+ * (둘 다 type: 'voice_trigger') 같은 쿨다운에 걸려 억제된다.
  */
-function hasRecentOfType(type, withinMs) {
+function hasRecentOfType(type, withinMs, severity) {
   const since = new Date(Date.now() - withinMs).toISOString();
   return getDB()
-    .prepare('SELECT COUNT(*) AS n FROM alerts WHERE type = ? AND ts >= ?')
-    .get(type, since).n > 0;
+    .prepare('SELECT COUNT(*) AS n FROM alerts WHERE type = ? AND severity = ? AND ts >= ?')
+    .get(type, severity, since).n > 0;
 }
 
 /** `to`를 생략하면 지금까지 전부 — 일일 요약처럼 상한이 필요한 곳은 반드시 넘겨야 한다. */

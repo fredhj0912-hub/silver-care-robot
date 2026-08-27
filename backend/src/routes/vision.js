@@ -37,6 +37,9 @@ router.post('/vision', asyncHandler(async (req, res) => {
   let alert = null;
   if (analysis.isEmergency) {
     const snapshotPath = snapshots.save(image);
+    if (!snapshotPath) {
+      console.error('[VISION] critical 알림인데 스냅샷 저장 실패 (형식 오류 또는 8MB 초과) — 증거 사진 없이 알림 생성');
+    }
     alert = emergency.raise({
       type: 'vision_anomaly',
       severity: 'critical',

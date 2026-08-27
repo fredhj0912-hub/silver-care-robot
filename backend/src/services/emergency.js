@@ -68,7 +68,7 @@ function classifyUtterance(rawText) {
  */
 function raise({ type, severity = 'critical', description, confidence = null, snapshotPath = null, skipCooldown = false }) {
   // 수동 SOS 버튼은 어르신의 명시적 의사표시이므로 쿨다운을 적용하지 않는다.
-  if (!skipCooldown && alertsRepo.hasRecentOfType(type, config.alertCooldownMs)) {
+  if (!skipCooldown && alertsRepo.hasRecentOfType(type, config.alertCooldownMs, severity)) {
     console.log(`[ALERT] 쿨다운으로 억제됨 (${type}): ${description}`);
     return null;
   }

@@ -215,14 +215,26 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     }
   }, [status.seniorExpression, onStatusChange, speakText]);
 
-  // 텍스트 채팅 직접 전송 처리
+  // 텍스트 채팅 직접 전송 처리.
+  // 음성 경로(handleTranscript)와 같은 decideAction()을 거친다 — 안 그러면 웨이크워드만
+  // 텍스트로 입력해도 불필요한 Gemini 호출이 나간다. 텍스트 입력은 명시적 행동이므로
+  // isActive는 항상 true로 취급한다(게이트가 닫혀 있어도 타이핑한 내용은 무시하지 않는다).
   const handleTextSubmit = (e) => {
     e.preventDefault();
     if (!textInput.trim() || isChatLoading) return;
     const msg = textInput.trim();
     setTextInput('');
     openGate();   // 글로 말을 걸었으면 이어서 음성으로 대화할 수 있게 창을 연다
-    sendVoiceMessage(msg);
+
+    const decision = decideAction(msg, true);
+    if (decision.action === 'acknowledge') {
+      const reply = pickAcknowledgeReply();
+      setRobotSpeech(reply);
+      setRobotEmotion('happy');
+      speakText(reply);
+      return;
+    }
+    sendVoiceMessage(decision.text || msg);
   };
 
   // ──────────────────────────────────────────────
@@ -394,10 +406,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // ──────────────────────────────────────────────
   const resolveActiveAlert = async () => {
     try {
-      const res = await apiFetch('/api/history');
+      const res = await apiFetch('/api/alerts?resolved=false&limit=1');
       if (res.ok) {
         const data = await res.json();
-        const activeAlert = data.alerts.find(a => !a.resolved);
+        const activeAlert = data.alerts[0];
         if (activeAlert) {
           const resolveRes = await apiFetch('/api/alerts/resolve', {
             method: 'POST',
@@ -405,11 +417,16 @@ function RobotFaceDisplay({ status, onStatusChange }) {
             body: JSON.stringify({ id: activeAlert.id })
           });
           if (resolveRes.ok) {
-            stopAlarmSound();
+            const result = await resolveRes.json();
             onStatusChange();
-            setRobotSpeech('경보를 해제했습니다. 안심하세요!');
-            setRobotEmotion('happy');
-            speakText('경보를 해제했습니다. 이제 안심하셔도 돼요!');
+            // 서버가 돌려주는 실제 isEmergency만 믿는다 — 다른 미해결 알림이 남아 있으면
+            // 아직 위험한 상황일 수 있는데 "안심하세요"를 재생하면 안 된다.
+            if (!result.isEmergency) {
+              stopAlarmSound();
+              setRobotSpeech('경보를 해제했습니다. 안심하세요!');
+              setRobotEmotion('happy');
+              speakText('경보를 해제했습니다. 이제 안심하셔도 돼요!');
+            }
           }
         } else {
           onStatusChange();

@@ -13,3 +13,14 @@ export function apiFetch(path, options = {}) {
   }
   return fetch(`${API_BASE}${path}`, { ...options, headers });
 }
+
+/**
+ * <img src> 처럼 커스텀 헤더를 못 붙이는 곳에서 쓰는 URL 빌더.
+ * 백엔드 미들웨어가 x-api-key 대신 ?key= 쿼리도 허용한다.
+ */
+export function assetUrl(path) {
+  if (!path) return path;
+  if (!ROBOT_API_KEY) return `${API_BASE}${path}`;
+  const sep = path.includes('?') ? '&' : '?';
+  return `${API_BASE}${path}${sep}key=${encodeURIComponent(ROBOT_API_KEY)}`;
+}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { apiFetch } from '../../lib/api';
+import { apiFetch, assetUrl } from '../../lib/api';
 import { usePagedList } from '../../lib/useGuardianData';
 import { alertLabel, formatTime, formatDay, dayKey } from '../format';
 
@@ -50,7 +50,7 @@ function AlertsScreen({ onChange }) {
                 </div>
                 <p className="g-alert__desc">{alert.description}</p>
                 {alert.snapshotUrl && (
-                  <img className="g-emergency__shot" src={alert.snapshotUrl} alt="감지 당시 화면" />
+                  <img className="g-emergency__shot" src={assetUrl(alert.snapshotUrl)} alt="감지 당시 화면" />
                 )}
                 {alert.resolved ? (
                   <span className="g-alert__state">

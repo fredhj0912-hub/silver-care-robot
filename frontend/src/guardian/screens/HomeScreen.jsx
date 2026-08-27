@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { apiFetch } from '../../lib/api';
+import { apiFetch, assetUrl } from '../../lib/api';
 import { pushSupported, subscribeToPush } from '../../lib/push';
 import { buildDailyNote, stateLabel, formatTime, formatWhen, relativeTime, alertLabel } from '../format';
 
@@ -61,7 +61,7 @@ function HomeScreen({ status, openAlerts, summary, connected, refresh }) {
           <p className="g-emergency__desc">{active.description}</p>
           <p className="g-emergency__time">{formatTime(active.timestamp)} · {relativeTime(active.timestamp)}</p>
           {active.snapshotUrl && (
-            <img className="g-emergency__shot" src={active.snapshotUrl} alt="감지 당시 화면" />
+            <img className="g-emergency__shot" src={assetUrl(active.snapshotUrl)} alt="감지 당시 화면" />
           )}
           <button className="g-btn g-btn--resolve" onClick={() => resolve(active.id)}>
             확인했어요
