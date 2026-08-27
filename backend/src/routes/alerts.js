@@ -1,5 +1,5 @@
 const express = require('express');
-const fs = require('fs');
+const { asyncHandler } = require('../middleware');
 const alertsRepo = require('../repositories/alerts');
 const messagesRepo = require('../repositories/messages');
 const emergency = require('../services/emergency');
@@ -33,9 +33,9 @@ router.get('/alerts/:id', (req, res) => {
 });
 
 /** 수동 SOS. 어르신의 명시적 의사표시이므로 쿨다운을 적용하지 않는다. */
-router.post('/alerts', (req, res) => {
+router.post('/alerts', asyncHandler(async (req, res) => {
   const { type, description, image } = req.body || {};
-  const snapshotPath = image ? snapshots.save(image) : null;
+  const snapshotPath = image ? await snapshots.save(image) : null;
 
   const alert = emergency.raise({
     type: type || 'manual_panic_button',
@@ -46,7 +46,7 @@ router.post('/alerts', (req, res) => {
   });
 
   res.json({ success: true, alert });
-});
+}));
 
 router.post('/alerts/resolve', (req, res) => {
   const { id, by } = req.body || {};
@@ -57,11 +57,8 @@ router.post('/alerts/resolve', (req, res) => {
 });
 
 /** 낙상 스냅샷 이미지 — <img src>로 직접 불러온다 (쿼리 파라미터 인증 허용) */
-router.get('/snapshots/:filename', (req, res) => {
-  const full = snapshots.resolvePath(req.params.filename);
-  if (!full) return res.status(404).json({ error: '스냅샷을 찾을 수 없습니다' });
-  res.setHeader('Cache-Control', 'private, max-age=86400');
-  fs.createReadStream(full).pipe(res);
-});
+router.get('/snapshots/:filename', asyncHandler(async (req, res) => {
+  await snapshots.serve(req.params.filename, res);
+}));
 
 module.exports = router;

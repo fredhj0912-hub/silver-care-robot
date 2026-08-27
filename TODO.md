@@ -11,99 +11,125 @@
 
 ---
 
-## AWS 이전에 대하여 — 시작 전에 반드시 읽을 것
+## AWS에 대하여 — 시작 전에 반드시 읽을 것
 
-CLAUDE.md는 "`services/`·`repositories/` 분리가 되어 있어 대부분 어댑터 교체 수준"이라고
-적고 있지만, **실측 결과 두 군데가 그 가정을 깬다.** 모르고 시작하면 견적이 크게 빗나간다.
+**대회(한이음 드림업) 제공 계정으로 할 수 있는 것과 없는 것** (2026-08-27 실측 확정):
 
+| 가능 | 불가능 |
+|---|---|
+| EC2, Lambda, RDS, DynamoDB, S3, API GW, Amplify, SQS, SNS | **Bedrock, Polly, Transcribe 등 클라우드 AI 전부** |
+
+→ **AI는 Gemini API를 계속 쓴다.** 대화·비전·음성을 AWS로 옮기는 계획은 세우지 말 것.
+
+**계정 공통 제약**
+- **Access Key 발급 절대 불가.** 인증은 IAM Role만 — EC2는 `SafeInstanceProfile-{username}`,
+  그 외(Lambda 등)는 `SafeRole-{username}`. IAM Role은 AWS 인프라 안에서 도는 프로세스에만
+  붙으므로 **로컬에서는 어떤 AWS 서비스도 인증 테스트가 불가능**하다. 검증은 EC2에서만.
+- MFA 설정 후 재로그인해야 자원 생성 가능(`DenyAllWithoutMFA`).
+- 지정 리전 밖에서는 모든 활동 제한 — **문제 생기면 리전부터 확인**. 본인이 만든 리소스만
+  중지/시작/삭제 가능.
+- EC2는 `t3.nano`~`t3.small`만. S3 버킷 이름은 본인 username으로 시작해야 함.
+- RDS는 MySQL/PostgreSQL + Free Tier만, 샌드박스 생성 시 EC2 연결 불가·퍼블릭 액세스 허용.
+- 콘솔 **CloudShell**은 로그인 세션 자격증명을 자동으로 쓰므로 Access Key 없이 CLI 사용 가능
+  — 사전 확인은 여기서 하는 게 가장 싸다.
+
+**남아 있는 아키텍처 함정** (AWS와 별개로 유효)
 1. **`services/history.js`에는 변환 계층이 아예 없다.** 저장 형식이 곧 Gemini 와이어
-   포맷이다(`{role:'user'|'model', parts:[{text}]}`, `history.js:49`). `history.get()`이
-   Gemini SDK의 `startChat({history})`로 **그대로** 들어간다(`gemini.js:125`).
-   Bedrock/Claude는 `{role:'user'|'assistant', content:[...]}`라 **변환 계층을 새로 만들어야
-   한다.** 덤으로 model 턴 인코딩이 두 가지로 섞여 있다 — 실시간 대화는
-   `JSON.stringify({text,emotion})`을 저장하는데(`gemini.js:137`) 재시작 복원은 평문을
-   넣는다(`history.js:62-70`).
-
+   포맷이다(`{role:'user'|'model', parts:[{text}]}`). `history.get()`이 Gemini SDK의
+   `startChat({history})`로 **그대로** 들어간다. 다른 LLM provider로 갈아탈 일이 생기면
+   변환 계층을 새로 만들어야 한다. 덤으로 model 턴 인코딩이 두 가지로 섞여 있다 —
+   실시간 대화는 `JSON.stringify({text,emotion})`을 저장하는데 재시작 복원은 평문을 넣는다.
 2. **RDS 전환은 어댑터 교체가 아니라 전면 async 리팩터링이다.** `node:sqlite`의
    `DatabaseSync`는 **동기**라서 `repositories/*.js`가 전부 동기 함수고, 그 위의
    `emergency.raise()`도 동기다(Phase 5에서 푸시를 fire-and-forget으로 붙인 이유가 이것).
-   `pg`는 비동기라 **모든 리포지토리와 호출자에 async가 번져 나간다.** 전체 이전에서
-   가장 큰 숨은 비용이다.
+   `pg`는 비동기라 **모든 리포지토리와 호출자에 async가 번져 나간다.**
 
-**리전은 us-west-2(오레곤)**. Bedrock은 리전마다 쓸 수 있는 모델이 다르다.
+### 취소됨 — Phase 6(Bedrock) / Phase 8(Polly·Transcribe)
 
----
+Bedrock 어댑터(`services/bedrock.js`, `services/llm.js`, `history.js`의 변환 계층)를 실제로
+만들어 테스트까지 마쳤으나, 계정이 Bedrock을 지원하지 않는다는 것이 확정되어 **전부
+제거했다**(2026-08-27). 안내 문서엔 사용 가능하다고 적혀 있었지만 `BedrockDeny` 명시적
+거부 정책이 걸려 있었고, explicit deny는 EC2 IAM Role을 거쳐도 우회 불가다.
 
-## 지금 할 것 — Phase 6: Bedrock 전환 (대화 + 비전)
-
-예산에서 가장 큰 항목(Bedrock 62,000원/월)을 실제로 쓰기 시작한다. 동시에 "어댑터만 갈면
-된다"는 가정이 참인지 **가장 싼 단계에서 검증**된다 — 위 함정 1이 여기서 드러나므로,
-더 큰 이전(RDS)에 들어가기 전에 실체를 알 수 있다.
-
-**Gemini는 지우지 않고 폴백으로 남긴다.** 어르신이 기다리는 대화라 이중화가 의미 있고,
-이미 재시도/대체모델 체인 패턴이 있다.
-
-### 사전 작업 (사용자가 직접 — 대행 불가)
-- [ ] AWS CLI 설치 후 `aws configure` (리전 `us-west-2`) — 자격증명 입력은 본인이 해야 함
-- [ ] **Bedrock 콘솔에서 Claude 모델 액세스 신청** — 약관 동의가 필요해 대행할 수 없다.
-      리전별·모델별로 따로 신청해야 한다
-- [ ] 예산 알림 설정 (권장 — 안 걸어두면 초과를 청구서로 안다)
-
-### 코드
-- [ ] `@aws-sdk/client-bedrock-runtime` 추가 → `backend/src/services/bedrock.js` 신설
-- [ ] **`gemini.js`와 동일한 시그니처 + 동일한 반환 shape**를 지킬 것. 호출부
-      (`routes/chat.js`, `routes/vision.js`)를 안 고치는 게 목표:
-      `chat()` → `{text, emotion, source, model, error}`
-      `analyzeImage()` → `{hasPerson, isEmergency, expression, confidence, summary, source, error}`
-- [ ] **`history.js`에 변환 계층 신설** (위 함정 1). model 턴 인코딩 불일치도 여기서 정리
-- [ ] `LLM_PROVIDER` env로 provider 선택 + Bedrock 실패 시 Gemini 폴백.
-      `tts.js`의 `PROVIDERS` 룩업 테이블 패턴을 그대로 따를 것
-- [ ] `parseJSON`/`mockReply`는 provider 무관하니 재사용. 단 `gemini.js:29`의
-      `isTransient()`는 **Google SDK 에러 문자열을 정규식으로 파싱**하므로 Bedrock 에러엔
-      절대 안 걸린다 — 새로 써야 한다
-- [ ] `RobotFaceDisplay.jsx:584` 개발용 뱃지가 `source === 'gemini'` 문자열 비교 → 수정
-- [ ] `test/api.test.js:13`이 `GEMINI_API_KEY=''`로 mock 경로를 강제한다.
-      **AWS 자격증명도 같이 막지 않으면 테스트가 실제 네트워크를 친다** — kill-switch 정비
-- [ ] 참고: `routes/vision.js:49`는 `'vision_gemini'`를 **DB 컬럼 값**으로 기록한다.
-      코드가 아니라 데이터라 과거 행은 그대로 남는다
+**그 과정에서 남은 유용한 부산물**: `backend/.env.example`,
+`docs/deploy-ec2-aws-test.md`(EC2 생성 절차), S3 스냅샷 provider 스위치, `verify-s3` 스크립트.
+그리고 "어댑터만 갈면 된다"는 가정이 스키마 CHECK 제약까지는 커버하지 못한다는 것도
+확인했다(`messages.source`) — RDS 이전 때 참고할 것.
 
 ---
 
-## 다음 — Phase 8 — 음성 AWS 이전 (Polly / Transcribe)
+## 지금 할 것 — 원격조종 마무리 + 안전 로직 테스트
 
-TTS(Polly)는 작고, STT(Transcribe)는 크다. 한 덩어리로 보지 말 것.
+Phase 7(원격조종)이 마지막으로 붙인 기능인데 미해결 항목이 남아 있다. 특히
+`services/motion.js`는 **데드맨 타이머·응급 잠금 같은 안전 로직인데 테스트가 하나도 없다**
+(지금까지 curl 수동 검증만 했음). 데모에서 심사위원이 직접 눌러보는 화면이기도 하다.
 
-### TTS → Polly (작음)
-- [ ] `services/tts.js`에 `synthWithPolly` 추가 (`PROVIDERS` 테이블에 등록)
-- [ ] `tts.js:111` `isEnabled()`가 `config.geminiApiKey`를 요구한다 →
-      **이 조건 때문에 Polly provider가 그냥 꺼진다.** 자격증명 검사를 provider별로 분리
-- [ ] `tts.js:125` 캐시 확장자가 `provider === 'cloud' ? 'mp3' : 'wav'` 하드코딩 →
-      새 provider는 **캐시가 항상 미스**난다 (쓰기는 `result.ext`로 하는데 읽기는 ternary)
-- [ ] `npm run prewarm-tts`로 공용 문구 재예열
-
-### STT → Transcribe (큼 — 교체가 아니라 재구현)
-- [ ] `frontend/src/lib/stt.js`는 **마이크 캡처를 직접 하지 않는다.** 브라우저 Web Speech
-      API가 내부적으로 처리해준다. Transcribe로 가면 `getUserMedia` + PCM 인코딩 +
-      웹소켓 스트리밍을 `createRecognizer` 안에 전부 새로 넣어야 한다
-- [ ] **발화 종료 판정(endpointing)을 직접 구현해야 한다.** Web Speech API가 공짜로 주던
-      `isFinal`에 대응물이 없다 — 이게 이 항목에서 가장 어려운 부분
-- [ ] `RobotFaceDisplay.jsx`의 자기 소리 차단 게이트(`isSpeakingRef`/`shouldListenRef`)가
-      그대로 동작해야 하고, `abort()`는 즉시 끊겨야 한다
+- [ ] `services/motion.js` + `routes/control.js` 테스트 신설 — 데드맨 자동정지,
+      응급 중 423 잠금, 잘못된 방향 400, `durationMs`가 데드맨보다 길 때의 동작
+- [ ] `ControlScreen.jsx` 가상 위치 dot을 220×220 평면도 안으로 클램핑
+      (연타 시 화면 밖으로 나감)
+- [ ] `ControlScreen.jsx` D-패드 요청 진행 중 중복 요청 방지 — 응답 순서가 꼬이면
+      위치 표시가 튄다
+- [ ] `services/motion.js`의 자체 `nowISO()` → `db/index.js`의 공용 함수로 교체
+      (backend/CLAUDE.md 규칙)
 
 ---
 
-## Phase 9 — 인프라 이전 (S3 / RDS / EC2)
+## 그다음 — 정리 라운드 (작고 확실한 것들)
 
-쉬운 것부터. **S3 → RDS → EC2** 순서를 지킬 것.
+- [ ] 구버전 호환 라우트 제거 — `GET /api/history`(`routes/alerts.js`),
+      `POST /remote-message`·`GET /remote-message/poll`(`routes/commands.js`).
+      키오스크가 Phase 7에서 이미 새 엔드포인트로 옮겨갔다
+- [ ] `backend/database.json` 삭제 (SQLite 이관 완료됨)
+- [ ] PLAUSIBLE 2건 재검증 — 아래 "코드 리뷰 발견 사항" 참고
+- [ ] `lucide-react` 쓰거나 제거 (설치돼 있으나 import 0건)
+- [ ] 미사용 CSS 토큰 정리 (`--bg-secondary`, `--shadow-premium` 등)
+- [ ] `--primary: #5c64ec`인데 실제 CSS는 `rgba(99,102,241,…)`를 쓰는 불일치
 
-- [ ] **S3 스냅샷** — `services/snapshots.js` 하나만 바꾸면 된다. 가장 쉽고 위험이 적다
-- [ ] **[선행 필수] 리포지토리 async 전환** — RDS보다 먼저, 독립 작업으로.
-      `repositories/*.js` 전부와 그 호출자가 async가 된다. `emergency.raise()`가 동기라는
-      전제가 깨지므로 **Phase 5의 푸시 호출부도 같이 손봐야 한다**
-- [ ] **RDS PostgreSQL** — `node:sqlite` → `pg`. 스키마 이관 + 기존 데이터 마이그레이션
-- [ ] **EC2 배포** — t3.micro, systemd, 보안그룹
-- [ ] EC2로 가면 cloudflared 터널이 불필요해진다 (도메인 + ACM으로 정식 HTTPS).
-      아래 터널 안내는 그때 걷어낸다
+---
+
+## 그다음 — 큰 것들
+
+- [ ] **YOLOv8 낙상 감지 실제 구현** — 백엔드 계약(`POST /api/detections`)과 mock은 이미
+      완성돼 있다. `detector/` 디렉터리에 Python(FastAPI) 서비스를 만들어 계약대로
+      POST만 하면 되고 **백엔드 변경은 불필요**하다. `docs/fall-detection.md` 참고
+- [ ] **라즈베리파이 5 실물 배포** — kiosk 모드, systemd, 카메라/마이크 연결
+      - [ ] 와이파이가 동아리방 SSID로만 등록돼 있어 다른 장소(기숙사 등) 이동 시 연결
+            끊김. 실물 파이가 생기면: NetworkManager에 여러 SSID 등록(우선순위 설정) +
+            대회장 등 미지의 장소 대비 스마트폰 핫스팟(고정 SSID/비번)도 등록
+- [ ] 프론트엔드 컴포넌트 테스트 환경(jsdom/RTL) 도입
+
+---
+
+## 마지막 — AWS (EC2 / S3 / RDS만)
+
+"대회에서 AWS를 실제로 썼다"를 보여주는 용도. 제품 기능이 정리된 뒤에 착수.
+전체 절차는 `docs/deploy-ec2-aws-test.md`.
+
+### S3 스냅샷 — 코드 완료 ✅ 2026-08-27, 실제 연결 검증만 남음
+"`services/snapshots.js` 하나만 바꾸면 된다"는 처음 예상은 **정확히는 아니었다** —
+`save()`가 네트워크 I/O로 async가 되면서 호출부(`routes/vision.js` 2곳, `routes/alerts.js`
+1곳)에 `await`를 추가해야 했다. `GET /snapshots/:filename`의 스트리밍 로직도 새 `serve()`
+함수로 `snapshots.js` 안으로 옮겨 라우트가 로컬/S3를 몰라도 되게 했다. 다행히
+`emergency.raise()`는 `snapshots.js`를 직접 부르지 않고 계산된 `snapshotPath` 문자열만
+받으므로, 아래 "리포지토리 async 전환"의 전제조건은 아니었다.
+- [x] `local`/`s3` provider 스위치 (`SNAPSHOT_STORAGE` env), `@aws-sdk/client-s3` 추가
+- [x] 프론트엔드 `assetUrl()`은 그대로 — 항상 `/api/snapshots/:filename` 프록시로 서빙해서
+      S3 여부와 무관하게 LAN 키 인증이 안 깨지게 설계
+- [x] `npm run verify-s3` 스모크 테스트
+- [ ] 버킷 생성(이름은 username으로 시작) + EC2에서 `SNAPSHOT_STORAGE=s3`로 실제 확인
+
+### EC2 배포
+`t3.nano`~`t3.small`. 인스턴스 생성 **후 별도 단계**로 `SafeInstanceProfile-{username}`
+연결 필요(생성 마법사 중엔 안 보일 수 있음), 보안 그룹도 새로 만들어야 하고 태그가 붙기까지
+5~10초 지연이 있다. EC2로 가면 cloudflared 터널이 불필요해진다(도메인 + ACM으로 정식 HTTPS)
+— 아래 터널 안내는 그때 걷어낸다.
+
+### RDS PostgreSQL — 가장 비쌈, 마지막
+**[선행 필수] 리포지토리 async 전환**을 독립 작업으로 먼저 해야 한다. `repositories/*.js`
+전부와 그 호출자가 async가 되고, `emergency.raise()`가 동기라는 전제가 깨지므로
+**Phase 5의 푸시 호출부도 같이 손봐야 한다**. 그 뒤에 `node:sqlite` → `pg`,
+스키마 이관 + 기존 데이터 마이그레이션.
 
 ---
 
@@ -133,40 +159,15 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 
 ---
 
-## 백로그 (급하지 않음)
+## 백로그 (위 로드맵에 안 들어간 것들)
 
-### 정리
+- [ ] `purge-old-messages` 정기 실행 등록 (지금은 수동, 스케줄 없음)
+- [ ] 목소리 품질을 급히 올려야 하면 Cloud TTS 전환 — `TTS_PROVIDER=cloud` +
+      `npm run prewarm-tts`. 콘솔에서 API 활성화 1회 필요:
+      https://console.cloud.google.com/apis/library/texttospeech.googleapis.com
+      (Polly는 계정에서 불가능하므로 이게 유일한 업그레이드 경로다)
 - [x] CLAUDE.md 구조 정리 — "Architecture notes"를 `docs/architecture.md`(Mermaid 다이어그램)로
       분리. `purge-old-messages` 커맨드 문서화 누락 수정.
-- [ ] `lucide-react` — 설치돼 있으나 한 번도 import되지 않음. 쓰거나 제거
-- [ ] 미사용 CSS 토큰 정리 (`--bg-secondary`, `--shadow-premium` 등)
-- [ ] `--primary: #5c64ec`인데 실제 CSS는 `rgba(99,102,241,…)`를 쓰는 불일치
-- [ ] `backend/database.json` — SQLite 이관 완료됨. 확인 후 삭제
-- [ ] 구버전 호환 라우트 제거 (`GET /api/history`, `GET /api/remote-message/poll`) —
-      키오스크가 Phase 7 작업 중 `/api/alerts`·`/api/commands/pending`로 옮겨갔으니
-      이제 제거 가능
-
-### 운영
-- [ ] `purge-old-messages` 정기 실행 등록 (지금은 수동, 스케줄 없음)
-- [ ] Cloud TTS 활성화 시 `TTS_PROVIDER=cloud` 전환 + `npm run prewarm-tts`
-      (콘솔에서 API 활성화 1회 필요:
-      https://console.cloud.google.com/apis/library/texttospeech.googleapis.com)
-      ※ Phase 8에서 Polly로 갈 거면 이 항목은 건너뛰어도 된다 — 급히 목소리 품질을
-      올려야 할 때만 쓰는 임시방편
-
-### 테스트 커버리지
-- [ ] 프론트엔드 컴포넌트 테스트 환경 없음 (jsdom/RTL 미설정).
-      현재는 순수 함수만 테스트하고 UI는 실기기로 확인 중
-
----
-
-## 다음 라운드 (이번 범위 밖)
-
-- [ ] **YOLOv8 낙상 감지 실제 구현** — 계약과 mock은 준비됨. `docs/fall-detection.md` 참고.
-      Python(FastAPI) 서비스가 `POST /api/detections`로 이벤트만 보내면 된다
-- [ ] 라즈베리파이 5 실물 배포 (kiosk 모드, systemd, 카메라/마이크 연결)
-
-(AWS 마이그레이션은 Phase 6/8/9로 승격됐다 — 위를 볼 것)
 
 ---
 
@@ -251,3 +252,27 @@ iOS는 홈 화면에 설치한 PWA에서만 푸시가 동작 (미검증, 안드�
 **남은 것**: 실물 구동부 연결(라즈베리파이 배포 라운드에서), D-패드는 클릭 단발만 지원
 (누르고 있기/연속 이동 없음), 평면도 좌표는 가상 단위라 실제 방 치수와 무관.
 `useGuardianData.js`의 SSE 이벤트마다 전체 재조회하는 문제(PLAUSIBLE)는 미해결로 남음.
+
+### Phase 7 code-review (2026-08-27) — Medium 수정, Low는 백로그로 이동 ✅
+- [x] `motion.js` — 데드맨 타이머(500ms)가 요청한 `durationMs`(최대 3000ms)보다 먼저
+      끝나 긴 이동이 도중에 끊기던 문제. `resetDeadman()`이 `max(DEADMAN_MS, durationMs)`로
+      타이머를 잡도록 수정
+- Low 4건은 "백로그 → 정리"로 이동 (아래 참고): `nowISO()` 중복 구현, control 라우트/motion
+  서비스 테스트 부재, 가상 위치 dot 클램핑 누락, D-패드 연타 시 요청 중복
+
+### PR #1 — main에 merge 완료 ✅ 2026-08-27
+백엔드 모듈화 + SQLite + 보호자 PWA + 응급 푸시 알림 + 원격조종 시뮬레이션,
+`e90616a`~`26b2124` 전체가 `main`에 반영됨.
+
+### Bedrock 어댑터 구현 → 계정 미지원 확인 → 전면 제거 ✅ 2026-08-27
+Bedrock 전환(Phase 6)을 코드까지 완성했으나 대회 계정이 Bedrock을 지원하지 않는 것이
+확정되어 되돌렸다. 절대 실행되지 않는 죽은 코드를 남기지 않기 위한 결정.
+- [x] 제거: `services/bedrock.js`, `services/llm.js`, `services/jsonUtil.js`,
+      `scripts/verify-bedrock.js`, `scripts/migrate-add-bedrock-source.js`,
+      `@aws-sdk/client-bedrock-runtime` 의존성
+- [x] 되돌림: `parseJSON`을 `gemini.js` 안으로 복귀, `history.js`의 `toBedrockMessages()`
+      제거, 라우트는 다시 `gemini`를 직접 호출, `schema.sql` CHECK 제약 원복
+      (실제 DB엔 마이그레이션이 적용된 적 없어 데이터 작업 불필요했음)
+- [x] 유지: `@aws-sdk/client-s3`와 S3 스냅샷 코드, `.env.example`,
+      `docs/deploy-ec2-aws-test.md`(S3/EC2 전용으로 재작성)
+- [x] `test/api.test.js`의 kill-switch를 `LLM_PROVIDER` → `SNAPSHOT_STORAGE='local'`로 교체

@@ -11,6 +11,11 @@ process.env.DB_PATH = path.join(TMP, 'test.sqlite');
 process.env.SNAPSHOT_DIR = path.join(TMP, 'snapshots');
 process.env.ROBOT_API_KEY = 'test-key';
 process.env.GEMINI_API_KEY = '';          // 결정론적 테스트를 위해 mock 경로 고정
+process.env.SNAPSHOT_STORAGE = 'local';   // 환경에 s3가 설정돼 있어도 테스트가 실제 S3를 치지 않게
+process.env.AWS_ACCESS_KEY_ID = '';
+process.env.AWS_SECRET_ACCESS_KEY = '';
+process.env.AWS_SESSION_TOKEN = '';
+process.env.AWS_REGION = '';
 process.env.ALERT_COOLDOWN_MS = '60000';
 
 const { createApp } = require('../src/app');

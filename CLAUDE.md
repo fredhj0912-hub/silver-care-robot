@@ -8,12 +8,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The codebase (comments, prompts, UI copy) is primarily in Korean, since the product targets Korean-speaking senior users and guardians.
 
-A future production deployment targets AWS (Bedrock, RDS, Transcribe, Polly, S3, EC2). The `services/`/`repositories/` split described below exists to make most of that swap an adapter change rather than a rewrite — keep new external integrations behind that same pattern. **Two places break that assumption**, measured 2026-08-27:
+**AI stays on Gemini.** The competition-provided AWS account (한이음 드림업) supports only
+cheap infrastructure — EC2, Lambda, RDS, DynamoDB, S3, API GW, Amplify, SQS, SNS — and
+**no cloud AI at all** (Bedrock is explicitly denied; Polly/Transcribe are equally out of
+scope). Don't propose migrating conversation, vision, or speech to AWS. That account also
+**forbids Access Key issuance** — authentication is IAM-Role-only (`SafeInstanceProfile-{username}`
+for EC2), which means any AWS integration can only be exercised from inside EC2, never locally.
 
-- `services/history.js` has no conversion layer at all — the stored format *is* the Gemini wire format (`{role:'user'|'model', parts:[{text}]}`), passed straight into the SDK. Bedrock needs one written from scratch.
-- `node:sqlite`'s `DatabaseSync` is **synchronous**, so every repository (and `emergency.raise()` above them) is a sync function. Moving to RDS/`pg` turns that into an async refactor that propagates through every caller.
+The `services/`/`repositories/` split exists to keep external integrations swappable — keep new
+ones behind that same pattern. **Two known gaps**, measured 2026-08-27:
 
-See TODO.md's "AWS 이전에 대하여" section for the full breakdown before estimating this work.
+- `services/history.js` has no conversion layer at all — the stored format *is* the Gemini wire
+  format (`{role:'user'|'model', parts:[{text}]}`), passed straight into the SDK. Swapping to any
+  other LLM provider would mean writing one from scratch. (A Bedrock adapter was built and then
+  removed once the account limitation was confirmed — see TODO.md.)
+- `node:sqlite`'s `DatabaseSync` is **synchronous**, so every repository (and `emergency.raise()`
+  above them) is a sync function. Moving to RDS/`pg` turns that into an async refactor that
+  propagates through every caller.
+
+See TODO.md's AWS section for what's actually feasible before estimating this work.
 
 ## Repo layout
 
