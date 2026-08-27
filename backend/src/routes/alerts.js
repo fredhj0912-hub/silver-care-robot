@@ -1,22 +1,10 @@
 const express = require('express');
 const { asyncHandler } = require('../middleware');
 const alertsRepo = require('../repositories/alerts');
-const messagesRepo = require('../repositories/messages');
 const emergency = require('../services/emergency');
 const snapshots = require('../services/snapshots');
 
 const router = express.Router();
-
-/**
- * 기존 프론트가 쓰고 있는 엔드포인트(RobotFaceDisplay.jsx:288).
- * @deprecated GET /api/messages + GET /api/alerts 로 대체됨. 호환을 위해 남겨둔다.
- */
-router.get('/history', (req, res) => {
-  res.json({
-    history: messagesRepo.list({ limit: 200 }).messages.reverse(),
-    alerts: alertsRepo.list({ limit: 200 }).alerts,
-  });
-});
 
 router.get('/alerts', (req, res) => {
   const { resolved, type, from, to, before, limit } = req.query;

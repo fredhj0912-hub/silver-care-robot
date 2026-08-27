@@ -67,5 +67,5 @@ test/
   on top of them — is sync, and why `raise()` calls `notify.send()` fire-and-forget instead of
   awaiting it. A move to RDS/`pg` makes all of that async and the change propagates to every caller;
   budget it as a refactor, not an adapter swap.
-- `GET /api/history` and `GET /api/remote-message/poll` are deprecated compat shims for the pre-rewrite frontend. New work should use `/api/messages` + `/api/alerts` and `/api/commands/pending` + `/api/commands/:id/ack`.
+- The old `GET /api/history`, `POST /api/remote-message`, and `GET /api/remote-message/poll` compat shims were removed 2026-08-27 (no callers left). Use `/api/messages` + `/api/alerts` and `/api/commands/pending` + `/api/commands/:id/ack`.
 - `config.geminiModel` defaults to `gemini-3.6-flash`, not the newer `gemini-3.7-flash` — the latter 503s under load as of 2026-08.

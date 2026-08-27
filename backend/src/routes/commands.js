@@ -58,36 +58,4 @@ router.post('/commands/:id/ack', (req, res) => {
   res.json({ success: true, command });
 });
 
-// ── 구버전 호환 (프론트엔드 마이그레이션 후 제거 예정) ─────────────────
-
-/** @deprecated POST /api/commands {kind:'speak'} 를 사용하세요 */
-router.post('/remote-message', (req, res) => {
-  const { text } = req.body || {};
-  if (!text || typeof text !== 'string' || !text.trim()) {
-    return res.status(400).json({ error: '메시지 내용(text)이 필요합니다' });
-  }
-  if (text.length > config.maxSpeakChars) {
-    return res.status(400).json({ error: `메시지는 ${config.maxSpeakChars}자를 넘을 수 없습니다` });
-  }
-
-  const command = commandsRepo.enqueue({ kind: 'speak', payload: { text: text.trim() } });
-  const msg = messagesRepo.add({ sender: 'guardian', text: text.trim(), source: 'remote' });
-  emit(EVENTS.MESSAGE_ADDED, msg);
-  emit(EVENTS.COMMAND_ISSUED, command);
-
-  res.json({ success: true, message: { id: command.id, text: text.trim(), timestamp: command.timestamp } });
-});
-
-/**
- * @deprecated GET /api/commands/pending + POST /api/commands/:id/ack 를 사용하세요.
- * 구버전 프론트가 아직 이 경로를 쓰므로 동작은 유지하되, 조회 즉시 ack 처리한다.
- */
-router.get('/remote-message/poll', (req, res) => {
-  const [next] = commandsRepo.pending({ kind: 'speak', limit: 1 });
-  if (!next) return res.json({ message: null });
-
-  commandsRepo.ack(next.id);
-  res.json({ message: { id: next.id, text: next.payload.text, timestamp: next.timestamp } });
-});
-
 module.exports = router;
