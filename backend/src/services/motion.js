@@ -4,8 +4,9 @@
  * 실물 구동부가 없으므로 가상 좌표를 메모리에만 유지한다. 나중에 모터 드라이버가
  * 붙으면 move()/stop() 내부 구현만 바뀌고, 인터페이스(routes/control.js)는 그대로다.
  *
- * 데드맨 스위치: move() 호출마다 500ms 타이머를 재설정한다. 그 안에 다음 명령이
- * 안 오면 자동으로 stop() — 원격 조종 로봇에서 이건 선택이 아니라 필수 안전장치다
+ * 데드맨 스위치: move() 호출마다 타이머를 재설정한다(요청한 durationMs와 DEADMAN_MS 중
+ * 더 큰 값 — 이동이 끝나기 전에 자동 정지되지 않도록). 그 안에 다음 명령이 안 오면
+ * 자동으로 stop() — 원격 조종 로봇에서 이건 선택이 아니라 필수 안전장치다
  * (네트워크가 끊긴 채로 계속 움직이면 안 된다).
  */
 
@@ -55,7 +56,7 @@ function move({ direction, speed = 50, durationMs = 500 }) {
     updatedAt: nowISO(),
   };
 
-  resetDeadman();
+  resetDeadman(clampedDuration);
   return getState();
 }
 
@@ -66,12 +67,13 @@ function stop() {
   return getState();
 }
 
-function resetDeadman() {
+function resetDeadman(durationMs) {
   clearTimeout(deadmanTimer);
+  const timeout = Math.max(DEADMAN_MS, durationMs);
   deadmanTimer = setTimeout(() => {
-    console.log('[MOTION] 데드맨 스위치 작동 — 명령 없이 500ms 경과, 자동 정지');
+    console.log(`[MOTION] 데드맨 스위치 작동 — 명령 없이 ${timeout}ms 경과, 자동 정지`);
     stop();
-  }, DEADMAN_MS);
+  }, timeout);
 }
 
 function getState() {

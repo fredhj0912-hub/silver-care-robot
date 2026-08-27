@@ -5,6 +5,7 @@ backend/.env
 *.log
 .gstack/
 .agents/
+.claude/
 .system_generated/
 
 # 런타임에 생성되는 로컬 DB — 어르신 대화/알림 로그가 담기므로 git에 올리지 않는다

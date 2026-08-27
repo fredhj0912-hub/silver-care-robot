@@ -69,24 +69,7 @@ CLAUDE.md는 "`services/`·`repositories/` 분리가 되어 있어 대부분 어
 
 ---
 
-## 다음 — Phase 7: 원격 조종 (시뮬레이션)
-
-실물 구동부가 없으므로 명령 채널과 시각화를 먼저 만든다. 나중에 모터 드라이버만 갈아끼운다.
-
-- [ ] `POST /api/control/move` — `{ direction, speed, durationMs }`,
-      `outbound_commands`(kind=`move`)에 적재 후 SSE로 즉시 푸시
-- [ ] **데드맨 스위치**: 마지막 명령 후 500ms 내 갱신이 없으면 자동 정지.
-      원격 조종 로봇에서 이건 선택이 아니라 필수 안전장치다
-- [ ] `backend/src/services/motion.js` — 인터페이스는 `move()`/`stop()`,
-      현재 구현은 가상 좌표를 메모리에 유지하는 시뮬레이터
-- [ ] `GET /api/control/state` — 시뮬레이션 좌표 노출
-- [ ] 보호자 앱에 원격 조종 화면 (D-패드 + 가상 평면도)
-- [ ] 키오스크 화면에 이동 방향 인디케이터 (로봇이 명령을 받았다는 시각 피드백)
-- [ ] **응급 상황 중에는 원격 조종을 잠근다**
-
----
-
-## Phase 8 — 음성 AWS 이전 (Polly / Transcribe)
+## 다음 — Phase 8 — 음성 AWS 이전 (Polly / Transcribe)
 
 TTS(Polly)는 작고, STT(Transcribe)는 크다. 한 덩어리로 보지 말 것.
 
@@ -138,31 +121,9 @@ preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다. quic
 
 ## 코드 리뷰 발견 사항 (2026-08-26 /code-review)
 
-### 확정 (CONFIRMED — 소스 직접 검증됨)
-- [ ] `backend/src/repositories/alerts.js:82` — `hasRecentOfType()`가 severity/resolved를
-      안 보고 type만으로 쿨다운을 걸어, warning급 음성 알림 직후 critical급 알림이
-      쿨다운(기본 10분) 동안 억제될 수 있음. 진짜 응급상황에서 보호자 미통지 위험.
-- [ ] `frontend/src/guardian/screens/AlertsScreen.jsx:53`, `HomeScreen.jsx:53` —
-      `<img src={alert.snapshotUrl}>`가 `apiFetch`의 API_BASE 접두사/x-api-key를
-      안 붙임. `ROBOT_API_KEY` 설정된 환경에서 스냅샷 이미지가 전부 401.
-      (`middleware/index.js`가 이미 `?key=` 쿼리 폴백을 지원하니 그걸 붙이면 됨)
-- [ ] `frontend/src/components/RobotFaceDisplay.jsx:394` — `resolveActiveAlert()`가
-      미해결 알림 중 첫 번째만 처리하고, 서버가 반환하는 실제 `isEmergency` 값을
-      무시한 채 "해제됐다" TTS를 재생 → 알림이 여러 개면 직후 사이렌이 재발동해
-      사용자 혼란.
-- [ ] `frontend/src/components/RobotFaceDisplay.jsx:225` — `handleTextSubmit`이
-      `wakeword.js`의 `decideAction()`을 거치지 않고 `sendVoiceMessage()`를 직접 호출
-      (음성 경로는 거침, CLAUDE.md 규칙 3 위반). 웨이크워드만 텍스트로 입력해도
-      불필요한 Gemini 호출 발생.
-- [ ] `backend/src/routes/vision.js:25` — JSON 바디 허용 한도(`maxJsonBodyBytes` 12MB)가
-      실제 이미지 저장 한도(`maxImageBytes` 8MB)보다 커서, 그 사이 크기의 base64
-      이미지는 분석까지는 되지만 `snapshots.save()`가 조용히 실패(null 반환) →
-      critical 알림에 증거 사진이 누락되는데 에러 로그도 없음.
+CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIRMED 5건 수정" 참고.
 
 ### 추정 (PLAUSIBLE — 단일 finder, 재검증 필요)
-- [ ] `frontend/src/components/RobotFaceDisplay.jsx:334` — SSE `command.issued` +
-      `/api/commands/pending`을 도입했는데도 deprecated `/api/remote-message/poll`을
-      2.5초마다 계속 폴링 중. SSE 리스너로 교체.
 - [ ] `frontend/src/lib/useGuardianData.js:54` — 모든 SSE 이벤트(채팅 턴마다)가
       3개 엔드포인트 전체 재조회를 트리거하고, SSE가 정상 연결 중에도 30초 폴백
       폴링이 무조건 실행됨. 이벤트 페이로드로 로컬 상태만 갱신하도록 개선 검토.
@@ -182,7 +143,8 @@ preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다. quic
 - [ ] `--primary: #5c64ec`인데 실제 CSS는 `rgba(99,102,241,…)`를 쓰는 불일치
 - [ ] `backend/database.json` — SQLite 이관 완료됨. 확인 후 삭제
 - [ ] 구버전 호환 라우트 제거 (`GET /api/history`, `GET /api/remote-message/poll`) —
-      키오스크가 신규 API로 옮겨간 뒤에
+      키오스크가 Phase 7 작업 중 `/api/alerts`·`/api/commands/pending`로 옮겨갔으니
+      이제 제거 가능
 
 ### 운영
 - [ ] `purge-old-messages` 정기 실행 등록 (지금은 수동, 스케줄 없음)
@@ -263,3 +225,29 @@ preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다. quic
 **남은 것**: 푸시 클릭 시 `/guardian/alerts`(목록)로 간다. 개별 알림 상세 화면
 (`/guardian/alerts/:id`)이 없어서 딥링크를 걸 수 없었다 — 필요하면 별도 작업.
 iOS는 홈 화면에 설치한 PWA에서만 푸시가 동작 (미검증, 안드로이드만 확인함).
+
+### 코드리뷰 CONFIRMED 5건 수정 ✅ 2026-08-27
+- [x] `alerts.js` 쿨다운이 severity를 무시 → `hasRecentOfType()`에 severity 인자 추가,
+      severity별로 쿨다운 창 분리 (warning이 critical을 억제하던 문제)
+- [x] 스냅샷 `<img>`가 인증 없이 요청돼 `ROBOT_API_KEY` 설정 시 401 →
+      `lib/api.js`에 `assetUrl()` 헬퍼 추가(`?key=` 부착), 두 화면에 적용
+- [x] `resolveActiveAlert()`가 다중 알림 시 안심 TTS 오재생 → deprecated `/api/history`
+      대신 `/api/alerts?resolved=false` 사용, 서버가 준 실제 `isEmergency`로만 판단
+- [x] `handleTextSubmit`이 웨이크워드 게이트 우회 → `decideAction()` 경유하도록 수정
+- [x] 스냅샷 저장 실패(8MB 초과 등)가 로그 없이 조용히 넘어가던 문제 → `console.error` 추가
+
+### Phase 7 — 원격조종 시뮬레이션 ✅ 2026-08-27
+- [x] `backend/src/services/motion.js` — `move()`/`stop()`/`getState()`,
+      500ms 데드맨 스위치 (명령 갱신 없으면 자동 정지)
+- [x] `backend/src/routes/control.js` — `POST /api/control/move`(응급 중 423 잠금),
+      `GET /api/control/state`
+- [x] `emergency.js` — 응급 진입 시 밀린 move 명령 폐기(`dropPending('move')`) + `motion.stop()`
+- [x] 키오스크: deprecated `/api/remote-message/poll` 폴링 → `/api/commands/pending` + ack로
+      교체(`speak`/`move` 둘 다 처리), 이동 방향 인디케이터 표시.
+      **PLAUSIBLE 발견사항 1건(SSE 있는데 deprecated 폴링 씀)도 같이 해결됨**
+- [x] 보호자 앱 `/guardian/control` 신설 — D-패드 + 가상 평면도, 홈 화면에 진입 타일 추가
+- [x] curl로 수동 검증: 이동/좌표 갱신, 잘못된 방향 400, 데드맨 자동정지, 응급 중 423 잠금
+
+**남은 것**: 실물 구동부 연결(라즈베리파이 배포 라운드에서), D-패드는 클릭 단발만 지원
+(누르고 있기/연속 이동 없음), 평면도 좌표는 가상 단위라 실제 방 치수와 무관.
+`useGuardianData.js`의 SSE 이벤트마다 전체 재조회하는 문제(PLAUSIBLE)는 미해결로 남음.
