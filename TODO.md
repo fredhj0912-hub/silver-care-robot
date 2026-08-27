@@ -54,34 +54,29 @@ Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 �
 
 ---
 
-## 지금 할 것 — 원격조종 마무리 + 안전 로직 테스트
+## 지금 할 것 — 알림 상세 화면 (`/guardian/alerts/:id`)
 
-Phase 7(원격조종)이 마지막으로 붙인 기능인데 미해결 항목이 남아 있다. 특히
-`services/motion.js`는 **데드맨 타이머·응급 잠금 같은 안전 로직인데 테스트가 하나도 없다**
-(지금까지 curl 수동 검증만 했음). 데모에서 심사위원이 직접 눌러보는 화면이기도 하다.
+Phase 5(응급 푸시)의 마지막 빠진 조각. 푸시 알림이 실기기까지 잘 도착하는 것은 검증됐지만
+**알림을 눌러도 상세 화면이 없어서 목록으로만 떨어진다.** 보호자가 "무슨 일이지?"를
+확인하기까지 한 단계가 더 필요한 상태 — 데모에서 바로 티가 나는 부분이다.
 
-- [x] `services/motion.js` + `routes/control.js` 테스트 신설 ✅ 2026-08-27 —
-      데드맨 자동정지, 응급 중 423 잠금, 잘못된 방향 400, `durationMs`가 데드맨보다
-      길 때의 동작(회귀) 4가지 모두 커버 (`test/motion.test.js`, `test/control.test.js`)
-- [x] `ControlScreen.jsx` 가상 위치 dot을 220×220 평면도 안으로 클램핑 ✅ 2026-08-27
-- [x] `ControlScreen.jsx` D-패드 요청 진행 중 중복 요청 방지 ✅ 2026-08-27 —
-      `moving` 상태로 버튼 비활성화 + 응답 전 재클릭 무시
-- [x] `services/motion.js`의 자체 `nowISO()` → `db/index.js`의 공용 함수로 교체 ✅ 2026-08-27
-- [ ] 네트워크 지연/단절 시 동작 미정 — 500ms 데드맨보다 명령 전송이 늦어지면 로봇이
-      끊겨 이동하거나 정지 요청이 유실될 수 있음. 실물 배포 전 정책 필요
+착수 전에 조사할 것 (2026-08-27 세션에서 Explore를 띄웠다가 중단했으므로 여기서부터):
+- [ ] 백엔드에 `GET /api/alerts/:id`가 있는지 (`routes/alerts.js`, `repositories/alerts.js`)
+      — 없으면 신설. `repositories/alerts.js`에 `get(id)`가 있는지부터 확인
+- [ ] `frontend/public/sw.js`의 `notificationclick`이 어디로 보내는지 (하드코딩 URL인지,
+      `event.notification.data`를 쓰는지) — 딥링크의 핵심
+- [ ] `services/notify.js`의 푸시 페이로드에 **alert id가 들어 있는지** — 없으면 SW가
+      상세 화면 주소를 만들 수 없으므로 페이로드부터 고쳐야 한다
+- [ ] `GuardianApp.jsx`에 `:id` 같은 파라미터 라우트 선례가 있는지, 없으면 헤더/뒤로가기
+      패턴을 어떻게 맞출지
+- [ ] 스냅샷 이미지 표시 방법 (`lib/api.js`의 `assetUrl()` — 항상 `/api/snapshots/:filename`
+      프록시로 서빙하도록 이미 설계돼 있음)
 
 ---
 
 ## 그다음 — 정리 라운드 (작고 확실한 것들)
 
-- [ ] 구버전 호환 라우트 제거 — `GET /api/history`(`routes/alerts.js`),
-      `POST /remote-message`·`GET /remote-message/poll`(`routes/commands.js`).
-      키오스크가 Phase 7에서 이미 새 엔드포인트로 옮겨갔다
-- [ ] `backend/database.json` 삭제 (SQLite 이관 완료됨)
-- [ ] PLAUSIBLE 2건 재검증 — 아래 "코드 리뷰 발견 사항" 참고
-- [ ] `lucide-react` 쓰거나 제거 (설치돼 있으나 import 0건)
-- [ ] 미사용 CSS 토큰 정리 (`--bg-secondary`, `--shadow-premium` 등)
-- [ ] `--primary: #5c64ec`인데 실제 CSS는 `rgba(99,102,241,…)`를 쓰는 불일치
+전부 완료 ✅ 2026-08-27 — 상세는 "완료" 섹션 참고.
 
 ---
 
@@ -93,6 +88,9 @@ Phase 7(원격조종)이 마지막으로 붙인 기능인데 미해결 항목이
       - [ ] 카메라 → detector 데이터 흐름 설계 필요 (RTSP/HTTP 스트리밍/파일 감시 중
             방식 미정, 낙상 스냅샷을 `POST /api/detections`로 보낼 인코딩도 미정)
 - [ ] **라즈베리파이 5 실물 배포** — kiosk 모드, systemd, 카메라/마이크 연결
+      - [ ] **원격조종 네트워크 지연/단절 정책** (Phase 7 잔여) — 500ms 데드맨보다 명령
+            전송이 늦어지면 로봇이 끊겨 이동하거나 정지 요청이 유실될 수 있다. 시뮬레이션
+            상태에선 드러나지 않고 실물에서만 문제가 되므로 여기서 결정한다
       - [ ] 와이파이가 동아리방 SSID로만 등록돼 있어 다른 장소(기숙사 등) 이동 시 연결
             끊김. 실물 파이가 생기면: NetworkManager에 여러 SSID 등록(우선순위 설정) +
             대회장 등 미지의 장소 대비 스마트폰 핫스팟(고정 SSID/비번)도 등록
@@ -155,15 +153,14 @@ preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다. quic
 
 CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIRMED 5건 수정" 참고.
 
-### 추정 (PLAUSIBLE — 단일 finder, 재검증 필요)
-- [ ] `frontend/src/lib/useGuardianData.js:54` — 모든 SSE 이벤트(채팅 턴마다)가
-      3개 엔드포인트 전체 재조회를 트리거하고, SSE가 정상 연결 중에도 30초 폴백
-      폴링이 무조건 실행됨. 이벤트 페이로드로 로컬 상태만 갱신하도록 개선 검토.
-      (EC2 t3.nano/small처럼 자원이 제한된 환경으로 옮기면 서버 부하로 이어질 수 있어
-      우선순위가 올라갈 수 있음)
-- [ ] `backend/src/services/gemini.js:166` — `analyzeImage()`가 `services/snapshots.js`의
-      `parseDataUri()`를 재사용하지 않고 자체 정규식을 재구현, 두 정규식의 허용
-      범위가 미묘하게 다름(빈 base64 페이로드 처리 차이). 하나로 통합 검토.
+### 추정 (PLAUSIBLE — 재검증 완료 ✅ 2026-08-27)
+- [x] `frontend/src/lib/useGuardianData.js:54` — 재검증 결과 실제 비효율 확인. 전체
+      재조회 자체는 의도된 설계(화면 수가 적어 부분 갱신보다 단순함이 낫다는 판단)라
+      유지하되, SSE가 연결돼 있는 동안엔 30초 폴백 폴링을 스킵하도록 수정
+- [x] `backend/src/services/gemini.js:166` — 정규식 quantifier 불일치(`.*` vs `.+`)
+      확인. `snapshots.js`의 `parseDataUri()`와 동일하게 `.+`로 맞춰 빈 base64
+      페이로드를 `bad_data_uri`로 거르도록 수정 (두 함수를 하나로 합치는 것까지는
+      이번 스코프 밖 — 재구현 통합은 미룸)
 
 ---
 
@@ -189,8 +186,17 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
   남은 것: 알림 상세 화면(`/guardian/alerts/:id`) 없어 딥링크 불가, iOS 미검증.
 - 코드리뷰 CONFIRMED 5건 수정 ✅ 2026-08-27 (쿨다운 severity 무시, 스냅샷 401, 다중 알림
   오재생, 웨이크워드 게이트 우회, 저장 실패 무음)
-- Phase 7 — 원격조종 시뮬레이션 ✅ 2026-08-27. 남은 것은 "지금 할 것" 섹션 참고.
+- Phase 7 — 원격조종 시뮬레이션 ✅ 2026-08-27. 안전 로직 테스트(데드맨 자동정지, 응급 중
+  423 잠금, 잘못된 방향 400, `durationMs` 회귀)까지 완료 — `test/motion.test.js`,
+  `test/control.test.js`. `ControlScreen.jsx` 위치 dot 클램핑 + 중복 요청 방지,
+  `motion.js`의 자체 `nowISO()` → `db/index.js` 공용 함수 교체도 완료.
+  남은 것은 실물 배포 때 정할 네트워크 지연/단절 정책 하나뿐(위 "큰 것들" 참고).
 - Phase 7 code-review 수정 ✅ 2026-08-27 — 데드맨 타이머가 `durationMs`보다 먼저 끝나던
-  버그. Low 4건은 "지금 할 것"으로 이동 완료.
+  버그.
 - Bedrock 어댑터 구현 → 계정 미지원 확인 → 전면 제거 ✅ 2026-08-27 — 이유는 위
   "취소됨" 참고.
+- 정리 라운드 ✅ 2026-08-27 — 구버전 호환 라우트 3개(`GET /api/history`,
+  `POST /remote-message`, `GET /remote-message/poll`) 제거, `backend/database.json`
+  삭제, `useGuardianData.js` SSE 연결 중 폴백 폴링 스킵, `gemini.js` base64 정규식을
+  `snapshots.js`와 통일, `lucide-react` 제거, 미사용 CSS 토큰 8개 삭제, `--primary`
+  색상 불일치 수정. 백엔드 테스트 38/38, 프론트 빌드 통과.
