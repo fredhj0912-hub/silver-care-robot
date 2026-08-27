@@ -46,15 +46,11 @@
 
 ### 취소됨 — Phase 6(Bedrock) / Phase 8(Polly·Transcribe)
 
-Bedrock 어댑터(`services/bedrock.js`, `services/llm.js`, `history.js`의 변환 계층)를 실제로
-만들어 테스트까지 마쳤으나, 계정이 Bedrock을 지원하지 않는다는 것이 확정되어 **전부
-제거했다**(2026-08-27). 안내 문서엔 사용 가능하다고 적혀 있었지만 `BedrockDeny` 명시적
-거부 정책이 걸려 있었고, explicit deny는 EC2 IAM Role을 거쳐도 우회 불가다.
-
-**그 과정에서 남은 유용한 부산물**: `backend/.env.example`,
-`docs/deploy-ec2-aws-test.md`(EC2 생성 절차), S3 스냅샷 provider 스위치, `verify-s3` 스크립트.
-그리고 "어댑터만 갈면 된다"는 가정이 스키마 CHECK 제약까지는 커버하지 못한다는 것도
-확인했다(`messages.source`) — RDS 이전 때 참고할 것.
+Bedrock 어댑터까지 실제로 만들어 테스트했으나, 계정이 Bedrock을 지원하지 않는다는 것이
+확정되어 **전부 제거했다**(2026-08-27, 상세는 git log). 안내 문서엔 사용 가능하다고
+적혀 있었지만 `BedrockDeny` 명시적 거부 정책이 걸려 있었고, explicit deny는 EC2 IAM
+Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 스키마 CHECK 제약까지는
+커버하지 못한다는 것도 확인했다(`messages.source`) — RDS 이전 때 참고할 것.
 
 ---
 
@@ -72,6 +68,8 @@ Phase 7(원격조종)이 마지막으로 붙인 기능인데 미해결 항목이
       위치 표시가 튄다
 - [ ] `services/motion.js`의 자체 `nowISO()` → `db/index.js`의 공용 함수로 교체
       (backend/CLAUDE.md 규칙)
+- [ ] 네트워크 지연/단절 시 동작 미정 — 500ms 데드맨보다 명령 전송이 늦어지면 로봇이
+      끊겨 이동하거나 정지 요청이 유실될 수 있음. 실물 배포 전 정책 필요
 
 ---
 
@@ -93,10 +91,16 @@ Phase 7(원격조종)이 마지막으로 붙인 기능인데 미해결 항목이
 - [ ] **YOLOv8 낙상 감지 실제 구현** — 백엔드 계약(`POST /api/detections`)과 mock은 이미
       완성돼 있다. `detector/` 디렉터리에 Python(FastAPI) 서비스를 만들어 계약대로
       POST만 하면 되고 **백엔드 변경은 불필요**하다. `docs/fall-detection.md` 참고
+      - [ ] 카메라 → detector 데이터 흐름 설계 필요 (RTSP/HTTP 스트리밍/파일 감시 중
+            방식 미정, 낙상 스냅샷을 `POST /api/detections`로 보낼 인코딩도 미정)
 - [ ] **라즈베리파이 5 실물 배포** — kiosk 모드, systemd, 카메라/마이크 연결
       - [ ] 와이파이가 동아리방 SSID로만 등록돼 있어 다른 장소(기숙사 등) 이동 시 연결
             끊김. 실물 파이가 생기면: NetworkManager에 여러 SSID 등록(우선순위 설정) +
             대회장 등 미지의 장소 대비 스마트폰 핫스팟(고정 SSID/비번)도 등록
+      - [ ] YOLOv8을 파이5에서 CPU로 돌릴 때 가속(ONNX Runtime/OpenVINO) 여부와
+            목표 FPS 미정
+      - [ ] 파이 ↔ 백엔드(EC2 이전 시) ↔ 보호자 앱 간 네트워크 구성 미정
+            (퍼블릭 도메인 vs 로컬 터널 유지 여부)
 - [ ] 프론트엔드 컴포넌트 테스트 환경(jsdom/RTL) 도입
 
 ---
@@ -116,7 +120,8 @@ Phase 7(원격조종)이 마지막으로 붙인 기능인데 미해결 항목이
 - [x] `local`/`s3` provider 스위치 (`SNAPSHOT_STORAGE` env), `@aws-sdk/client-s3` 추가
 - [x] 프론트엔드 `assetUrl()`은 그대로 — 항상 `/api/snapshots/:filename` 프록시로 서빙해서
       S3 여부와 무관하게 LAN 키 인증이 안 깨지게 설계
-- [x] `npm run verify-s3` 스모크 테스트
+- [x] `npm run verify-s3` 스모크 테스트 (로컬은 `SNAPSHOT_STORAGE=local` 왕복만 확인 —
+      `s3` 모드는 스크립트 주석대로 로컬에서 Access Key 문제로 항상 실패하는 게 정상)
 - [ ] 버킷 생성(이름은 username으로 시작) + EC2에서 `SNAPSHOT_STORAGE=s3`로 실제 확인
 
 ### EC2 배포
@@ -124,6 +129,8 @@ Phase 7(원격조종)이 마지막으로 붙인 기능인데 미해결 항목이
 연결 필요(생성 마법사 중엔 안 보일 수 있음), 보안 그룹도 새로 만들어야 하고 태그가 붙기까지
 5~10초 지연이 있다. EC2로 가면 cloudflared 터널이 불필요해진다(도메인 + ACM으로 정식 HTTPS)
 — 아래 터널 안내는 그때 걷어낸다.
+`t3.nano`(512MB)/`t3.small`(2GB)에서 백엔드+스냅샷 처리를 같이 돌리면 메모리 부족
+가능성이 있다 — 실사용 전 메모리 사용량 확인.
 
 ### RDS PostgreSQL — 가장 비쌈, 마지막
 **[선행 필수] 리포지토리 async 전환**을 독립 작업으로 먼저 해야 한다. `repositories/*.js`
@@ -153,6 +160,8 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 - [ ] `frontend/src/lib/useGuardianData.js:54` — 모든 SSE 이벤트(채팅 턴마다)가
       3개 엔드포인트 전체 재조회를 트리거하고, SSE가 정상 연결 중에도 30초 폴백
       폴링이 무조건 실행됨. 이벤트 페이로드로 로컬 상태만 갱신하도록 개선 검토.
+      (EC2 t3.nano/small처럼 자원이 제한된 환경으로 옮기면 서버 부하로 이어질 수 있어
+      우선순위가 올라갈 수 있음)
 - [ ] `backend/src/services/gemini.js:166` — `analyzeImage()`가 `services/snapshots.js`의
       `parseDataUri()`를 재사용하지 않고 자체 정규식을 재구현, 두 정규식의 허용
       범위가 미묘하게 다름(빈 base64 페이로드 처리 차이). 하나로 통합 검토.
@@ -173,106 +182,16 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 
 ## 완료
 
-### Phase 0 — 기반 재설계 ✅ 2026-08-26
-- [x] Gemini 실사용 여부 실측 → 정상 동작 확인, SDK 마이그레이션 불필요했음
-- [x] `gemini-3.7-flash` 503 다발 → `gemini-3.6-flash` 기본값 + 재시도/대체 모델 체인
-- [x] SQLite 전환 (`node:sqlite`, 네이티브 빌드 없음). 대화 53건 / 알림 22건 이관
-- [x] `server.js` 575줄 → 진입점 + `src/` 22개 모듈로 분리
-- [x] SSE 이벤트 채널 신설 (`GET /api/events`)
-- [x] 파괴적 GET 폴링 제거 → 조회/ack 분리
-- [x] 응급 키워드 오탐 수정 ('숨' 단독 매칭이 "한숨"에 걸리던 문제)
-- [x] 스냅샷 base64 100자 절단 버그 수정 → 파일 저장
+상세 변경 이력은 git log 참고 (`PR #1`, `e90616a`~`26b2124`가 main에 merge됨).
 
-### Phase 1 — 대화 안정화 + 웨이크워드 + 서버 TTS ✅ 2026-08-26
-- [x] 히스토리 슬라이딩 윈도우 버그 수정 (턴 쌍 단위 절단)
-- [x] 웨이크워드 게이팅 — "효돌아" + 오인식 변형 24개, **응급어는 게이트 우회**
-- [x] STT 어댑터 분리 (`lib/stt.js`) — 나중에 Cloud STT로 교체 가능
-- [x] 서버 TTS 3-provider 구조 + 디스크 캐시 (4221ms → 8ms)
-
-### Phase 2 — 응급 감지 파이프라인 ✅ 2026-08-26
-- [x] 카메라 캡처 연결 (`useCameraMonitor.js`) — 기본 비활성, 옵트인
-- [x] `docs/fall-detection.md` 인수인계 문서
-
-### Phase 3 — 대화 로그 조회 ✅ 2026-08-26
-- [x] 보관 정책 스크립트 (`purge-old-messages.js`, 90일)
-- [x] 일일 요약 시간대 버그 수정 (UTC 자정 → KST 자정)
-- [x] 일일 요약 과거 날짜 조회 버그 수정 (200건 초과 시 0건 반환하던 문제)
-
-### Phase 4 — 보호자 PWA ✅ 2026-08-26
-- [x] react-router 도입, 한 빌드에 키오스크 + 보호자 앱
-- [x] 5개 화면: 안부(홈) / 알림 / 대화 / 보내기 / 방 안 모습
-- [x] 홈을 대시보드가 아닌 "효돌이가 남긴 안부 쪽지"로 설계
-- [x] 응급 시 화면 전체 상태 전환
-- [x] PWA 매니페스트 + 서비스 워커 (`/api/*`는 캐시하지 않음)
-- [x] 키오스크 전용 전역 CSS를 `.kiosk-root`로 스코핑
-- [x] **안드로이드 실기기 검증 완료** — SSE 실시간 전환, 확인 버튼 왕복, PWA 설치
-- [x] 실기기에서 발견: 대화 로그가 최신 메시지에서 열리지 않던 문제 수정
-
-### Phase 5 — 응급 푸시 알림 ✅ 2026-08-27
-- [x] **표준 Web Push(VAPID)로 결정** — AWS SNS Mobile Push를 검토했으나, 보호자 앱이
-      네이티브가 아니라 PWA라 SNS를 쓰려면 Firebase(FCM)를 반드시 경유해야 한다.
-      결과물은 같은데 설정 레이어만 늘어난다. AWS 자원은 Bedrock/Polly/Transcribe/S3에 쓴다.
-- [x] `services/notify.js` — `raise()`가 **critical일 때만** fire-and-forget 호출.
-      만료 구독(404/410) 자동 정리, 발송 결과를 반드시 로그로 남긴다
-      (`[PUSH] n/m대 발송 완료` 또는 실패 사유) — 조용한 실패가 이 시스템에서 가장 위험하다
-- [x] `routes/push.js` — subscribe/unsubscribe. `repositories/subscriptions.js`는
-      이미 있었지만 어디에도 연결돼 있지 않던 것을 그대로 재사용
-- [x] `public/sw.js` — `push` + `notificationclick` 핸들러
-- [x] `lib/push.js` + HomeScreen 권한 요청 배너 (iOS 설치 안내 포함)
-- [x] cloudflared quick tunnel로 HTTPS 확보 (AWS 계정에 도메인이 없어 ACM 불가)
-- [x] **안드로이드 실기기 검증 완료** — 낙상 감지 → 잠금화면 푸시 수신 → 클릭 →
-      앱 진입 → "확인했어요" → 비상 상태 자동 해제까지 왕복 전부 확인
-
-**남은 것**: 푸시 클릭 시 `/guardian/alerts`(목록)로 간다. 개별 알림 상세 화면
-(`/guardian/alerts/:id`)이 없어서 딥링크를 걸 수 없었다 — 필요하면 별도 작업.
-iOS는 홈 화면에 설치한 PWA에서만 푸시가 동작 (미검증, 안드로이드만 확인함).
-
-### 코드리뷰 CONFIRMED 5건 수정 ✅ 2026-08-27
-- [x] `alerts.js` 쿨다운이 severity를 무시 → `hasRecentOfType()`에 severity 인자 추가,
-      severity별로 쿨다운 창 분리 (warning이 critical을 억제하던 문제)
-- [x] 스냅샷 `<img>`가 인증 없이 요청돼 `ROBOT_API_KEY` 설정 시 401 →
-      `lib/api.js`에 `assetUrl()` 헬퍼 추가(`?key=` 부착), 두 화면에 적용
-- [x] `resolveActiveAlert()`가 다중 알림 시 안심 TTS 오재생 → deprecated `/api/history`
-      대신 `/api/alerts?resolved=false` 사용, 서버가 준 실제 `isEmergency`로만 판단
-- [x] `handleTextSubmit`이 웨이크워드 게이트 우회 → `decideAction()` 경유하도록 수정
-- [x] 스냅샷 저장 실패(8MB 초과 등)가 로그 없이 조용히 넘어가던 문제 → `console.error` 추가
-
-### Phase 7 — 원격조종 시뮬레이션 ✅ 2026-08-27
-- [x] `backend/src/services/motion.js` — `move()`/`stop()`/`getState()`,
-      500ms 데드맨 스위치 (명령 갱신 없으면 자동 정지)
-- [x] `backend/src/routes/control.js` — `POST /api/control/move`(응급 중 423 잠금),
-      `GET /api/control/state`
-- [x] `emergency.js` — 응급 진입 시 밀린 move 명령 폐기(`dropPending('move')`) + `motion.stop()`
-- [x] 키오스크: deprecated `/api/remote-message/poll` 폴링 → `/api/commands/pending` + ack로
-      교체(`speak`/`move` 둘 다 처리), 이동 방향 인디케이터 표시.
-      **PLAUSIBLE 발견사항 1건(SSE 있는데 deprecated 폴링 씀)도 같이 해결됨**
-- [x] 보호자 앱 `/guardian/control` 신설 — D-패드 + 가상 평면도, 홈 화면에 진입 타일 추가
-- [x] curl로 수동 검증: 이동/좌표 갱신, 잘못된 방향 400, 데드맨 자동정지, 응급 중 423 잠금
-
-**남은 것**: 실물 구동부 연결(라즈베리파이 배포 라운드에서), D-패드는 클릭 단발만 지원
-(누르고 있기/연속 이동 없음), 평면도 좌표는 가상 단위라 실제 방 치수와 무관.
-`useGuardianData.js`의 SSE 이벤트마다 전체 재조회하는 문제(PLAUSIBLE)는 미해결로 남음.
-
-### Phase 7 code-review (2026-08-27) — Medium 수정, Low는 백로그로 이동 ✅
-- [x] `motion.js` — 데드맨 타이머(500ms)가 요청한 `durationMs`(최대 3000ms)보다 먼저
-      끝나 긴 이동이 도중에 끊기던 문제. `resetDeadman()`이 `max(DEADMAN_MS, durationMs)`로
-      타이머를 잡도록 수정
-- Low 4건은 "백로그 → 정리"로 이동 (아래 참고): `nowISO()` 중복 구현, control 라우트/motion
-  서비스 테스트 부재, 가상 위치 dot 클램핑 누락, D-패드 연타 시 요청 중복
-
-### PR #1 — main에 merge 완료 ✅ 2026-08-27
-백엔드 모듈화 + SQLite + 보호자 PWA + 응급 푸시 알림 + 원격조종 시뮬레이션,
-`e90616a`~`26b2124` 전체가 `main`에 반영됨.
-
-### Bedrock 어댑터 구현 → 계정 미지원 확인 → 전면 제거 ✅ 2026-08-27
-Bedrock 전환(Phase 6)을 코드까지 완성했으나 대회 계정이 Bedrock을 지원하지 않는 것이
-확정되어 되돌렸다. 절대 실행되지 않는 죽은 코드를 남기지 않기 위한 결정.
-- [x] 제거: `services/bedrock.js`, `services/llm.js`, `services/jsonUtil.js`,
-      `scripts/verify-bedrock.js`, `scripts/migrate-add-bedrock-source.js`,
-      `@aws-sdk/client-bedrock-runtime` 의존성
-- [x] 되돌림: `parseJSON`을 `gemini.js` 안으로 복귀, `history.js`의 `toBedrockMessages()`
-      제거, 라우트는 다시 `gemini`를 직접 호출, `schema.sql` CHECK 제약 원복
-      (실제 DB엔 마이그레이션이 적용된 적 없어 데이터 작업 불필요했음)
-- [x] 유지: `@aws-sdk/client-s3`와 S3 스냅샷 코드, `.env.example`,
-      `docs/deploy-ec2-aws-test.md`(S3/EC2 전용으로 재작성)
-- [x] `test/api.test.js`의 kill-switch를 `LLM_PROVIDER` → `SNAPSHOT_STORAGE='local'`로 교체
+- Phase 0~4(기반 재설계·대화 안정화·응급 감지·대화 로그·보호자 PWA) ✅ 2026-08-26 —
+  안드로이드 실기기 검증 완료.
+- Phase 5 — 응급 푸시 알림 ✅ 2026-08-27. 안드로이드 실기기 검증 완료.
+  남은 것: 알림 상세 화면(`/guardian/alerts/:id`) 없어 딥링크 불가, iOS 미검증.
+- 코드리뷰 CONFIRMED 5건 수정 ✅ 2026-08-27 (쿨다운 severity 무시, 스냅샷 401, 다중 알림
+  오재생, 웨이크워드 게이트 우회, 저장 실패 무음)
+- Phase 7 — 원격조종 시뮬레이션 ✅ 2026-08-27. 남은 것은 "지금 할 것" 섹션 참고.
+- Phase 7 code-review 수정 ✅ 2026-08-27 — 데드맨 타이머가 `durationMs`보다 먼저 끝나던
+  버그. Low 4건은 "지금 할 것"으로 이동 완료.
+- Bedrock 어댑터 구현 → 계정 미지원 확인 → 전면 제거 ✅ 2026-08-27 — 이유는 위
+  "취소됨" 참고.
