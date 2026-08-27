@@ -77,6 +77,23 @@
   border-color: var(--accent-amber);
 }
 
+/* 보호자 원격조종으로 이동 명령을 받았을 때 잠깐 보여주는 방향 인디케이터 —
+   로봇이 명령을 받았다는 시각 피드백이 없으면 어르신 눈에는 로봇이 저절로 움직이는 것처럼 보인다. */
+.move-indicator {
+  position: fixed;
+  top: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  font-size: 1.1rem;
+  color: var(--primary);
+  background: var(--primary-glow);
+  border: 1px solid var(--primary);
+  pointer-events: none;
+}
+
 html, body, #root {
   width: 100%;
   min-height: 100%;

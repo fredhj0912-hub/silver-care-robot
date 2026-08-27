@@ -82,6 +82,11 @@ function raise({ type, severity = 'critical', description, confidence = null, sn
 
     // 보호자 브라우저로 Web Push. fire-and-forget — 실패해도 알림 생성 자체는 막지 않는다.
     require('./notify').send(alert).catch((err) => console.error('[PUSH] 발송 실패:', err.message));
+
+    // 응급 상황 진입 — 밀려 있던 이동 명령을 폐기하고 즉시 정지한다 (원격 조종 잠금은
+    // routes/control.js가 이후 요청을 막지만, 이미 큐에 있던 명령은 여기서 걷어내야 한다).
+    require('../repositories/commands').dropPending('move');
+    require('./motion').stop();
   }
 
   emit(EVENTS.ALERT_CREATED, alert);

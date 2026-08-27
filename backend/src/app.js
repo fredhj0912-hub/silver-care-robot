@@ -8,6 +8,7 @@ const chatRoutes = require('./routes/chat');
 const alertRoutes = require('./routes/alerts');
 const visionRoutes = require('./routes/vision');
 const commandRoutes = require('./routes/commands');
+const controlRoutes = require('./routes/control');
 const eventRoutes = require('./routes/events');
 const ttsRoutes = require('./routes/tts');
 const pushRoutes = require('./routes/push');
@@ -54,6 +55,7 @@ function createApp() {
   app.use('/api', alertRoutes);
   app.use('/api', visionRoutes);
   app.use('/api', commandRoutes);
+  app.use('/api', controlRoutes);
   app.use('/api', eventRoutes);
   app.use('/api', ttsRoutes);
   app.use('/api', pushRoutes);

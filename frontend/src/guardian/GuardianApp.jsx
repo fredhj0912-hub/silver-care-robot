@@ -7,6 +7,7 @@ import AlertsScreen from './screens/AlertsScreen';
 import LogScreen from './screens/LogScreen';
 import SendScreen from './screens/SendScreen';
 import LiveScreen from './screens/LiveScreen';
+import ControlScreen from './screens/ControlScreen';
 import './guardian.css';
 
 const TABS = [
@@ -34,6 +35,7 @@ function GuardianApp() {
         <Route path="log" element={<LogScreen />} />
         <Route path="send" element={<SendScreen />} />
         <Route path="live" element={<LiveScreen />} />
+        <Route path="control" element={<ControlScreen isEmergency={emergency} />} />
       </Routes>
 
       <nav className="g-tabs">

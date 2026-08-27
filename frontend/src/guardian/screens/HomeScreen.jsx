@@ -97,6 +97,10 @@ function HomeScreen({ status, openAlerts, summary, connected, refresh }) {
             {openAlerts.length}건
           </span>
         </Link>
+        <Link className="g-tile" to="/guardian/control">
+          <span className="g-tile__label">원격 조종</span>
+          <span className="g-tile__value">이동시키기</span>
+        </Link>
       </div>
 
       {recent.length > 0 && (

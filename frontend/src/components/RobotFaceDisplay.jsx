@@ -9,6 +9,8 @@ import { useCameraMonitor } from '../lib/useCameraMonitor';
 const VISION_ENABLED = import.meta.env.VITE_VISION_ENABLED === 'true';
 const VISION_INTERVAL_MS = Number(import.meta.env.VITE_VISION_INTERVAL_MS) || 15000;
 
+const MOVE_ARROWS = { up: '⬆️', down: '⬇️', left: '⬅️', right: '➡️' };
+
 /**
  * RobotFaceDisplay — 라즈베리파이 7인치 디스플레이(800×480) 전용 전체 화면 로봇 얼굴 컴포넌트.
  * 
@@ -55,6 +57,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
 
   // 이 브라우저에서 음성 인식이 아예 안 되는 경우 (텍스트 입력만 안내)
   const [sttUnavailable, setSttUnavailable] = useState(false);
+
+  // 보호자 원격조종 이동 인디케이터 — 방향을 잠깐 보여주고 사라진다
+  const [moveDirection, setMoveDirection] = useState(null);
+  const moveIndicatorTimerRef = useRef(null);
 
   // ──────────────────────────────────────────────
   // 카메라 모니터링 (기본 비활성 — VITE_VISION_ENABLED=true 로 켠다)
@@ -321,30 +327,44 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   }, [handleTranscript, startListening]);
 
   // ──────────────────────────────────────────────
-  // 보호자 원격 메시지 폴링
+  // 보호자 명령 큐 폴링 (speak / move)
+  //
+  // 예전에는 deprecated GET /api/remote-message/poll 을 썼다 — SSE(command.issued)가
+  // 이미 있는데도 프론트가 옮겨가지 않았던 것. 이제 현재 API(/api/commands/pending)로
+  // 조회하고 ack 한다. 완전한 SSE 전환은 이번 범위 밖이라 폴링 방식은 유지한다.
   // ──────────────────────────────────────────────
   useEffect(() => {
-    const pollRemoteMessages = async () => {
+    const pollCommands = async () => {
       try {
-        const res = await apiFetch('/api/remote-message/poll');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.message) {
-            setRobotSpeech(`보호자님 메시지: ${data.message.text}`);
+        const res = await apiFetch('/api/commands/pending');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        for (const command of data.commands) {
+          if (command.kind === 'speak') {
+            setRobotSpeech(`보호자님 메시지: ${command.payload.text}`);
             // 보호자가 말을 걸었으니 어르신이 바로 대답할 수 있게 창을 열어둔다.
             // 이때 "효돌아"부터 다시 불러야 한다면 대화가 끊긴다.
             openGate();
-            speakText(data.message.text);
+            speakText(command.payload.text);
             onStatusChange();
+          } else if (command.kind === 'move') {
+            setMoveDirection(command.payload.direction);
+            clearTimeout(moveIndicatorTimerRef.current);
+            moveIndicatorTimerRef.current = setTimeout(() => setMoveDirection(null), 1500);
           }
+          await apiFetch(`/api/commands/${command.id}/ack`, { method: 'POST' });
         }
       } catch (err) {
-        console.error('Remote message poll error:', err);
+        console.error('Command poll error:', err);
       }
     };
 
-    const interval = setInterval(pollRemoteMessages, 2500);
-    return () => clearInterval(interval);
+    const interval = setInterval(pollCommands, 2500);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(moveIndicatorTimerRef.current);
+    };
   }, [onStatusChange, speakText, openGate]);
 
   // ──────────────────────────────────────────────
@@ -602,6 +622,13 @@ function RobotFaceDisplay({ status, onStatusChange }) {
           {aiSource.source === 'gemini'
             ? `AI 연결됨${aiSource.model ? ` · ${aiSource.model}` : ''}`
             : `mock 응답${aiSource.reason ? ` · ${aiSource.reason}` : ''}`}
+        </div>
+      )}
+
+      {/* 보호자 원격조종 이동 인디케이터 — 명령을 받았다는 시각 피드백 */}
+      {moveDirection && (
+        <div className="move-indicator">
+          {MOVE_ARROWS[moveDirection]} 이동 중
         </div>
       )}
 
