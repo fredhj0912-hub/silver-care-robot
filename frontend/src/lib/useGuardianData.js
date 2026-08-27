@@ -36,6 +36,9 @@ export function useGuardianData() {
   const refreshRef = useRef(refresh);
   useEffect(() => { refreshRef.current = refresh; }, [refresh]);
 
+  const connectedRef = useRef(connected);
+  useEffect(() => { connectedRef.current = connected; }, [connected]);
+
   useEffect(() => {
     refreshRef.current();
 
@@ -61,8 +64,11 @@ export function useGuardianData() {
     source.onerror = () => setConnected(false);
     source.onopen = () => setConnected(true);
 
-    // SSE가 죽어 있어도 화면이 완전히 멈추지 않도록 느린 폴링을 함께 둔다
-    const fallback = setInterval(() => refreshRef.current(), 30000);
+    // SSE가 죽어 있어도 화면이 완전히 멈추지 않도록 느린 폴링을 함께 둔다.
+    // SSE가 이미 연결돼 있으면 굳이 또 조회할 필요 없다.
+    const fallback = setInterval(() => {
+      if (!connectedRef.current) refreshRef.current();
+    }, 30000);
 
     return () => {
       clearInterval(fallback);
