@@ -61,7 +61,6 @@ test/
 
 ## Gotchas
 
-- `lucide-react` is a dependency but unused anywhere in `src/` — use it or drop it, don't assume it's wired up.
 - Kiosk-only globals in `index.css` (`user-select:none`, page-scroll lock via `body:has(.kiosk-root)`, hidden scrollbars) are scoped to `.kiosk-root`. Moving them back onto `*` or bare `body` breaks guardian-app scrolling.
 - The service worker never caches `/api/*` — a stale "평온해요" is worse than no answer. Keep it that way.
 - **`main.jsx` registers `sw.js` in PROD builds only**, so `npm run dev` has no service worker and therefore no push at all. Testing push means `npm run build && npm run preview` (port 4173) — not the dev server. Web Push also requires HTTPS, so a phone test needs a tunnel; `vite.config.js` allows `.trycloudflare.com` in both `server` and `preview` for that.

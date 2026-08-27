@@ -27,14 +27,10 @@
 
 :root {
   --bg-primary: #1a1a24;
-  --bg-secondary: #22222e;
-  --bg-glass: rgba(30, 30, 40, 0.65);
-  --bg-glass-hover: rgba(40, 40, 50, 0.8);
   --border-glass: rgba(255, 255, 255, 0.08);
 
   --primary: #5c64ec;
   --primary-glow: rgba(92, 100, 236, 0.4);
-  --primary-hover: #4a52d4;
 
   --accent-emerald: #10b981;
   --accent-emerald-glow: rgba(16, 185, 129, 0.2);
@@ -43,12 +39,8 @@
   --accent-amber: #f59e0b;
 
   --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
 
   --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  --shadow-premium: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-  --shadow-glow: 0 0 20px var(--primary-glow);
 }
 
 /* 개발용 AI 연결 상태 배지 — 어르신에게는 보이지 않고 개발 중에만 표시된다.
@@ -422,7 +414,7 @@ body:has(.kiosk-root) {
 
 .text-chat-input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 0 12px var(--primary-glow);
 }
 
 .text-chat-submit {
@@ -440,7 +432,7 @@ body:has(.kiosk-root) {
 
 .text-chat-submit:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.5);
+  box-shadow: 0 4px 12px rgba(92, 100, 236, 0.5);
 }
 
 .text-chat-submit:disabled {
