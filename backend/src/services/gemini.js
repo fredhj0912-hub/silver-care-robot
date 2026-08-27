@@ -163,7 +163,7 @@ async function analyzeImage(dataUri) {
   const genAI = getClient();
   if (!genAI) return { ...fallback, error: config.geminiApiKey ? 'sdk_unavailable' : 'no_api_key' };
 
-  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/s.exec(dataUri);
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(dataUri);
   if (!match) return { ...fallback, error: 'bad_data_uri' };
 
   try {
