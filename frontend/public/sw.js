@@ -73,6 +73,14 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       const existing = clients.find((c) => new URL(c.url).pathname === url);
       if (existing) return existing.focus();
+
+      // 앱이 다른 화면에 이미 열려 있으면 새 창을 띄우는 대신 그 창을 이동시킨다.
+      // navigate()가 실패해도(엔진 미지원 등) 새 창 폴백으로 이어져야 클릭이 무반응이 안 된다.
+      const guardianWindow = clients.find((c) => new URL(c.url).pathname.startsWith('/guardian'));
+      if (guardianWindow) {
+        return guardianWindow.navigate(url).then((c) => c.focus()).catch(() => self.clients.openWindow(url));
+      }
+
       return self.clients.openWindow(url);
     })
   );
