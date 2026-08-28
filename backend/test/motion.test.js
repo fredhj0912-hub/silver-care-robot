@@ -43,3 +43,24 @@ test('stop()은 즉시 정지하고 데드맨 타이머를 취소한다', () => 
   assert.strictEqual(state.moving, false);
   assert.strictEqual(state.direction, null);
 });
+
+test('과도한 speed/durationMs는 최대 이동 거리 이상으로 이동시키지 않는다', () => {
+  motion.stop();
+  const before = motion.getState();
+  const atMax = motion.move({ direction: 'right', speed: 100, durationMs: motion.MAX_DURATION_MS });
+  const maxDistance = atMax.x - before.x;
+
+  motion.stop();
+  const before2 = motion.getState();
+  const overMax = motion.move({ direction: 'right', speed: 99999, durationMs: motion.MAX_DURATION_MS * 100 });
+  assert.strictEqual(overMax.x - before2.x, maxDistance, '속도/시간이 과도해도 최대 이동 거리를 넘으면 안 된다');
+});
+
+test('음수 speed/durationMs는 0으로 클램핑되어 위치가 바뀌지 않는다', () => {
+  motion.stop();
+  const before = motion.getState();
+  const state = motion.move({ direction: 'left', speed: -50, durationMs: -100 });
+  assert.strictEqual(state.x, before.x);
+  assert.strictEqual(state.y, before.y);
+  assert.strictEqual(state.moving, true, '이동 거리가 0이어도 moving/direction 상태는 갱신돼야 한다');
+});

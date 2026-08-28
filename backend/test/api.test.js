@@ -79,6 +79,30 @@ test('모든 알림을 해제하면 비상 상태가 내려간다', async () => 
   assert.strictEqual((await get('/api/status')).b.isEmergency, false);
 });
 
+test('수동 SOS 버튼: 기본값이 채워지고 쿨다운을 무시하고 항상 알림을 만든다', async () => {
+  const first = await post('/api/alerts', {});
+  assert.strictEqual(first.b.success, true);
+  assert.strictEqual(first.b.alert.type, 'manual_panic_button');
+  assert.strictEqual(first.b.alert.severity, 'critical');
+  assert.strictEqual(first.b.alert.description, '어르신이 SOS 버튼을 직접 눌렀습니다');
+
+  // 직전과 같은 유형이지만 skipCooldown 이라 음성 발화와 달리 억제되지 않아야 한다
+  const second = await post('/api/alerts', {});
+  assert.strictEqual(second.b.success, true);
+  assert.notStrictEqual(second.b.alert.id, first.b.alert.id);
+
+  for (const a of [first.b.alert, second.b.alert]) {
+    await post('/api/alerts/resolve', { id: a.id, by: 'guardian' });
+  }
+  assert.strictEqual((await get('/api/status')).b.isEmergency, false);
+});
+
+test('수동 SOS: description을 직접 지정하면 그대로 반영된다', async () => {
+  const r = await post('/api/alerts', { description: '커스텀 설명' });
+  assert.strictEqual(r.b.alert.description, '커스텀 설명');
+  await post('/api/alerts/resolve', { id: r.b.alert.id, by: 'guardian' });
+});
+
 test('명령 큐: 조회해도 큐가 비지 않고, ack 해야 사라진다 (구버전 버그 회귀)', async () => {
   const created = await post('/api/commands', { kind: 'speak', payload: { text: '약 드실 시간이에요' } });
   const id = created.b.command.id;
@@ -124,6 +148,24 @@ test('감지 이벤트에 스냅샷을 첨부하면 파일로 저장되고 알�
 
   const img = await fetch(BASE + alert.snapshotUrl, { headers: H });
   assert.strictEqual(img.status, 200, '저장된 스냅샷 파일을 열 수 없다');
+});
+
+test('스냅샷: 존재하지 않는 파일은 404', async () => {
+  const r = await get('/api/snapshots/does-not-exist.jpg');
+  assert.strictEqual(r.s, 404);
+});
+
+test('스냅샷: 경로 순회 시도는 스냅샷 디렉터리를 벗어나지 못하고 404', async () => {
+  // ../../package.json → safeFilename()이 path.basename()으로 디렉터리 부분을 모두
+  // 벗겨내 'package.json'만 남긴다 — 스냅샷 폴더 밖 파일은 애초에 열 수 없다.
+  const r = await get('/api/snapshots/%2e%2e%2f%2e%2e%2fpackage.json');
+  assert.strictEqual(r.s, 404);
+});
+
+test('알림 상세: 존재하지 않는 id는 404', async () => {
+  const r = await get('/api/alerts/999999');
+  assert.strictEqual(r.s, 404);
+  assert.strictEqual(r.b.error, '알림을 찾을 수 없습니다');
 });
 
 test('감지 이벤트: 임계값 미만은 기록만, 이상은 알림', async () => {
