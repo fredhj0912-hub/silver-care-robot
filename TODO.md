@@ -54,23 +54,24 @@ Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 �
 
 ---
 
-## 지금 할 것 — 알림 상세 화면 (`/guardian/alerts/:id`)
+## 지금 할 것 — PR 열기 + 남은 조사 항목
 
-Phase 5(응급 푸시)의 마지막 빠진 조각. 푸시 알림이 실기기까지 잘 도착하는 것은 검증됐지만
-**알림을 눌러도 상세 화면이 없어서 목록으로만 떨어진다.** 보호자가 "무슨 일이지?"를
-확인하기까지 한 단계가 더 필요한 상태 — 데모에서 바로 티가 나는 부분이다.
+`feat/s3-snapshots` 브랜치는 GitHub에 push 완료(2026-08-28), PR은 아직 안 엶 —
+더 완성된 뒤에 열기로 함. PR 열 때 참고: 알림 상세 화면 + S3 안정성 수정이 커밋 4개로
+나뉘어 있음(`93bbff3` feat, `5bf10e8` test, `b4293c3` fix, `5fa8938` chore).
 
-착수 전에 조사할 것 (2026-08-27 세션에서 Explore를 띄웠다가 중단했으므로 여기서부터):
-- [ ] 백엔드에 `GET /api/alerts/:id`가 있는지 (`routes/alerts.js`, `repositories/alerts.js`)
-      — 없으면 신설. `repositories/alerts.js`에 `get(id)`가 있는지부터 확인
-- [ ] `frontend/public/sw.js`의 `notificationclick`이 어디로 보내는지 (하드코딩 URL인지,
-      `event.notification.data`를 쓰는지) — 딥링크의 핵심
-- [ ] `services/notify.js`의 푸시 페이로드에 **alert id가 들어 있는지** — 없으면 SW가
-      상세 화면 주소를 만들 수 없으므로 페이로드부터 고쳐야 한다
-- [ ] `GuardianApp.jsx`에 `:id` 같은 파라미터 라우트 선례가 있는지, 없으면 헤더/뒤로가기
-      패턴을 어떻게 맞출지
-- [ ] 스냅샷 이미지 표시 방법 (`lib/api.js`의 `assetUrl()` — 항상 `/api/snapshots/:filename`
-      프록시로 서빙하도록 이미 설계돼 있음)
+- [ ] `feat/s3-snapshots` → `main` PR 생성 (커밋들은 이미 push됨)
+
+`/ship` adversarial review(2026-08-28)에서 발견했지만 제품 판단이 필요해 자동 수정
+안 하고 남겨둔 것 — INVESTIGATE 2건:
+- [ ] `useGuardianData.js`의 "SSE 연결 중엔 30초 폴백 폴링 스킵" 로직이, EventSource가
+      데이터 없이 죽었는데 `onerror`가 안 뜨는 경우(모바일 PWA 백그라운드 전환 등)
+      `connected`가 계속 stale-true로 남아 보호자 화면이 무기한 멈출 수 있음. 백엔드
+      25초 SSE 하트비트(`events.js`, 기존 코드)가 실제로 충분한지 확인 필요 — 아니면
+      최대 정체 시간 상한 추가
+- [ ] `SNAPSHOT_STORAGE`를 local→s3로 전환하면 기존에 local로 저장된 스냅샷은 `serve()`가
+      찾지 못해 영구히 못 열게 됨(마이그레이션 경로 없음). 프로바이더 전환 계획 세울 때
+      백필 스텝 문서화하거나 파일명에 프로바이더를 같이 저장하는 방식 검토
 
 ---
 
@@ -183,7 +184,21 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 - Phase 0~4(기반 재설계·대화 안정화·응급 감지·대화 로그·보호자 PWA) ✅ 2026-08-26 —
   안드로이드 실기기 검증 완료.
 - Phase 5 — 응급 푸시 알림 ✅ 2026-08-27. 안드로이드 실기기 검증 완료.
-  남은 것: 알림 상세 화면(`/guardian/alerts/:id`) 없어 딥링크 불가, iOS 미검증.
+- 알림 상세 화면(`/guardian/alerts/:id`) ✅ 2026-08-28 — Phase 5 마지막 조각.
+  `GET /api/alerts/:id`는 이미 있었고, 딥링크가 안 되던 원인은 `notify.js` push
+  payload의 `url`이 `/guardian/alerts`(목록) 고정이었던 것. `alert.id`를 넣어 상세
+  화면으로 바로 열리게 수정. `sw.js`의 `notificationclick`도 실기기 테스트에서
+  "이미 열린 창이 있어도 새 창이 뜨는" 문제 발견 → 기존 창 재사용(`navigate()`)으로
+  수정. 안드로이드 실기기 검증 완료(푸시 클릭 → 상세 딥링크 → 기존 창 재사용).
+  iOS 미검증으로 남음.
+- `/ship` 커버리지 감사 + adversarial review 기반 안정성 수정 ✅ 2026-08-28 —
+  가장 중요한 발견: **S3 스냅샷 저장 실패(네트워크 장애 등)가 `snapshots.save()`의
+  async 전환 이후 예외를 던지게 되면서 `emergency.raise()` 퍼널 자체가 죽어
+  SOS 버튼/낙상 감지 알림이 통째로 사라질 수 있었음** — `save()`가 실패 시 null을
+  반환하도록 수정(호출부의 기존 계약 복원). 스트림 에러로 서버 전체가 죽을 수 있던
+  문제, `navigate()` 실패 시 알림 클릭이 무반응이던 문제도 수정. 회귀 테스트
+  (`snapshots.test.js`) + 커버리지 테스트(수동 SOS, 원격조종 클램핑, 스냅샷
+  404/경로순회) 추가. 백엔드 테스트 39 → 47.
 - 코드리뷰 CONFIRMED 5건 수정 ✅ 2026-08-27 (쿨다운 severity 무시, 스냅샷 401, 다중 알림
   오재생, 웨이크워드 게이트 우회, 저장 실패 무음)
 - Phase 7 — 원격조종 시뮬레이션 ✅ 2026-08-27. 안전 로직 테스트(데드맨 자동정지, 응급 중
