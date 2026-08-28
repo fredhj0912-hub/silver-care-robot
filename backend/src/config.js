@@ -98,6 +98,9 @@ function describeStartup() {
   if (config.snapshotStorage === 's3' && !config.s3Bucket) {
     lines.push('⚠️  SNAPSHOT_STORAGE=s3 인데 S3_BUCKET 미설정 → 스냅샷 저장이 실패합니다');
   }
+  if (!['local', 's3'].includes(config.snapshotStorage)) {
+    lines.push(`⚠️  SNAPSHOT_STORAGE="${config.snapshotStorage}"는 알 수 없는 값 → local로 조용히 동작합니다 (오타 확인)`);
+  }
   return lines;
 }
 

@@ -48,6 +48,7 @@ async function saveLocal(name, buffer) {
 
 async function saveS3(name, buffer, mime) {
   const client = getS3Client();
+  if (!client) throw new Error('S3 클라이언트를 사용할 수 없습니다 (@aws-sdk/client-s3 로드 실패)');
   await client.send(new PutObjectCommand({
     Bucket: config.s3Bucket,
     Key: name,
@@ -77,7 +78,15 @@ async function save(dataUri) {
 
   const name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
   const provider = SAVE_PROVIDERS[config.snapshotStorage] || saveLocal;
-  await provider(name, buffer, parsed.mime);
+  try {
+    await provider(name, buffer, parsed.mime);
+  } catch (err) {
+    // 저장 실패(네트워크/S3 장애 등)로 emergency.raise()까지 함께 죽으면 안 된다 —
+    // 호출부(routes/vision.js, routes/alerts.js)는 이미 null을 "사진 없이 계속"으로
+    // 처리하고 있으므로 그 계약을 그대로 지킨다.
+    console.error('[SNAPSHOT] 저장 실패, 사진 없이 진행:', err.message);
+    return null;
+  }
   return name;
 }
 
@@ -90,7 +99,15 @@ function serveLocal(filename, res) {
     return;
   }
   res.setHeader('Cache-Control', 'private, max-age=86400');
-  fs.createReadStream(full).pipe(res);
+  const stream = fs.createReadStream(full);
+  // 스트림 도중 에러(예: 두 체크 사이 파일 삭제)가 나면 unhandled 'error'로
+  // 프로세스 전체가 죽는다 — 요청 하나만 500으로 끝나야 한다.
+  stream.on('error', (err) => {
+    console.error('[SNAPSHOT] 로컬 스트리밍 실패:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: '스냅샷을 읽을 수 없습니다' });
+    else res.destroy();
+  });
+  stream.pipe(res);
 }
 
 /** S3 객체를 res로 스트리밍한다. 없으면 404. */
@@ -101,9 +118,15 @@ async function serveS3(filename, res) {
     return;
   }
   const client = getS3Client();
+  if (!client) throw new Error('S3 클라이언트를 사용할 수 없습니다 (@aws-sdk/client-s3 로드 실패)');
   try {
     const object = await client.send(new GetObjectCommand({ Bucket: config.s3Bucket, Key: safe }));
     res.setHeader('Cache-Control', 'private, max-age=86400');
+    object.Body.on('error', (err) => {
+      console.error('[SNAPSHOT] S3 스트리밍 실패:', err.message);
+      if (!res.headersSent) res.status(500).json({ error: '스냅샷을 읽을 수 없습니다' });
+      else res.destroy();
+    });
     object.Body.pipe(res);
   } catch (err) {
     if (NoSuchKey && err instanceof NoSuchKey) {
