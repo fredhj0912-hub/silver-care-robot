@@ -57,11 +57,11 @@ test('정상 이동은 200과 갱신된 가상 좌표를 반환한다', async ()
 });
 
 test('응급 상황 중에는 원격 조종이 423으로 잠긴다', async () => {
-  statusRepo.update({ isEmergency: true });
+  await statusRepo.update({ isEmergency: true });
   try {
     const r = await post('/api/control/move', { direction: 'down' });
     assert.strictEqual(r.s, 423);
   } finally {
-    statusRepo.update({ isEmergency: false }); // 이후 테스트에 영향 없도록 복원
+    await statusRepo.update({ isEmergency: false }); // 이후 테스트에 영향 없도록 복원
   }
 });
