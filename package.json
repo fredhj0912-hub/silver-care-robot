@@ -4,7 +4,8 @@
   "description": "Local S/W Prototype for Multimodal LLM Silver Care Companion Robot",
   "scripts": {
     "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install",
-    "dev": "node start-all.js"
+    "dev": "node start-all.js",
+    "access": "node refresh-access.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
