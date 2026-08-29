@@ -56,7 +56,20 @@ Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 �
 
 ## 지금 할 것
 
-이전 "PR 열기 + 남은 조사 항목" 3건 전부 완료 ✅ 2026-08-29 — 상세는 "완료" 섹션 참고.
+`PR #2`(https://github.com/fredhj0912-hub/silver-care-robot/pull/2)에 리포지토리
+async 전환까지 담겨 있다. 아직 머지 전 — 머지할지는 사용자 판단.
+
+- [ ] `PR #2` 머지
+
+**로컬에서 할 수 있는 것 / 없는 것** (2026-08-29 확인)
+
+로컬에 AWS CLI가 없고(`aws: command not found`), 계정이 Access Key 발급을 막아
+인증이 IAM Role 전용이다. 따라서 **S3 버킷 생성·EC2 인스턴스 생성·연결 검증은
+전부 콘솔/CloudShell/EC2 안에서만** 가능하다. 낙상 감지·파이 배포도 카메라와 실물
+파이가 없어 실물 검증이 안 된다.
+
+지금 로컬에서 완결 가능한 것은 아래 하나뿐 — 다음 세션은 여기서 시작:
+- [ ] **프론트엔드 컴포넌트 테스트 환경(jsdom/RTL) 도입** (아래 "큰 것들"과 동일 항목)
 
 ---
 
@@ -116,10 +129,21 @@ Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 �
 가능성이 있다 — 실사용 전 메모리 사용량 확인.
 
 ### RDS PostgreSQL — 가장 비쌈, 마지막
-**[선행 필수] 리포지토리 async 전환**을 독립 작업으로 먼저 해야 한다. `repositories/*.js`
-전부와 그 호출자가 async가 되고, `emergency.raise()`가 동기라는 전제가 깨지므로
-**Phase 5의 푸시 호출부도 같이 손봐야 한다**. 그 뒤에 `node:sqlite` → `pg`,
-스키마 이관 + 기존 데이터 마이그레이션.
+
+- [x] **[선행 필수] 리포지토리 async 전환** ✅ 2026-08-29 — 완료. `repositories/*.js` 6개와
+      호출자 전부가 async가 됐다. DB는 아직 `node:sqlite` 그대로이고 동작도 동일하다
+      (테스트 49/49). 푸시는 `raise()`가 async가 된 뒤에도 fire-and-forget을 유지했다 —
+      푸시 지연이 알림 생성을 막으면 안 되기 때문(CLAUDE.md 규칙 5).
+- [ ] `node:sqlite` → `pg`, 스키마 이관 + 기존 데이터 마이그레이션
+- [ ] **[pg 전환과 반드시 같이] `emergency.js`의 `raise()`/`resolveAlert()`를 트랜잭션으로
+      감쌀 것.** async 전환으로 두 곳이 check-then-write가 됐다. 지금은 `DatabaseSync`가
+      동기라 await가 마이크로태스크로만 양보하고 마이크로태스크는 다음 요청보다 먼저
+      전부 소진되므로 **요청 간 끼어들기가 없어 안전하다.** `pg`로 가면 진짜 I/O 양보가
+      되어 실제 경쟁이 발생한다:
+      - `raise()`: 동시 요청이 둘 다 쿨다운을 통과해 중복 알림 생성
+      - `resolveAlert()`: "미해결 수 조회 → isEmergency=false" 사이에 새 critical 알림이
+        끼어들면 그 알림이 켠 비상 상태를 도로 꺼버림 — **보호자가 응급을 놓치는 경로**
+      (코드에도 ⚠️ 주석으로 남겨둠)
 
 ---
 
@@ -168,6 +192,20 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 
 - `feat/s3-snapshots` → `main` PR 생성 ✅ 2026-08-29 — `PR #2`
   (https://github.com/fredhj0912-hub/silver-care-robot/pull/2).
+- **리포지토리 async 전환** ✅ 2026-08-29 — RDS 이전의 선행 필수 작업(위 RDS 섹션 참고).
+  `repositories/*.js` 6개 + 호출자(routes 8개, `notify.js`, `emergency.js`, `server.js`,
+  `purge-old-messages.js`) 전부 async화. DB는 `node:sqlite` 그대로 — 동작 무변경 순수
+  리팩터링. CommonJS는 top-level await가 안 되므로 `server.js`/`purge-old-messages.js`는
+  async IIFE로 감쌌다. `raise()`의 `notify.send()` fire-and-forget과 순수 함수인
+  `classifyUtterance()`의 동기성은 의도적으로 유지.
+- `/review` 발견 사항 수정 ✅ 2026-08-29 — async 전환 리뷰에서 나온 5건:
+  `middleware/index.js`의 errorHandler에 `res.headersSent` 가드 추가(스트리밍 응답이
+  헤더 전송 후 실패하면 `ERR_HTTP_HEADERS_SENT`로 프로세스가 죽을 수 있었음),
+  SSE 라우트의 DB 조회를 `writeHead` 앞으로 이동(같은 이유), `server.js`/
+  `purge-old-messages.js`의 async IIFE에 `.catch()` 추가(부팅 실패가 원인 안 보이는
+  unhandled rejection이 되던 문제), `control.test.js`의 미await `statusRepo.update()`
+  2곳 수정(finally 복원이 floating promise라 이후 테스트로 `isEmergency:true`가
+  샐 수 있었음). 경쟁 조건 2건은 코드 주석 + RDS 섹션에 기록.
 - INVESTIGATE 2건 조사 + 수정 ✅ 2026-08-29:
   - SSE 정체 감지: 백엔드 하트비트가 SSE 주석(`: keepalive`)이라 `EventSource`의 JS
     리스너에 전달되지 않아, "연결은 열려 있지만 응답 없음"을 감지할 방법이 `onerror` 뿐
