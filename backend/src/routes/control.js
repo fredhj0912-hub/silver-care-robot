@@ -1,4 +1,5 @@
 const express = require('express');
+const { asyncHandler } = require('../middleware');
 const commandsRepo = require('../repositories/commands');
 const statusRepo = require('../repositories/status');
 const motion = require('../services/motion');
@@ -12,9 +13,9 @@ const DIRECTIONS = ['up', 'down', 'left', 'right'];
  * 보호자 원격조종 — D-패드 이동.
  * 실물 구동부가 없어 services/motion.js가 가상 좌표로만 시뮬레이션한다.
  */
-router.post('/control/move', (req, res) => {
+router.post('/control/move', asyncHandler(async (req, res) => {
   // 응급 상황 중에는 원격 조종을 잠근다 — 어르신을 확인/구조하는 게 우선이다.
-  if (statusRepo.get().isEmergency) {
+  if ((await statusRepo.get()).isEmergency) {
     return res.status(423).json({ error: '응급 상황 중에는 원격 조종을 사용할 수 없습니다' });
   }
 
@@ -25,11 +26,11 @@ router.post('/control/move', (req, res) => {
 
   const state = motion.move({ direction, speed, durationMs });
 
-  const command = commandsRepo.enqueue({ kind: 'move', payload: { direction, speed, durationMs } });
+  const command = await commandsRepo.enqueue({ kind: 'move', payload: { direction, speed, durationMs } });
   emit(EVENTS.COMMAND_ISSUED, command);
 
   res.json({ success: true, state });
-});
+}));
 
 router.get('/control/state', (req, res) => {
   res.json(motion.getState());

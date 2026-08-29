@@ -1,4 +1,5 @@
 const express = require('express');
+const { asyncHandler } = require('../middleware');
 const statusRepo = require('../repositories/status');
 const messagesRepo = require('../repositories/messages');
 const alertsRepo = require('../repositories/alerts');
@@ -33,11 +34,11 @@ router.get('/health', (req, res) => {
   });
 });
 
-router.get('/status', (req, res) => {
-  res.json(statusRepo.get());
-});
+router.get('/status', asyncHandler(async (req, res) => {
+  res.json(await statusRepo.get());
+}));
 
-router.post('/status', (req, res) => {
+router.post('/status', asyncHandler(async (req, res) => {
   const { battery, seniorExpression, status } = req.body || {};
   const patch = {};
   if (battery !== undefined) patch.battery = Number(battery);
@@ -45,10 +46,10 @@ router.post('/status', (req, res) => {
   if (status !== undefined) patch.status = String(status);
   patch.lastActive = new Date().toISOString();
 
-  const updated = statusRepo.update(patch);
+  const updated = await statusRepo.update(patch);
   emit(EVENTS.STATUS_CHANGED, updated);
   res.json(updated);
-});
+}));
 
 /**
  * 보호자 홈 카드용 — "오늘 어땠나"를 한 번의 요청으로.
@@ -61,13 +62,13 @@ router.post('/status', (req, res) => {
  * 캡핑된 최신 200건에서 필터링하면, 전체 메시지가 200건을 넘어선 뒤로는
  * 과거 날짜 조회가 항상 0건을 반환했다.
  */
-router.get('/summary/daily', (req, res) => {
+router.get('/summary/daily', asyncHandler(async (req, res) => {
   const dateStr = req.query.date || kstDateString();
   const { start, end } = kstDayRange(dateStr);
   const startIso = start.toISOString();
   const endIso = end.toISOString();
 
-  const inRange = messagesRepo.listInRange(startIso, endIso);
+  const inRange = await messagesRepo.listInRange(startIso, endIso);
 
   const emotionCounts = inRange
     .filter((m) => m.sender === 'robot')
@@ -78,10 +79,10 @@ router.get('/summary/daily', (req, res) => {
     conversationTurns: inRange.filter((m) => m.sender === 'senior').length,
     guardianMessages: inRange.filter((m) => m.sender === 'guardian').length,
     emotionCounts,
-    alertCount: alertsRepo.countSince(startIso, { to: endIso }),
-    unresolvedAlerts: alertsRepo.unresolvedCount(),
-    lastActive: statusRepo.get().lastActive,
+    alertCount: await alertsRepo.countSince(startIso, { to: endIso }),
+    unresolvedAlerts: await alertsRepo.unresolvedCount(),
+    lastActive: (await statusRepo.get()).lastActive,
   });
-});
+}));
 
 module.exports = router;

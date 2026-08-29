@@ -14,3 +14,7 @@ backend/data/
 
 # 낙상 스냅샷은 어르신의 실제 모습이 담긴 사진이다. 절대 커밋하지 않는다.
 backend/data/snapshots/
+
+# 로컬 전용 개발 도구 설정 — 이 프로젝트 기능과 무관, 공유 저장소에 올릴 필요 없음
+.mcp.json
+tools/

@@ -39,7 +39,13 @@ if (dryRun) {
   process.exit(0);
 }
 
-const total = getDB().prepare('SELECT COUNT(*) AS n FROM messages').get().n;
-const deleted = messagesRepo.purgeOlderThan(cutoff);
+// 리포지토리가 async라 IIFE로 감싼다 (CommonJS는 top-level await 불가).
+(async () => {
+  const total = getDB().prepare('SELECT COUNT(*) AS n FROM messages').get().n;
+  const deleted = await messagesRepo.purgeOlderThan(cutoff);
 
-console.log(`${days}일(${cutoff} 이전) 초과 메시지 ${deleted}건 삭제 완료 (전체 ${total}건 중).`);
+  console.log(`${days}일(${cutoff} 이전) 초과 메시지 ${deleted}건 삭제 완료 (전체 ${total}건 중).`);
+})().catch((err) => {
+  console.error('삭제 실패:', err.stack || err);
+  process.exit(1);
+});

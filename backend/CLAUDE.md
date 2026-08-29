@@ -28,8 +28,10 @@ src/
     events.js                SSE pub/sub (EventEmitter-based), role-scoped event filtering
     prompts.js                Gemini system instructions
     snapshots.js               data-URI → file on disk, path-traversal-safe read-back
+    motion.js                  move()/stop()/getState() — remote-control virtual position + dead-man
+                                 timer safety switch. No real actuator yet; simulates coordinates in memory
   routes/                 one file per resource, mounted under /api in app.js
-    status.js, chat.js, alerts.js, vision.js, commands.js, events.js, tts.js, push.js
+    status.js, chat.js, alerts.js, vision.js, commands.js, events.js, tts.js, push.js, control.js
   middleware/index.js     securityHeaders, apiKeyAuth, asyncHandler, notFound, errorHandler
 scripts/
   migrate-json-to-sqlite.js   one-time database.json import — idempotent (no-ops if messages already exist)
@@ -38,9 +40,12 @@ scripts/
   purge-old-messages.js          deletes conversation history older than 90 days — run manually,
                                    no schedule set up yet
 test/
-  *.test.js               node --test. api.test.js spins up a real app against a temp SQLite DB — sets
-                            DB_PATH/SNAPSHOT_DIR before requiring src/app. New integration tests must do
-                            the same; never point a test at backend/data/hyodol.sqlite (real conversation log).
+  *.test.js               node --test. api.test.js and control.test.js spin up a real app against a temp
+                            SQLite DB — set DB_PATH/SNAPSHOT_DIR before requiring src/app. New integration
+                            tests must do the same; never point a test at backend/data/hyodol.sqlite (real
+                            conversation log). motion.test.js tests services/motion.js's dead-man timer
+                            directly (no DB needed) — call motion.stop() in afterEach/after so its
+                            setTimeout doesn't leak into the next test or keep the process alive.
 ```
 
 ## Conventions
@@ -62,5 +67,5 @@ test/
   on top of them — is sync, and why `raise()` calls `notify.send()` fire-and-forget instead of
   awaiting it. A move to RDS/`pg` makes all of that async and the change propagates to every caller;
   budget it as a refactor, not an adapter swap.
-- `GET /api/history` and `GET /api/remote-message/poll` are deprecated compat shims for the pre-rewrite frontend. New work should use `/api/messages` + `/api/alerts` and `/api/commands/pending` + `/api/commands/:id/ack`.
+- The old `GET /api/history`, `POST /api/remote-message`, and `GET /api/remote-message/poll` compat shims were removed 2026-08-27 (no callers left). Use `/api/messages` + `/api/alerts` and `/api/commands/pending` + `/api/commands/:id/ack`.
 - `config.geminiModel` defaults to `gemini-3.6-flash`, not the newer `gemini-3.7-flash` — the latter 503s under load as of 2026-08.

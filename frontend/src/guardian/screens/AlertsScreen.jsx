@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router';
 import { apiFetch, assetUrl } from '../../lib/api';
 import { usePagedList } from '../../lib/useGuardianData';
 import { alertLabel, formatTime, formatDay, dayKey } from '../format';
@@ -52,6 +53,7 @@ function AlertsScreen({ onChange }) {
                 {alert.snapshotUrl && (
                   <img className="g-emergency__shot" src={assetUrl(alert.snapshotUrl)} alt="감지 당시 화면" />
                 )}
+                <div><Link className="g-recent__more" to={`/guardian/alerts/${alert.id}`}>자세히 보기</Link></div>
                 {alert.resolved ? (
                   <span className="g-alert__state">
                     확인함 · {formatTime(alert.resolvedAt)}

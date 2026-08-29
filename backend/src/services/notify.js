@@ -24,7 +24,7 @@ async function send(alert) {
     return { skipped: true, reason: 'VAPID 키 미설정' };
   }
 
-  const subscriptions = subscriptionsRepo.all();
+  const subscriptions = await subscriptionsRepo.all();
   if (subscriptions.length === 0) {
     console.warn('[PUSH] 구독된 보호자 기기가 없습니다 — 응급 알림이 가지 않았습니다');
     return { skipped: true, reason: '구독된 기기 없음' };
@@ -33,7 +33,7 @@ async function send(alert) {
   const payload = JSON.stringify({
     title: '효돌이 응급 알림',
     body: alert.description,
-    url: '/guardian/alerts',
+    url: `/guardian/alerts/${alert.id}`,
   });
 
   let sent = 0;
@@ -45,7 +45,7 @@ async function send(alert) {
       sent++;
     } catch (err) {
       if (err.statusCode === 404 || err.statusCode === 410) {
-        subscriptionsRepo.remove(endpoint);
+        await subscriptionsRepo.remove(endpoint);
       }
       failures.push(err.message);
     }

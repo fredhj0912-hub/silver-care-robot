@@ -4,6 +4,7 @@ import { useGuardianData } from '../lib/useGuardianData';
 import { formatTime } from './format';
 import HomeScreen from './screens/HomeScreen';
 import AlertsScreen from './screens/AlertsScreen';
+import AlertDetailScreen from './screens/AlertDetailScreen';
 import LogScreen from './screens/LogScreen';
 import SendScreen from './screens/SendScreen';
 import LiveScreen from './screens/LiveScreen';
@@ -32,6 +33,7 @@ function GuardianApp() {
       <Routes>
         <Route index element={<HomeScreen {...data} />} />
         <Route path="alerts" element={<AlertsScreen onChange={data.refresh} />} />
+        <Route path="alerts/:id" element={<AlertDetailScreen onChange={data.refresh} />} />
         <Route path="log" element={<LogScreen />} />
         <Route path="send" element={<SendScreen />} />
         <Route path="live" element={<LiveScreen />} />

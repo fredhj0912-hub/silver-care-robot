@@ -23,7 +23,7 @@ function insertAt(isoTs) {
     .run(isoTs);
 }
 
-test('90일보다 오래된 메시지만 삭제하고 최근 메시지는 남긴다', () => {
+test('90일보다 오래된 메시지만 삭제하고 최근 메시지는 남긴다', async () => {
   const now = Date.now();
   const old = new Date(now - 100 * 24 * 60 * 60 * 1000).toISOString();  // 100일 전
   const recent = new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString(); // 10일 전
@@ -31,7 +31,7 @@ test('90일보다 오래된 메시지만 삭제하고 최근 메시지는 남긴
   insertAt(recent);
 
   const cutoff = new Date(now - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const deleted = messagesRepo.purgeOlderThan(cutoff);
+  const deleted = await messagesRepo.purgeOlderThan(cutoff);
 
   assert.strictEqual(deleted, 1, '90일 초과 메시지 1건만 삭제되어야 한다');
   const remaining = getDB().prepare('SELECT ts FROM messages').all();
@@ -39,9 +39,9 @@ test('90일보다 오래된 메시지만 삭제하고 최근 메시지는 남긴
   assert.ok(!remaining.some((r) => r.ts === old), '오래된 메시지가 삭제되지 않았다');
 });
 
-test('삭제 대상이 없으면 0을 반환하고 아무것도 지우지 않는다', () => {
+test('삭제 대상이 없으면 0을 반환하고 아무것도 지우지 않는다', async () => {
   const before = getDB().prepare('SELECT COUNT(*) n FROM messages').get().n;
-  const deleted = messagesRepo.purgeOlderThan('2000-01-01T00:00:00.000Z');
+  const deleted = await messagesRepo.purgeOlderThan('2000-01-01T00:00:00.000Z');
   assert.strictEqual(deleted, 0);
   assert.strictEqual(getDB().prepare('SELECT COUNT(*) n FROM messages').get().n, before);
 });

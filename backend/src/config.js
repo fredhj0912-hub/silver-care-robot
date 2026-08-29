@@ -25,6 +25,9 @@ const config = {
   geminiRetries: Number(process.env.GEMINI_RETRIES) || 1,
   geminiRetryDelayMs: Number(process.env.GEMINI_RETRY_DELAY_MS) || 400,
 
+  // AWS 공용 리전 (지금은 S3 스냅샷 저장소만 사용).
+  awsRegion: process.env.AWS_REGION || 'us-west-2',
+
   // LAN 공유 비밀키. 미설정이면 모든 API가 열린다(개발 편의) — 부팅 시 경고를 띄운다.
   robotApiKey: process.env.ROBOT_API_KEY || '',
 
@@ -32,6 +35,11 @@ const config = {
   snapshotDir: process.env.SNAPSHOT_DIR || path.join(BACKEND_ROOT, 'data', 'snapshots'),
   ttsCacheDir: process.env.TTS_CACHE_DIR || path.join(BACKEND_ROOT, 'data', 'tts-cache'),
   legacyJsonPath: path.join(BACKEND_ROOT, 'database.json'),
+
+  // 스냅샷 저장소 — 'local'(기본) | 's3'. 대회 계정은 Access Key 발급이 금지되어
+  // IAM Role로만 인증되므로 s3는 EC2에서만 실제로 동작한다 (docs/deploy-ec2-aws-test.md 참고).
+  snapshotStorage: process.env.SNAPSHOT_STORAGE || 'local',
+  s3Bucket: process.env.S3_BUCKET || '',
 
   // TTS — 'browser' | 'gemini' | 'cloud'
   //
@@ -86,6 +94,12 @@ function describeStartup() {
   if (!config.vapidPublicKey || !config.vapidPrivateKey) {
     lines.push('⚠️  VAPID 키 미설정 → 응급 상황이 발생해도 보호자에게 푸시 알림이 가지 않습니다');
     lines.push('   npx web-push generate-vapid-keys 로 발급 후 VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY를 설정하세요');
+  }
+  if (config.snapshotStorage === 's3' && !config.s3Bucket) {
+    lines.push('⚠️  SNAPSHOT_STORAGE=s3 인데 S3_BUCKET 미설정 → 스냅샷 저장이 실패합니다');
+  }
+  if (!['local', 's3'].includes(config.snapshotStorage)) {
+    lines.push(`⚠️  SNAPSHOT_STORAGE="${config.snapshotStorage}"는 알 수 없는 값 → local로 조용히 동작합니다 (오타 확인)`);
   }
   return lines;
 }

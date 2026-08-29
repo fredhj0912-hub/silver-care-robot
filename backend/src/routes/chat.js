@@ -25,7 +25,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
   const utterance = text.trim();
 
   // 1. 어르신 발화 기록
-  const seniorMsg = messagesRepo.add({
+  const seniorMsg = await messagesRepo.add({
     sender: 'senior',
     text: utterance,
     emotion: seniorExpression || 'neutral',
@@ -38,10 +38,10 @@ router.post('/chat', asyncHandler(async (req, res) => {
   // 3. 응급 판정. 음성/비전/수동 트리거가 모두 emergency 서비스 하나를 거친다.
   //    Gemini가 'concerned'로 답했다는 사실만으로는 알림을 올리지 않는다 —
   //    "외로워요" 같은 말에도 concerned가 나오므로 오탐의 주원인이었다.
-  const alert = emergency.evaluateUtterance(utterance);
+  const alert = await emergency.evaluateUtterance(utterance);
 
   // 4. 로봇 응답 기록
-  const robotMsg = messagesRepo.add({
+  const robotMsg = await messagesRepo.add({
     sender: 'robot',
     text: reply.text,
     emotion: reply.emotion,
@@ -49,7 +49,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
   });
   emit(EVENTS.MESSAGE_ADDED, robotMsg);
 
-  statusRepo.update({
+  await statusRepo.update({
     seniorExpression: seniorExpression || 'neutral',
     lastActive: new Date().toISOString(),
   });
@@ -68,9 +68,9 @@ router.post('/chat', asyncHandler(async (req, res) => {
  * 커서 페이지네이션 로그 조회.
  * 이전 GET /api/history 는 전체 로그를 통째로 반환했다.
  */
-router.get('/messages', (req, res) => {
+router.get('/messages', asyncHandler(async (req, res) => {
   const { before, limit, sender, q } = req.query;
-  res.json(messagesRepo.list({ before, limit, sender, q }));
-});
+  res.json(await messagesRepo.list({ before, limit, sender, q }));
+}));
 
 module.exports = router;

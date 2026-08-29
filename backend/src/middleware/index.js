@@ -42,6 +42,13 @@ function notFound(req, res) {
 // eslint-disable-next-line no-unused-vars -- Express는 4개 인자로 에러 핸들러를 식별한다
 function errorHandler(err, req, res, next) {
   console.error('처리되지 않은 서버 오류:', err.stack || err);
+  // 스트리밍 응답(SSE, 스냅샷)은 이미 헤더를 보낸 뒤에 실패할 수 있다. 그 상태에서
+  // 다시 status().json()을 부르면 ERR_HTTP_HEADERS_SENT가 나 프로세스가 죽는다 —
+  // snapshots.js의 스트림 에러 처리와 같은 방식으로 연결만 끊는다.
+  if (res.headersSent) {
+    res.destroy();
+    return;
+  }
   res.status(err.status || 500).json({
     error: err.status && err.status < 500 ? err.message : 'Internal Server Error',
   });

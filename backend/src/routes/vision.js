@@ -32,22 +32,22 @@ router.post('/vision', asyncHandler(async (req, res) => {
 
   const analysis = await gemini.analyzeImage(image);
 
-  statusRepo.update({ seniorExpression: analysis.expression });
+  await statusRepo.update({ seniorExpression: analysis.expression });
 
   let alert = null;
   if (analysis.isEmergency) {
-    const snapshotPath = snapshots.save(image);
+    const snapshotPath = await snapshots.save(image);
     if (!snapshotPath) {
       console.error('[VISION] critical 알림인데 스냅샷 저장 실패 (형식 오류 또는 8MB 초과) — 증거 사진 없이 알림 생성');
     }
-    alert = emergency.raise({
+    alert = await emergency.raise({
       type: 'vision_anomaly',
       severity: 'critical',
       description: analysis.summary,
       confidence: analysis.confidence,
       snapshotPath,
     });
-    detectionsRepo.record({
+    await detectionsRepo.record({
       source: 'vision_gemini',
       type: 'abnormal_posture',
       confidence: analysis.confidence,
@@ -75,7 +75,7 @@ router.get('/vision/latest', (req, res) => {
  * 외부 감지기(YOLOv8 서비스 등) → 백엔드 이벤트 수신구.
  * 지금은 mock-detector 스크립트가 이 계약을 사용해 전체 파이프라인을 테스트한다.
  */
-router.post('/detections', (req, res) => {
+router.post('/detections', asyncHandler(async (req, res) => {
   const { source, type, confidence, detectedAt, snapshot, meta } = req.body || {};
 
   if (!source || !type || typeof confidence !== 'number') {
@@ -85,12 +85,12 @@ router.post('/detections', (req, res) => {
     return res.status(400).json({ error: 'confidence는 0~1 사이여야 합니다' });
   }
 
-  const snapshotPath = snapshot ? snapshots.save(snapshot) : null;
+  const snapshotPath = snapshot ? await snapshots.save(snapshot) : null;
 
   // 임계값 미만은 기록만 한다 — 알림은 올리지 않되 임계값 튜닝 근거로 남긴다.
   let alert = null;
   if (confidence >= config.detectionThreshold) {
-    alert = emergency.raise({
+    alert = await emergency.raise({
       type: type === 'fall' ? 'fall_detected' : type === 'no_motion' ? 'no_motion' : 'vision_anomaly',
       severity: 'critical',
       description: describeDetection(type, confidence),
@@ -99,7 +99,7 @@ router.post('/detections', (req, res) => {
     });
   }
 
-  const id = detectionsRepo.record({
+  const id = await detectionsRepo.record({
     source, type, confidence, meta, detectedAt,
     alertId: alert ? alert.id : null,
   });
@@ -111,11 +111,11 @@ router.post('/detections', (req, res) => {
     alert: alert ? { id: alert.id } : null,
     threshold: config.detectionThreshold,
   });
-});
+}));
 
-router.get('/detections', (req, res) => {
-  res.json({ detections: detectionsRepo.list({ limit: req.query.limit }) });
-});
+router.get('/detections', asyncHandler(async (req, res) => {
+  res.json({ detections: await detectionsRepo.list({ limit: req.query.limit }) });
+}));
 
 function describeDetection(type, confidence) {
   const pct = Math.round(confidence * 100);

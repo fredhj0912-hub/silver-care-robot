@@ -7,6 +7,7 @@
     "start": "node server.js",
     "migrate": "node scripts/migrate-json-to-sqlite.js",
     "mock-detector": "node scripts/mock-detector.js",
+    "verify-s3": "node scripts/verify-s3.js",
     "prewarm-tts": "node scripts/prewarm-tts.js",
     "purge-old-messages": "node scripts/purge-old-messages.js",
     "test": "node --test \"test/*.test.js\""
@@ -15,6 +16,7 @@
     "node": ">=22.5"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1119.0",
     "@google/generative-ai": "^0.24.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
