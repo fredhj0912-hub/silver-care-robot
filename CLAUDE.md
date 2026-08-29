@@ -54,11 +54,11 @@ cd backend && npm run purge-old-messages   # delete conversation history older t
 
 cd frontend && npm run dev
 cd frontend && npm run build
-cd frontend && npm test              # node --test test/*.test.js (pure-function libs only)
+cd frontend && npm test              # vitest run (jsdom + Testing Library)
 cd frontend && npm run lint          # oxlint
 ```
 
-Both packages have `node --test` suites now. Backend's `test/api.test.js` spins up a real Express app against a **temporary** SQLite DB (overrides `DB_PATH`/`SNAPSHOT_DIR` before requiring `src/app`) — it never touches real conversation history. Follow that pattern for new integration tests. React components themselves are untested (no jsdom/RTL yet).
+Both packages have test suites, but **different runners**: backend is `node --test`, frontend is **Vitest** (it reuses `vite.config.js`, so JSX and `import.meta.env` work — `node --test` handles neither). Backend's `test/api.test.js` spins up a real Express app against a **temporary** SQLite DB (overrides `DB_PATH`/`SNAPSHOT_DIR` before requiring `src/app`) — it never touches real conversation history. Follow that pattern for new integration tests. Frontend component tests run in jsdom with Testing Library; see `frontend/CLAUDE.md`.
 
 ## Configuration
 

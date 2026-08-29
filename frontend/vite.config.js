@@ -4,6 +4,13 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  test: {
+    // 컴포넌트 테스트를 위한 DOM. plugin-react가 여기서도 JSX를 변환해 주고,
+    // import.meta.env도 Vite가 그대로 채워 준다 — node --test로는 둘 다 안 된다.
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './test/setup.js',
+  },
   server: {
     // 보호자 앱을 휴대폰에서 열려면 같은 Wi-Fi의 다른 기기가 접속할 수 있어야 한다.
     // (기본값은 localhost 만 허용)

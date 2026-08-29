@@ -56,11 +56,6 @@ Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 �
 
 ## 지금 할 것
 
-`PR #2`(https://github.com/fredhj0912-hub/silver-care-robot/pull/2)에 리포지토리
-async 전환까지 담겨 있다. 아직 머지 전 — 머지할지는 사용자 판단.
-
-- [ ] `PR #2` 머지
-
 **로컬에서 할 수 있는 것 / 없는 것** (2026-08-29 확인)
 
 로컬에 AWS CLI가 없고(`aws: command not found`), 계정이 Access Key 발급을 막아
@@ -68,8 +63,11 @@ async 전환까지 담겨 있다. 아직 머지 전 — 머지할지는 사용�
 전부 콘솔/CloudShell/EC2 안에서만** 가능하다. 낙상 감지·파이 배포도 카메라와 실물
 파이가 없어 실물 검증이 안 된다.
 
-지금 로컬에서 완결 가능한 것은 아래 하나뿐 — 다음 세션은 여기서 시작:
-- [ ] **프론트엔드 컴포넌트 테스트 환경(jsdom/RTL) 도입** (아래 "큰 것들"과 동일 항목)
+로컬에서 완결 가능했던 항목(프론트엔드 컴포넌트 테스트 환경)은 완료됐다.
+**남은 것은 전부 AWS 콘솔 또는 실물 하드웨어가 있어야 진행된다** — 아래 "큰 것들"과
+"마지막 — AWS" 참고. 다음 세션에 로컬로 더 할 것을 찾는다면 후보는:
+- [ ] `useGuardianData`의 SSE/정체 감지 훅 테스트 (`EventSource` 목킹)
+- [ ] `RobotFaceDisplay.jsx` 테스트 (701줄, Web Speech/TTS/카메라 목킹 부담이 큼)
 
 ---
 
@@ -97,7 +95,7 @@ async 전환까지 담겨 있다. 아직 머지 전 — 머지할지는 사용�
             목표 FPS 미정
       - [ ] 파이 ↔ 백엔드(EC2 이전 시) ↔ 보호자 앱 간 네트워크 구성 미정
             (퍼블릭 도메인 vs 로컬 터널 유지 여부)
-- [ ] 프론트엔드 컴포넌트 테스트 환경(jsdom/RTL) 도입
+- [x] 프론트엔드 컴포넌트 테스트 환경(jsdom/RTL) 도입 ✅ 2026-08-29 — 아래 "완료" 참고
 
 ---
 
@@ -190,8 +188,21 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 
 상세 변경 이력은 git log 참고 (`PR #1`, `e90616a`~`26b2124`가 main에 merge됨).
 
-- `feat/s3-snapshots` → `main` PR 생성 ✅ 2026-08-29 — `PR #2`
-  (https://github.com/fredhj0912-hub/silver-care-robot/pull/2).
+- **프론트엔드 컴포넌트 테스트 환경(jsdom/RTL)** ✅ 2026-08-29 — 러너를 **Vitest**로 골랐다.
+  `node --test`는 JSX도 `import.meta.env`도 못 다루는데, Vitest는 기존 `vite.config.js`의
+  `@vitejs/plugin-react`를 그대로 재사용하므로 설정이 `test` 블록 하나로 끝난다. 프론트만
+  Vitest이고 **백엔드는 `node --test` 유지** — 러너가 갈린 이유를 두 CLAUDE.md에 적어뒀다.
+  기존 `wakeword.test.js`는 import 한 줄만 바꿔 그대로 옮겼다(본문 무변경).
+  첫 대상은 보호자 앱의 응급 분기 — `HomeScreen`(쪽지 vs 응급 섹션, resolve 명의,
+  잔여 건수, 연결 끊김 안내) 5건 + `AlertsScreen`(빈 목록, 해제 버튼 게이팅, 해제 후
+  재조회) 3건. 프론트 테스트 10 → 18.
+  단언이 실제로 의미가 있는지 확인하려고 소스를 4가지로 일부러 깨뜨려(응급 분기 무력화,
+  `by:'guardian'` 변조, 해제 버튼 상시 노출, `reload()` 제거) 전부 실패하는 것을 보고
+  원복했다. **`lib/api.js`는 목킹하지 않고 `fetch`만 스텁**한 게 핵심 — 키 스탬핑까지
+  실제 코드로 통과시켜야 회귀를 잡는다. `Notification`은 jsdom에 없어 `test/setup.js`에서
+  스텁(`.env`의 VAPID 키 유무로 결과가 흔들리지 않게).
+- `feat/s3-snapshots` → `main` PR 생성 + 머지 ✅ 2026-08-29 — `PR #2`
+  (https://github.com/fredhj0912-hub/silver-care-robot/pull/2), 머지 커밋 `b0800b6`.
 - **리포지토리 async 전환** ✅ 2026-08-29 — RDS 이전의 선행 필수 작업(위 RDS 섹션 참고).
   `repositories/*.js` 6개 + 호출자(routes 8개, `notify.js`, `emergency.js`, `server.js`,
   `purge-old-messages.js`) 전부 async화. DB는 `node:sqlite` 그대로 — 동작 무변경 순수

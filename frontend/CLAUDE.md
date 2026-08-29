@@ -36,7 +36,10 @@ src/
 public/
   manifest.webmanifest, sw.js, icon-192.png, icon-512.png
 test/
-  wakeword.test.js                 node --test, pure-function only (no jsdom — component testing isn't set up)
+  setup.js                         vitest setupFile: jest-dom matchers, RTL cleanup, Notification stub
+  wakeword.test.js                 pure functions (no DOM)
+  HomeScreen.test.jsx              guardian home: emergency-vs-note branch, resolve, offline notice
+  AlertsScreen.test.jsx            alert history: empty state, resolve button gating, reload after resolve
 ```
 
 ## Conventions
@@ -49,7 +52,20 @@ test/
 
 ## Testing
 
-`npm test` → `node --test test/*.test.js` — currently only `lib/wakeword.js`'s pure functions. No component-level testing (no jsdom/RTL) — verify UI changes by running `npm run dev` against the real backend.
+`npm test` → `vitest run` (jsdom + `@testing-library/react`). Vitest reads `vite.config.js`, so
+`@vitejs/plugin-react` transforms JSX and `import.meta.env` is populated — that's why this package
+uses Vitest while the backend stays on `node --test`.
+
+- **Mock `fetch`, not `lib/api.js`.** Stub the global with `vi.stubGlobal('fetch', …)` and let
+  `apiFetch`/`assetUrl` run for real, so a regression in key-stamping still gets caught. Assert on
+  the request **path and body only** — `VITE_ROBOT_API_KEY` differs per environment, so asserting
+  on the `x-api-key` value makes the suite machine-dependent.
+- **Wrap anything with a `<Link>` in `MemoryRouter`** (from `react-router`).
+- **`test/setup.js` stubs `Notification`**, because jsdom has none and `HomeScreen` reads
+  `Notification.permission` on mount whenever `VITE_VAPID_PUBLIC_KEY` is set.
+- Covered so far: the guardian screens whose branches decide *whether the guardian sees an
+  emergency*. `RobotFaceDisplay.jsx` is still untested (Web Speech / TTS / camera APIs) — verify
+  kiosk changes by running `npm run dev` against the real backend.
 
 ## Guardian app conventions
 
