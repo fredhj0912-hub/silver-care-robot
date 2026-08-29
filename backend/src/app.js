@@ -1,3 +1,5 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const express = require('express');
 const cors = require('cors');
 const { config } = require('./config');
@@ -46,9 +48,18 @@ function createApp() {
   app.use(securityHeaders);
   app.use(apiKeyAuth);
 
-  app.get('/', (req, res) => {
-    res.type('html').send(landingPage());
-  });
+  // 프론트엔드 빌드가 지정돼 있으면 백엔드가 같은 오리진에서 서빙한다(EC2 배포).
+  // 없으면 기존대로 상태 페이지만 띄운다 — 로컬 개발은 Vite dev 서버가 화면을 맡는다.
+  const publicIndex = config.publicDir
+    ? path.resolve(config.publicDir, 'index.html')
+    : null;
+  const servePublic = Boolean(publicIndex && fs.existsSync(publicIndex));
+
+  if (!servePublic) {
+    app.get('/', (req, res) => {
+      res.type('html').send(landingPage());
+    });
+  }
 
   app.use('/api', statusRoutes);
   app.use('/api', chatRoutes);
@@ -59,6 +70,16 @@ function createApp() {
   app.use('/api', eventRoutes);
   app.use('/api', ttsRoutes);
   app.use('/api', pushRoutes);
+
+  if (servePublic) {
+    app.use(express.static(path.resolve(config.publicDir)));
+    // 클라이언트 라우팅(/guardian/alerts 등)은 서버에 실제 파일이 없으므로 셸을 돌려준다.
+    // /api/* 는 넘기지 않는다 — 없는 API가 200 HTML을 받으면 디버깅이 지옥이 된다.
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+      res.sendFile(publicIndex);
+    });
+  }
 
   app.use(notFound);
   app.use(errorHandler);

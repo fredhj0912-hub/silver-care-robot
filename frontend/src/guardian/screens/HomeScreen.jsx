@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { apiFetch, assetUrl } from '../../lib/api';
-import { pushSupported, subscribeToPush } from '../../lib/push';
+import { pushSupported, subscribeToPush, ensurePushRegistered } from '../../lib/push';
 import { buildDailyNote, stateLabel, formatTime, formatWhen, relativeTime, alertLabel } from '../format';
 
 const SENDER_NAME = { senior: '어르신', robot: '효돌이', guardian: '나' };
@@ -26,6 +26,11 @@ function HomeScreen({ status, openAlerts, summary, connected, refresh }) {
     const { granted } = await subscribeToPush();
     setNotifStatus(granted ? 'granted' : Notification.permission);
   };
+
+  // 이미 허용한 기기는 배너가 뜨지 않으므로, 여기서 조용히 재등록해 둔다.
+  // 이게 없으면 서버가 구독을 잃었을 때(백엔드 재배포 등) 보호자는 아무 이상도
+  // 못 느끼는데 응급 푸시만 안 가는 상태가 된다. 자세한 이유는 lib/push.js 주석 참고.
+  useEffect(() => { ensurePushRegistered(); }, []);
 
   // 최근 대화 몇 마디. 이 앱에서 유일하게 '확인'이 아니라 '연결'을 위한 부분이라,
   // 홈에 두어 보호자가 매번 대화 탭까지 가지 않아도 읽을 수 있게 한다.

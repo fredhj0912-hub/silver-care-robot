@@ -8,7 +8,9 @@ Guidance specific to the Express API server. See root `CLAUDE.md` for project-wi
 server.js              entry point — wires src/app, restores chat history from DB, prints startup banner
 src/
   app.js                Express assembly: CORS (private-network allowlist), body limit, security headers,
-                          auth, route mounting, 404/error handlers
+                          auth, route mounting, 404/error handlers. Serves frontend/dist at the
+                          same origin when PUBLIC_DIR is set (EC2 deploy), with an SPA fallback that
+                          never swallows /api/* — otherwise just the status landing page.
   config.js              single source of all env-derived config — check here before adding a new env var
   db/
     schema.sql            full SQLite schema (messages, alerts, outbound_commands, robot_status,
