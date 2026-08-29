@@ -58,6 +58,18 @@ async function saveS3(name, buffer, mime) {
 }
 
 const SAVE_PROVIDERS = { local: saveLocal, s3: saveS3 };
+const SERVE_PROVIDERS = { local: serveLocal, s3: serveS3 };
+
+/**
+ * 파일명 접두어로 저장 당시의 provider를 알아낸다. `SNAPSHOT_STORAGE`를 바꿔도 이미
+ * 저장된 파일은 저장될 때의 provider로 계속 조회돼야 하므로, 조회 시점의 전역 config가
+ * 아니라 파일명 자체를 진실의 원천으로 쓴다. 접두어가 없는 레거시 파일명(이 변경 이전에
+ * 저장된 것들)은 local로 간주한다.
+ */
+function providerFromFilename(filename) {
+  const prefix = String(filename || '').split('-')[0];
+  return SERVE_PROVIDERS[prefix] ? prefix : 'local';
+}
 
 /**
  * 스냅샷을 저장하고 파일명을 반환한다. tts.js의 PROVIDERS 룩업 패턴을 따른다 —
@@ -76,10 +88,12 @@ async function save(dataUri) {
   const buffer = Buffer.from(parsed.base64, 'base64');
   if (!buffer.length || buffer.length > config.maxImageBytes) return null;
 
-  const name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
-  const provider = SAVE_PROVIDERS[config.snapshotStorage] || saveLocal;
+  // 파일명에 provider를 새겨 둔다 — SNAPSHOT_STORAGE를 나중에 바꿔도 이 파일은
+  // 저장 당시의 provider로 계속 조회된다 (providerFromFilename 참고).
+  const providerKey = SAVE_PROVIDERS[config.snapshotStorage] ? config.snapshotStorage : 'local';
+  const name = `${providerKey}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
   try {
-    await provider(name, buffer, parsed.mime);
+    await SAVE_PROVIDERS[providerKey](name, buffer, parsed.mime);
   } catch (err) {
     // 저장 실패(네트워크/S3 장애 등)로 emergency.raise()까지 함께 죽으면 안 된다 —
     // 호출부(routes/vision.js, routes/alerts.js)는 이미 null을 "사진 없이 계속"으로
@@ -137,14 +151,12 @@ async function serveS3(filename, res) {
   }
 }
 
-const SERVE_PROVIDERS = { local: serveLocal, s3: serveS3 };
-
 /**
  * 스냅샷을 res에 직접 스트리밍한다(응답까지 이 함수가 책임진다) —
  * 라우트가 저장 방식(로컬 파일 vs S3 객체)을 몰라도 되게 하기 위함.
  */
 async function serve(filename, res) {
-  const provider = SERVE_PROVIDERS[config.snapshotStorage] || serveLocal;
+  const provider = SERVE_PROVIDERS[providerFromFilename(filename)];
   await provider(filename, res);
 }
 
