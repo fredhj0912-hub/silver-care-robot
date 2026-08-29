@@ -54,24 +54,9 @@ Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 �
 
 ---
 
-## 지금 할 것 — PR 열기 + 남은 조사 항목
+## 지금 할 것
 
-`feat/s3-snapshots` 브랜치는 GitHub에 push 완료(2026-08-28), PR은 아직 안 엶 —
-더 완성된 뒤에 열기로 함. PR 열 때 참고: 알림 상세 화면 + S3 안정성 수정이 커밋 4개로
-나뉘어 있음(`93bbff3` feat, `5bf10e8` test, `b4293c3` fix, `5fa8938` chore).
-
-- [ ] `feat/s3-snapshots` → `main` PR 생성 (커밋들은 이미 push됨)
-
-`/ship` adversarial review(2026-08-28)에서 발견했지만 제품 판단이 필요해 자동 수정
-안 하고 남겨둔 것 — INVESTIGATE 2건:
-- [ ] `useGuardianData.js`의 "SSE 연결 중엔 30초 폴백 폴링 스킵" 로직이, EventSource가
-      데이터 없이 죽었는데 `onerror`가 안 뜨는 경우(모바일 PWA 백그라운드 전환 등)
-      `connected`가 계속 stale-true로 남아 보호자 화면이 무기한 멈출 수 있음. 백엔드
-      25초 SSE 하트비트(`events.js`, 기존 코드)가 실제로 충분한지 확인 필요 — 아니면
-      최대 정체 시간 상한 추가
-- [ ] `SNAPSHOT_STORAGE`를 local→s3로 전환하면 기존에 local로 저장된 스냅샷은 `serve()`가
-      찾지 못해 영구히 못 열게 됨(마이그레이션 경로 없음). 프로바이더 전환 계획 세울 때
-      백필 스텝 문서화하거나 파일명에 프로바이더를 같이 저장하는 방식 검토
+이전 "PR 열기 + 남은 조사 항목" 3건 전부 완료 ✅ 2026-08-29 — 상세는 "완료" 섹션 참고.
 
 ---
 
@@ -181,6 +166,22 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 
 상세 변경 이력은 git log 참고 (`PR #1`, `e90616a`~`26b2124`가 main에 merge됨).
 
+- `feat/s3-snapshots` → `main` PR 생성 ✅ 2026-08-29 — `PR #2`
+  (https://github.com/fredhj0912-hub/silver-care-robot/pull/2).
+- INVESTIGATE 2건 조사 + 수정 ✅ 2026-08-29:
+  - SSE 정체 감지: 백엔드 하트비트가 SSE 주석(`: keepalive`)이라 `EventSource`의 JS
+    리스너에 전달되지 않아, "연결은 열려 있지만 응답 없음"을 감지할 방법이 `onerror` 뿐
+    이었던 게 원인. 하트비트를 named event(`heartbeat`)로 바꾸고, 프론트에서
+    `lastEventAt`을 모든 이벤트(하트비트 포함)에서 갱신 → 60초(하트비트의 ~2.4배) 이상
+    갱신이 없으면 `onerror` 없이도 정체로 간주해 `connected`를 false로 내리고
+    EventSource를 새로 열어 재연결. (`backend/src/routes/events.js`,
+    `frontend/src/lib/useGuardianData.js`)
+  - 스냅샷 스토리지 마이그레이션 경로: `serve()`가 파일별 정보가 아니라 그 순간의 전역
+    `SNAPSHOT_STORAGE`만 보고 provider를 고르던 게 원인 — 전환 시 기존 local 파일이
+    전부 404. `save()`가 파일명에 provider를 새겨 넣도록(`local-...`/`s3-...`) 바꾸고
+    `serve()`는 파일명 접두어로 provider를 고르게 변경. 접두어 없는 레거시 파일명은
+    `local`로 폴백해 하위호환 유지. 백필 스크립트 불필요. (`backend/src/services/snapshots.js`,
+    회귀 테스트 2건 추가 — 백엔드 테스트 47 → 49)
 - Phase 0~4(기반 재설계·대화 안정화·응급 감지·대화 로그·보호자 PWA) ✅ 2026-08-26 —
   안드로이드 실기기 검증 완료.
 - Phase 5 — 응급 푸시 알림 ✅ 2026-08-27. 안드로이드 실기기 검증 완료.
