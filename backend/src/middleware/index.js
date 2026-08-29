@@ -23,6 +23,11 @@ function apiKeyAuth(req, res, next) {
   if (req.method === 'OPTIONS') return next();     // CORS 프리플라이트
   if (PUBLIC_PATHS.has(req.path)) return next();
 
+  // 프론트엔드 빌드를 같은 오리진에서 서빙할 때(EC2 배포), 정적 자산까지 키를 요구하면
+  // 앱이 백지로 뜬다 — 막을 이유도 없다. 키는 그 번들 안에 평문으로 들어 있다.
+  // 실제로 보호해야 하는 것은 /api/* 뿐이다.
+  if (!req.path.startsWith('/api/')) return next();
+
   // <img src> 와 EventSource 는 커스텀 헤더를 붙일 수 없으므로 쿼리 파라미터도 받는다.
   const provided = req.get('x-api-key') || req.query.key;
   if (provided !== config.robotApiKey) {

@@ -36,6 +36,11 @@ const config = {
   ttsCacheDir: process.env.TTS_CACHE_DIR || path.join(BACKEND_ROOT, 'data', 'tts-cache'),
   legacyJsonPath: path.join(BACKEND_ROOT, 'database.json'),
 
+  // 프론트엔드 빌드(frontend/dist)를 백엔드가 같은 오리진에서 서빙할 디렉터리.
+  // EC2 배포 전용이다 — 로컬 개발은 Vite dev 서버가 /api를 프록시하므로 비워 둔다.
+  // 같은 오리진이라 lib/api.js의 API_BASE(상대 경로)와 CORS 설정을 건드릴 필요가 없다.
+  publicDir: process.env.PUBLIC_DIR || '',
+
   // 스냅샷 저장소 — 'local'(기본) | 's3'. 대회 계정은 Access Key 발급이 금지되어
   // IAM Role로만 인증되므로 s3는 EC2에서만 실제로 동작한다 (docs/deploy-ec2-aws-test.md 참고).
   snapshotStorage: process.env.SNAPSHOT_STORAGE || 'local',

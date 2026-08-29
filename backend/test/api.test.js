@@ -17,6 +17,7 @@ process.env.AWS_SECRET_ACCESS_KEY = '';
 process.env.AWS_SESSION_TOKEN = '';
 process.env.AWS_REGION = '';
 process.env.ALERT_COOLDOWN_MS = '60000';
+process.env.PUBLIC_DIR = '';              // 실제 .env에 배포용 값이 있어도 개발 모드로 고정
 
 const { createApp } = require('../src/app');
 const { closeDB } = require('../src/db');
@@ -44,6 +45,12 @@ test.after(() => {
 test('인증: 키가 없으면 401, /api/health 는 공개', async () => {
   assert.strictEqual((await fetch(BASE + '/api/status')).status, 401);
   assert.strictEqual((await fetch(BASE + '/api/health')).status, 200);
+});
+
+test('PUBLIC_DIR 미설정이면 / 는 기존 상태 페이지를 유지한다', async () => {
+  const res = await fetch(BASE + '/');
+  assert.strictEqual(res.status, 200);
+  assert.match(await res.text(), /효돌이 백엔드 API 서버/);
 });
 
 test('알 수 없는 경로는 HTML이 아니라 JSON 404를 반환한다', async () => {
