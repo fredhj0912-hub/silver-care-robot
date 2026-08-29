@@ -39,7 +39,9 @@ router.get('/events', (req, res) => {
   });
 
   const unsubscribe = subscribe(role, (event) => send(event.type, event.payload));
-  const heartbeat = setInterval(() => res.write(': keepalive\n\n'), HEARTBEAT_MS);
+  // named event로 보낸다 — SSE 주석(`:`로 시작하는 줄)은 EventSource의 JS 리스너에
+  // 아예 전달되지 않아, 클라이언트가 "연결은 열려 있지만 응답이 없다"를 감지할 수 없다.
+  const heartbeat = setInterval(() => send('heartbeat', {}), HEARTBEAT_MS);
 
   req.on('close', () => {
     clearInterval(heartbeat);

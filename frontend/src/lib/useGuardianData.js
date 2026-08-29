@@ -39,40 +39,65 @@ export function useGuardianData() {
   const connectedRef = useRef(connected);
   useEffect(() => { connectedRef.current = connected; }, [connected]);
 
+  // 서버 하트비트(25초 간격) 포함, 어떤 이벤트든 받을 때마다 갱신된다. onerror 없이
+  // 소켓만 조용히 죽는 경우(모바일 PWA 백그라운드 전환 등) 이 값이 오래된 채로 남아
+  // "정체"를 감지하는 유일한 신호가 된다.
+  const lastEventAtRef = useRef(Date.now());
+  const sourceRef = useRef(null);
+
   useEffect(() => {
     refreshRef.current();
 
     const url = `${API_BASE}/api/events?role=guardian${ROBOT_API_KEY ? `&key=${encodeURIComponent(ROBOT_API_KEY)}` : ''}`;
-    const source = new EventSource(url);
 
-    const onHello = (e) => {
-      const data = JSON.parse(e.data);
-      setStatus(data.status);
-      setOpenAlerts(data.unresolvedAlerts);
-      setConnected(true);
+    let source;
+    const connect = () => {
+      source = new EventSource(url);
+      sourceRef.current = source;
+
+      const touch = () => { lastEventAtRef.current = Date.now(); };
+
+      const onHello = (e) => {
+        touch();
+        const data = JSON.parse(e.data);
+        setStatus(data.status);
+        setOpenAlerts(data.unresolvedAlerts);
+        setConnected(true);
+      };
+
+      // 어떤 이벤트가 오든 서버가 진실의 원천이므로 전체를 다시 읽는다.
+      // 화면 수가 적고 응답이 가벼워서, 이벤트별 부분 갱신보다 이 편이 틀릴 여지가 적다.
+      const onChange = () => { touch(); refreshRef.current(); };
+
+      source.addEventListener('hello', onHello);
+      source.addEventListener('alert.created', onChange);
+      source.addEventListener('alert.resolved', onChange);
+      source.addEventListener('status.changed', onChange);
+      source.addEventListener('message.added', onChange);
+      source.addEventListener('heartbeat', touch);
+      source.onerror = () => setConnected(false);
+      source.onopen = () => { touch(); setConnected(true); };
     };
-
-    // 어떤 이벤트가 오든 서버가 진실의 원천이므로 전체를 다시 읽는다.
-    // 화면 수가 적고 응답이 가벼워서, 이벤트별 부분 갱신보다 이 편이 틀릴 여지가 적다.
-    const onChange = () => refreshRef.current();
-
-    source.addEventListener('hello', onHello);
-    source.addEventListener('alert.created', onChange);
-    source.addEventListener('alert.resolved', onChange);
-    source.addEventListener('status.changed', onChange);
-    source.addEventListener('message.added', onChange);
-    source.onerror = () => setConnected(false);
-    source.onopen = () => setConnected(true);
+    connect();
 
     // SSE가 죽어 있어도 화면이 완전히 멈추지 않도록 느린 폴링을 함께 둔다.
-    // SSE가 이미 연결돼 있으면 굳이 또 조회할 필요 없다.
+    // 25초 하트비트의 ~2.4배(60초) 이상 아무 이벤트도 못 받았으면 onerror가 안 떴어도
+    // 정체로 간주해 연결을 새로 연다 — 단순 폴링만으로는 SSE가 다시 살아나지 않는다.
     const fallback = setInterval(() => {
-      if (!connectedRef.current) refreshRef.current();
+      const stale = Date.now() - lastEventAtRef.current > 60000;
+      if (!connectedRef.current || stale) {
+        refreshRef.current();
+        if (stale) {
+          setConnected(false);
+          sourceRef.current?.close();
+          connect();
+        }
+      }
     }, 30000);
 
     return () => {
       clearInterval(fallback);
-      source.close();
+      sourceRef.current?.close();
     };
   }, []);
 
