@@ -56,11 +56,6 @@ Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 �
 
 ## 지금 할 것
 
-`PR #2`(https://github.com/fredhj0912-hub/silver-care-robot/pull/2)에 리포지토리
-async 전환까지 담겨 있다. 아직 머지 전 — 머지할지는 사용자 판단.
-
-- [ ] `PR #2` 머지
-
 **로컬에서 할 수 있는 것 / 없는 것** (2026-08-29 확인)
 
 로컬에 AWS CLI가 없고(`aws: command not found`), 계정이 Access Key 발급을 막아
@@ -68,8 +63,11 @@ async 전환까지 담겨 있다. 아직 머지 전 — 머지할지는 사용�
 전부 콘솔/CloudShell/EC2 안에서만** 가능하다. 낙상 감지·파이 배포도 카메라와 실물
 파이가 없어 실물 검증이 안 된다.
 
-지금 로컬에서 완결 가능한 것은 아래 하나뿐 — 다음 세션은 여기서 시작:
-- [ ] **프론트엔드 컴포넌트 테스트 환경(jsdom/RTL) 도입** (아래 "큰 것들"과 동일 항목)
+로컬에서 완결 가능했던 항목(프론트엔드 컴포넌트 테스트 환경)은 완료됐다.
+**남은 것은 전부 AWS 콘솔 또는 실물 하드웨어가 있어야 진행된다** — 아래 "큰 것들"과
+"마지막 — AWS" 참고. 다음 세션에 로컬로 더 할 것을 찾는다면 후보는:
+- [ ] `useGuardianData`의 SSE/정체 감지 훅 테스트 (`EventSource` 목킹)
+- [ ] `RobotFaceDisplay.jsx` 테스트 (701줄, Web Speech/TTS/카메라 목킹 부담이 큼)
 
 ---
 
@@ -97,7 +95,7 @@ async 전환까지 담겨 있다. 아직 머지 전 — 머지할지는 사용�
             목표 FPS 미정
       - [ ] 파이 ↔ 백엔드(EC2 이전 시) ↔ 보호자 앱 간 네트워크 구성 미정
             (퍼블릭 도메인 vs 로컬 터널 유지 여부)
-- [ ] 프론트엔드 컴포넌트 테스트 환경(jsdom/RTL) 도입
+- [x] 프론트엔드 컴포넌트 테스트 환경(jsdom/RTL) 도입 ✅ 2026-08-29 — 아래 "완료" 참고
 
 ---
 
@@ -106,7 +104,7 @@ async 전환까지 담겨 있다. 아직 머지 전 — 머지할지는 사용�
 "대회에서 AWS를 실제로 썼다"를 보여주는 용도. 제품 기능이 정리된 뒤에 착수.
 전체 절차는 `docs/deploy-ec2-aws-test.md`.
 
-### S3 스냅샷 — 코드 완료 ✅ 2026-08-27, 실제 연결 검증만 남음
+### S3 스냅샷 — 전부 완료 ✅ 2026-08-29 (코드 8/27, 실연결 검증 8/29)
 "`services/snapshots.js` 하나만 바꾸면 된다"는 처음 예상은 **정확히는 아니었다** —
 `save()`가 네트워크 I/O로 async가 되면서 호출부(`routes/vision.js` 2곳, `routes/alerts.js`
 1곳)에 `await`를 추가해야 했다. `GET /snapshots/:filename`의 스트리밍 로직도 새 `serve()`
@@ -118,15 +116,30 @@ async 전환까지 담겨 있다. 아직 머지 전 — 머지할지는 사용�
       S3 여부와 무관하게 LAN 키 인증이 안 깨지게 설계
 - [x] `npm run verify-s3` 스모크 테스트 (로컬은 `SNAPSHOT_STORAGE=local` 왕복만 확인 —
       `s3` 모드는 스크립트 주석대로 로컬에서 Access Key 문제로 항상 실패하는 게 정상)
-- [ ] 버킷 생성(이름은 username으로 시작) + EC2에서 `SNAPSHOT_STORAGE=s3`로 실제 확인
+- [x] 버킷 생성(이름은 username으로 시작) + EC2에서 `SNAPSHOT_STORAGE=s3`로 실제 확인
+      ✅ 2026-08-29 — **S3 섹션 전부 완료.** 버킷
+      `project9-80-oregon-hyodol-snapshots`(`us-west-2`), 검증용 인스턴스
+      `i-0459de4bc22c04d52`(`t3.small`, AL2023). `verify-s3` 성공 + AWS CLI 교차 확인 +
+      `POST /api/alerts`에 데이터 URI를 실어 저장→S3→서빙 왕복까지 확인(HTTP 200,
+      실제 PNG 바이트). 절차 중 문서와 달랐던 부분은 `docs/deploy-ec2-aws-test.md`에
+      실측으로 교정했다.
 
 ### EC2 배포
 `t3.nano`~`t3.small`. 인스턴스 생성 **후 별도 단계**로 `SafeInstanceProfile-{username}`
 연결 필요(생성 마법사 중엔 안 보일 수 있음), 보안 그룹도 새로 만들어야 하고 태그가 붙기까지
 5~10초 지연이 있다. EC2로 가면 cloudflared 터널이 불필요해진다(도메인 + ACM으로 정식 HTTPS)
 — 아래 터널 안내는 그때 걷어낸다.
-`t3.nano`(512MB)/`t3.small`(2GB)에서 백엔드+스냅샷 처리를 같이 돌리면 메모리 부족
-가능성이 있다 — 실사용 전 메모리 사용량 확인.
+**메모리 실측 ✅ 2026-08-29**: `t3.small`(1.9Gi)에서 `npm install` + 백엔드 기동 +
+스냅샷 S3 왕복까지 돌려 여유 1.4Gi. **`t3.small`이면 충분하다.** `t3.nano`(512MB)는
+`@aws-sdk/client-s3` 설치에서 OOM 위험이 있어 권하지 않는다.
+
+접속·설치에서 문서에 빠져 있던 것들(전부 `docs/deploy-ec2-aws-test.md`에 반영):
+AL2023엔 `git`이 없어 `sudo dnf install -y git`이 먼저 필요하고, IMDSv2가 필수라
+메타데이터 조회에 토큰이 필요하며, 인스턴스 안에서 보이는 역할 이름은
+`SafeInstanceProfile-{username}`이 아니라 그것이 감싸는 **`SafeRole-{username}`** 이다.
+콘솔 「연결」(EC2 Instance Connect)은 보안 그룹에
+`com.amazonaws.<리전>.ec2-instance-connect` 접두사 목록을 열어두지 않으면
+`SendSSHPublicKey failed`로 실패한다 — 권한 문제로 착각하기 쉽다.
 
 ### RDS PostgreSQL — 가장 비쌈, 마지막
 
@@ -176,6 +189,12 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 
 ## 백로그 (위 로드맵에 안 들어간 것들)
 
+- [ ] **`snapshots.js`의 `serve()`가 `Content-Type`을 안 붙인다** (2026-08-29 S3 실검증
+      중 발견). `serveLocal`/`serveS3` 둘 다 스트림을 그대로 `pipe`해서 응답에 타입
+      헤더가 없다. 지금 동작하는 건 브라우저가 `<img src>`에서 내용을 스니핑해 주기
+      때문이라 운에 기대고 있는 셈이다. S3는 업로드 때 `ContentType`을 이미 저장하므로
+      (`saveS3`) `GetObject` 응답의 `object.ContentType`을 그대로 내려주면 되고, 로컬은
+      확장자로 정하면 된다.
 - [ ] `purge-old-messages` 정기 실행 등록 (지금은 수동, 스케줄 없음)
 - [ ] 목소리 품질을 급히 올려야 하면 Cloud TTS 전환 — `TTS_PROVIDER=cloud` +
       `npm run prewarm-tts`. 콘솔에서 API 활성화 1회 필요:
@@ -190,8 +209,32 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 
 상세 변경 이력은 git log 참고 (`PR #1`, `e90616a`~`26b2124`가 main에 merge됨).
 
-- `feat/s3-snapshots` → `main` PR 생성 ✅ 2026-08-29 — `PR #2`
-  (https://github.com/fredhj0912-hub/silver-care-robot/pull/2).
+- **S3 실연결 검증 (AWS 첫 실사용)** ✅ 2026-08-29 — 코드는 8/27에 끝났지만 대회 계정이
+  Access Key 발급을 막아 **로컬에서는 인증 자체가 불가능**해 미검증으로 남아 있던 항목.
+  CloudShell로 버킷 생성 → `t3.small`/AL2023 인스턴스에 `SafeInstanceProfile-` 부착 →
+  `verify-s3` 성공 → AWS CLI로 교차 확인 → `POST /api/alerts`에 데이터 URI를 실어
+  저장→S3→서빙 왕복까지 확인(HTTP 200, 실제 PNG 바이트).
+  **"어댑터만 갈면 된다"가 이번엔 맞았다** — 백엔드 코드는 한 줄도 안 고쳤고 `.env` 세
+  줄(`SNAPSHOT_STORAGE`/`AWS_REGION`/`S3_BUCKET`)로 끝났다. Bedrock 때와 달리 계정
+  제약에 걸리는 것도 없었다.
+  부수 소득 둘: 문서에 빠져 있던 단계들을 실측으로 교정했고(위 EC2 섹션 참고),
+  `serve()`가 `Content-Type`을 안 붙인다는 것을 발견해 백로그에 넣었다.
+
+- **프론트엔드 컴포넌트 테스트 환경(jsdom/RTL)** ✅ 2026-08-29 — 러너를 **Vitest**로 골랐다.
+  `node --test`는 JSX도 `import.meta.env`도 못 다루는데, Vitest는 기존 `vite.config.js`의
+  `@vitejs/plugin-react`를 그대로 재사용하므로 설정이 `test` 블록 하나로 끝난다. 프론트만
+  Vitest이고 **백엔드는 `node --test` 유지** — 러너가 갈린 이유를 두 CLAUDE.md에 적어뒀다.
+  기존 `wakeword.test.js`는 import 한 줄만 바꿔 그대로 옮겼다(본문 무변경).
+  첫 대상은 보호자 앱의 응급 분기 — `HomeScreen`(쪽지 vs 응급 섹션, resolve 명의,
+  잔여 건수, 연결 끊김 안내) 5건 + `AlertsScreen`(빈 목록, 해제 버튼 게이팅, 해제 후
+  재조회) 3건. 프론트 테스트 10 → 18.
+  단언이 실제로 의미가 있는지 확인하려고 소스를 4가지로 일부러 깨뜨려(응급 분기 무력화,
+  `by:'guardian'` 변조, 해제 버튼 상시 노출, `reload()` 제거) 전부 실패하는 것을 보고
+  원복했다. **`lib/api.js`는 목킹하지 않고 `fetch`만 스텁**한 게 핵심 — 키 스탬핑까지
+  실제 코드로 통과시켜야 회귀를 잡는다. `Notification`은 jsdom에 없어 `test/setup.js`에서
+  스텁(`.env`의 VAPID 키 유무로 결과가 흔들리지 않게).
+- `feat/s3-snapshots` → `main` PR 생성 + 머지 ✅ 2026-08-29 — `PR #2`
+  (https://github.com/fredhj0912-hub/silver-care-robot/pull/2), 머지 커밋 `b0800b6`.
 - **리포지토리 async 전환** ✅ 2026-08-29 — RDS 이전의 선행 필수 작업(위 RDS 섹션 참고).
   `repositories/*.js` 6개 + 호출자(routes 8개, `notify.js`, `emergency.js`, `server.js`,
   `purge-old-messages.js`) 전부 async화. DB는 `node:sqlite` 그대로 — 동작 무변경 순수
