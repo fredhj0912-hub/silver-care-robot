@@ -32,7 +32,7 @@ router.post('/vision', asyncHandler(async (req, res) => {
 
   const analysis = await gemini.analyzeImage(image);
 
-  statusRepo.update({ seniorExpression: analysis.expression });
+  await statusRepo.update({ seniorExpression: analysis.expression });
 
   let alert = null;
   if (analysis.isEmergency) {
@@ -40,14 +40,14 @@ router.post('/vision', asyncHandler(async (req, res) => {
     if (!snapshotPath) {
       console.error('[VISION] critical 알림인데 스냅샷 저장 실패 (형식 오류 또는 8MB 초과) — 증거 사진 없이 알림 생성');
     }
-    alert = emergency.raise({
+    alert = await emergency.raise({
       type: 'vision_anomaly',
       severity: 'critical',
       description: analysis.summary,
       confidence: analysis.confidence,
       snapshotPath,
     });
-    detectionsRepo.record({
+    await detectionsRepo.record({
       source: 'vision_gemini',
       type: 'abnormal_posture',
       confidence: analysis.confidence,
@@ -90,7 +90,7 @@ router.post('/detections', asyncHandler(async (req, res) => {
   // 임계값 미만은 기록만 한다 — 알림은 올리지 않되 임계값 튜닝 근거로 남긴다.
   let alert = null;
   if (confidence >= config.detectionThreshold) {
-    alert = emergency.raise({
+    alert = await emergency.raise({
       type: type === 'fall' ? 'fall_detected' : type === 'no_motion' ? 'no_motion' : 'vision_anomaly',
       severity: 'critical',
       description: describeDetection(type, confidence),
@@ -99,7 +99,7 @@ router.post('/detections', asyncHandler(async (req, res) => {
     });
   }
 
-  const id = detectionsRepo.record({
+  const id = await detectionsRepo.record({
     source, type, confidence, meta, detectedAt,
     alertId: alert ? alert.id : null,
   });
@@ -113,9 +113,9 @@ router.post('/detections', asyncHandler(async (req, res) => {
   });
 }));
 
-router.get('/detections', (req, res) => {
-  res.json({ detections: detectionsRepo.list({ limit: req.query.limit }) });
-});
+router.get('/detections', asyncHandler(async (req, res) => {
+  res.json({ detections: await detectionsRepo.list({ limit: req.query.limit }) });
+}));
 
 function describeDetection(type, confidence) {
   const pct = Math.round(confidence * 100);

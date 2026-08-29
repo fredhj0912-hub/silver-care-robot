@@ -1,7 +1,7 @@
 const { getDB, nowISO } = require('../db');
 
 /** 보호자 기기의 Web Push 구독 (Phase 5) */
-function save({ endpoint, keys, label = null }) {
+async function save({ endpoint, keys, label = null }) {
   getDB()
     .prepare(
       `INSERT INTO push_subscriptions (endpoint, keys_json, label, created_at)
@@ -11,11 +11,11 @@ function save({ endpoint, keys, label = null }) {
     .run(endpoint, JSON.stringify(keys), label, nowISO());
 }
 
-function remove(endpoint) {
+async function remove(endpoint) {
   return getDB().prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint).changes;
 }
 
-function all() {
+async function all() {
   return getDB()
     .prepare('SELECT * FROM push_subscriptions')
     .all()

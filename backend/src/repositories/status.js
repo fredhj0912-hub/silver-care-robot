@@ -11,7 +11,7 @@ function toApi(row) {
   };
 }
 
-function get() {
+async function get() {
   return toApi(getDB().prepare('SELECT * FROM robot_status WHERE id = 1').get());
 }
 
@@ -20,7 +20,7 @@ function get() {
  * 예전 GET /api/status 는 조회할 때마다 lastActive를 갱신하며 DB 전체를 다시 썼다.
  * 이제 갱신은 명시적으로 요청할 때만 일어난다.
  */
-function update(patch = {}) {
+async function update(patch = {}) {
   const sets = [];
   const values = [];
 
@@ -45,7 +45,7 @@ function update(patch = {}) {
 }
 
 /** 어르신과의 상호작용이 있었음을 기록 — "마지막 활동" 표시용 */
-function touch() {
+async function touch() {
   getDB().prepare('UPDATE robot_status SET last_active = ? WHERE id = 1').run(nowISO());
 }
 

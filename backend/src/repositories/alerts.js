@@ -17,7 +17,7 @@ function toApi(row) {
   };
 }
 
-function create({ type, severity = 'critical', description = '', confidence = null, snapshotPath = null }) {
+async function create({ type, severity = 'critical', description = '', confidence = null, snapshotPath = null }) {
   const info = getDB()
     .prepare(
       `INSERT INTO alerts (ts, type, severity, description, confidence, snapshot_path)
@@ -27,11 +27,11 @@ function create({ type, severity = 'critical', description = '', confidence = nu
   return byId(info.lastInsertRowid);
 }
 
-function byId(id) {
+async function byId(id) {
   return toApi(getDB().prepare('SELECT * FROM alerts WHERE id = ?').get(Number(id)));
 }
 
-function list({ resolved = null, type = null, from = null, to = null, before = null, limit = 50 } = {}) {
+async function list({ resolved = null, type = null, from = null, to = null, before = null, limit = 50 } = {}) {
   const where = [];
   const params = [];
 
@@ -57,22 +57,22 @@ function list({ resolved = null, type = null, from = null, to = null, before = n
   };
 }
 
-function unresolved() {
+async function unresolved() {
   return getDB()
     .prepare('SELECT * FROM alerts WHERE resolved = 0 ORDER BY id DESC')
     .all()
     .map(toApi);
 }
 
-function unresolvedCount() {
+async function unresolvedCount() {
   return getDB().prepare('SELECT COUNT(*) AS n FROM alerts WHERE resolved = 0').get().n;
 }
 
-function resolve(id, by = 'senior') {
+async function resolve(id, by = 'senior') {
   const changes = getDB()
     .prepare(`UPDATE alerts SET resolved = 1, resolved_at = ?, resolved_by = ? WHERE id = ? AND resolved = 0`)
     .run(nowISO(), by, Number(id)).changes;
-  return { found: changes > 0, alert: byId(id) };
+  return { found: changes > 0, alert: await byId(id) };
 }
 
 /**
@@ -82,7 +82,7 @@ function resolve(id, by = 'senior') {
  * severity도 같이 봐야 한다 — 안 그러면 warning 알림 직후의 진짜 critical 발화가
  * (둘 다 type: 'voice_trigger') 같은 쿨다운에 걸려 억제된다.
  */
-function hasRecentOfType(type, withinMs, severity) {
+async function hasRecentOfType(type, withinMs, severity) {
   const since = new Date(Date.now() - withinMs).toISOString();
   return getDB()
     .prepare('SELECT COUNT(*) AS n FROM alerts WHERE type = ? AND severity = ? AND ts >= ?')
@@ -90,7 +90,7 @@ function hasRecentOfType(type, withinMs, severity) {
 }
 
 /** `to`를 생략하면 지금까지 전부 — 일일 요약처럼 상한이 필요한 곳은 반드시 넘겨야 한다. */
-function countSince(isoTs, { severity = null, to = null } = {}) {
+async function countSince(isoTs, { severity = null, to = null } = {}) {
   const where = ['ts >= ?'];
   const params = [isoTs];
   if (to) { where.push('ts < ?'); params.push(to); }

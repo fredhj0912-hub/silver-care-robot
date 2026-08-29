@@ -64,28 +64,37 @@ function classifyUtterance(rawText) {
 
 /**
  * 알림을 만든다. 쿨다운과 상태 래치를 여기서만 처리한다.
+ *
+ * ⚠️ RDS(pg) 전환 시 트랜잭션으로 감쌀 것. 아래 "쿨다운 확인 → create" 는
+ * check-then-write 라 원자적이지 않다. 지금은 `node:sqlite`의 DatabaseSync가
+ * 동기라 await가 마이크로태스크로만 양보하고, 마이크로태스크는 다음 요청
+ * (매크로태스크)보다 먼저 전부 소진되므로 요청 간 끼어들기가 없다 — 즉 현재는
+ * 안전하다. `pg`로 가면 이 await들이 진짜 I/O 양보가 되어 동시 요청이 둘 다
+ * 쿨다운을 통과해 중복 알림이 생길 수 있다.
+ *
  * @returns {object|null} 생성된 알림, 쿨다운으로 억제되면 null
  */
-function raise({ type, severity = 'critical', description, confidence = null, snapshotPath = null, skipCooldown = false }) {
+async function raise({ type, severity = 'critical', description, confidence = null, snapshotPath = null, skipCooldown = false }) {
   // 수동 SOS 버튼은 어르신의 명시적 의사표시이므로 쿨다운을 적용하지 않는다.
-  if (!skipCooldown && alertsRepo.hasRecentOfType(type, config.alertCooldownMs, severity)) {
+  if (!skipCooldown && await alertsRepo.hasRecentOfType(type, config.alertCooldownMs, severity)) {
     console.log(`[ALERT] 쿨다운으로 억제됨 (${type}): ${description}`);
     return null;
   }
 
-  const alert = alertsRepo.create({ type, severity, description, confidence, snapshotPath });
+  const alert = await alertsRepo.create({ type, severity, description, confidence, snapshotPath });
 
   // critical만 로봇/보호자 화면의 비상 모드를 켠다. warning은 기록만 남긴다.
   if (severity === 'critical') {
-    require('../repositories/status').update({ isEmergency: true });
-    emit(EVENTS.STATUS_CHANGED, require('../repositories/status').get());
+    const statusRepo = require('../repositories/status');
+    await statusRepo.update({ isEmergency: true });
+    emit(EVENTS.STATUS_CHANGED, await statusRepo.get());
 
     // 보호자 브라우저로 Web Push. fire-and-forget — 실패해도 알림 생성 자체는 막지 않는다.
     require('./notify').send(alert).catch((err) => console.error('[PUSH] 발송 실패:', err.message));
 
     // 응급 상황 진입 — 밀려 있던 이동 명령을 폐기하고 즉시 정지한다 (원격 조종 잠금은
     // routes/control.js가 이후 요청을 막지만, 이미 큐에 있던 명령은 여기서 걷어내야 한다).
-    require('../repositories/commands').dropPending('move');
+    await require('../repositories/commands').dropPending('move');
     require('./motion').stop();
   }
 
@@ -99,7 +108,7 @@ function raise({ type, severity = 'critical', description, confidence = null, sn
  * 어르신 발화를 평가하고 필요하면 알림을 올린다.
  * @returns {object|null} 생성된 알림
  */
-function evaluateUtterance(text) {
+async function evaluateUtterance(text) {
   const { severity, matched } = classifyUtterance(text);
   if (!severity) return null;
 
@@ -113,9 +122,9 @@ function evaluateUtterance(text) {
 
   // warning: 24시간 내 반복될 때만 승격한다.
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const recentWarnings = alertsRepo.countSince(since, { severity: 'warning' });
+  const recentWarnings = await alertsRepo.countSince(since, { severity: 'warning' });
 
-  const alert = raise({
+  const alert = await raise({
     type: 'voice_trigger',
     severity: 'warning',
     description: `어르신 건강 신호 관찰 ("${matched}"): "${text}"`,
@@ -133,14 +142,20 @@ function evaluateUtterance(text) {
   return alert;
 }
 
-/** 모든 알림이 해제되면 비상 상태를 내린다. */
-function resolveAlert(id, by = 'senior') {
+/**
+ * 모든 알림이 해제되면 비상 상태를 내린다.
+ *
+ * ⚠️ RDS(pg) 전환 시 트랜잭션으로 감쌀 것 (raise()와 같은 이유). "미해결 수 조회 →
+ * isEmergency=false" 사이에 새 critical 알림이 끼어들면 그 알림이 켠 비상 상태를
+ * 여기서 도로 꺼버린다 — 보호자가 응급 상황을 놓치는 경로다.
+ */
+async function resolveAlert(id, by = 'senior') {
   const statusRepo = require('../repositories/status');
-  const { found, alert } = alertsRepo.resolve(id, by);
+  const { found, alert } = await alertsRepo.resolve(id, by);
 
-  let status = statusRepo.get();
-  if (alertsRepo.unresolvedCount() === 0 && status.isEmergency) {
-    status = statusRepo.update({ isEmergency: false });
+  let status = await statusRepo.get();
+  if (await alertsRepo.unresolvedCount() === 0 && status.isEmergency) {
+    status = await statusRepo.update({ isEmergency: false });
     emit(EVENTS.STATUS_CHANGED, status);
   }
 
