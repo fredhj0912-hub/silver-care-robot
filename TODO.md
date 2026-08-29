@@ -104,7 +104,7 @@ Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 �
 "대회에서 AWS를 실제로 썼다"를 보여주는 용도. 제품 기능이 정리된 뒤에 착수.
 전체 절차는 `docs/deploy-ec2-aws-test.md`.
 
-### S3 스냅샷 — 코드 완료 ✅ 2026-08-27, 실제 연결 검증만 남음
+### S3 스냅샷 — 전부 완료 ✅ 2026-08-29 (코드 8/27, 실연결 검증 8/29)
 "`services/snapshots.js` 하나만 바꾸면 된다"는 처음 예상은 **정확히는 아니었다** —
 `save()`가 네트워크 I/O로 async가 되면서 호출부(`routes/vision.js` 2곳, `routes/alerts.js`
 1곳)에 `await`를 추가해야 했다. `GET /snapshots/:filename`의 스트리밍 로직도 새 `serve()`
@@ -116,15 +116,30 @@ Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 �
       S3 여부와 무관하게 LAN 키 인증이 안 깨지게 설계
 - [x] `npm run verify-s3` 스모크 테스트 (로컬은 `SNAPSHOT_STORAGE=local` 왕복만 확인 —
       `s3` 모드는 스크립트 주석대로 로컬에서 Access Key 문제로 항상 실패하는 게 정상)
-- [ ] 버킷 생성(이름은 username으로 시작) + EC2에서 `SNAPSHOT_STORAGE=s3`로 실제 확인
+- [x] 버킷 생성(이름은 username으로 시작) + EC2에서 `SNAPSHOT_STORAGE=s3`로 실제 확인
+      ✅ 2026-08-29 — **S3 섹션 전부 완료.** 버킷
+      `project9-80-oregon-hyodol-snapshots`(`us-west-2`), 검증용 인스턴스
+      `i-0459de4bc22c04d52`(`t3.small`, AL2023). `verify-s3` 성공 + AWS CLI 교차 확인 +
+      `POST /api/alerts`에 데이터 URI를 실어 저장→S3→서빙 왕복까지 확인(HTTP 200,
+      실제 PNG 바이트). 절차 중 문서와 달랐던 부분은 `docs/deploy-ec2-aws-test.md`에
+      실측으로 교정했다.
 
 ### EC2 배포
 `t3.nano`~`t3.small`. 인스턴스 생성 **후 별도 단계**로 `SafeInstanceProfile-{username}`
 연결 필요(생성 마법사 중엔 안 보일 수 있음), 보안 그룹도 새로 만들어야 하고 태그가 붙기까지
 5~10초 지연이 있다. EC2로 가면 cloudflared 터널이 불필요해진다(도메인 + ACM으로 정식 HTTPS)
 — 아래 터널 안내는 그때 걷어낸다.
-`t3.nano`(512MB)/`t3.small`(2GB)에서 백엔드+스냅샷 처리를 같이 돌리면 메모리 부족
-가능성이 있다 — 실사용 전 메모리 사용량 확인.
+**메모리 실측 ✅ 2026-08-29**: `t3.small`(1.9Gi)에서 `npm install` + 백엔드 기동 +
+스냅샷 S3 왕복까지 돌려 여유 1.4Gi. **`t3.small`이면 충분하다.** `t3.nano`(512MB)는
+`@aws-sdk/client-s3` 설치에서 OOM 위험이 있어 권하지 않는다.
+
+접속·설치에서 문서에 빠져 있던 것들(전부 `docs/deploy-ec2-aws-test.md`에 반영):
+AL2023엔 `git`이 없어 `sudo dnf install -y git`이 먼저 필요하고, IMDSv2가 필수라
+메타데이터 조회에 토큰이 필요하며, 인스턴스 안에서 보이는 역할 이름은
+`SafeInstanceProfile-{username}`이 아니라 그것이 감싸는 **`SafeRole-{username}`** 이다.
+콘솔 「연결」(EC2 Instance Connect)은 보안 그룹에
+`com.amazonaws.<리전>.ec2-instance-connect` 접두사 목록을 열어두지 않으면
+`SendSSHPublicKey failed`로 실패한다 — 권한 문제로 착각하기 쉽다.
 
 ### RDS PostgreSQL — 가장 비쌈, 마지막
 
@@ -174,6 +189,12 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 
 ## 백로그 (위 로드맵에 안 들어간 것들)
 
+- [ ] **`snapshots.js`의 `serve()`가 `Content-Type`을 안 붙인다** (2026-08-29 S3 실검증
+      중 발견). `serveLocal`/`serveS3` 둘 다 스트림을 그대로 `pipe`해서 응답에 타입
+      헤더가 없다. 지금 동작하는 건 브라우저가 `<img src>`에서 내용을 스니핑해 주기
+      때문이라 운에 기대고 있는 셈이다. S3는 업로드 때 `ContentType`을 이미 저장하므로
+      (`saveS3`) `GetObject` 응답의 `object.ContentType`을 그대로 내려주면 되고, 로컬은
+      확장자로 정하면 된다.
 - [ ] `purge-old-messages` 정기 실행 등록 (지금은 수동, 스케줄 없음)
 - [ ] 목소리 품질을 급히 올려야 하면 Cloud TTS 전환 — `TTS_PROVIDER=cloud` +
       `npm run prewarm-tts`. 콘솔에서 API 활성화 1회 필요:
@@ -187,6 +208,17 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 ## 완료
 
 상세 변경 이력은 git log 참고 (`PR #1`, `e90616a`~`26b2124`가 main에 merge됨).
+
+- **S3 실연결 검증 (AWS 첫 실사용)** ✅ 2026-08-29 — 코드는 8/27에 끝났지만 대회 계정이
+  Access Key 발급을 막아 **로컬에서는 인증 자체가 불가능**해 미검증으로 남아 있던 항목.
+  CloudShell로 버킷 생성 → `t3.small`/AL2023 인스턴스에 `SafeInstanceProfile-` 부착 →
+  `verify-s3` 성공 → AWS CLI로 교차 확인 → `POST /api/alerts`에 데이터 URI를 실어
+  저장→S3→서빙 왕복까지 확인(HTTP 200, 실제 PNG 바이트).
+  **"어댑터만 갈면 된다"가 이번엔 맞았다** — 백엔드 코드는 한 줄도 안 고쳤고 `.env` 세
+  줄(`SNAPSHOT_STORAGE`/`AWS_REGION`/`S3_BUCKET`)로 끝났다. Bedrock 때와 달리 계정
+  제약에 걸리는 것도 없었다.
+  부수 소득 둘: 문서에 빠져 있던 단계들을 실측으로 교정했고(위 EC2 섹션 참고),
+  `serve()`가 `Content-Type`을 안 붙인다는 것을 발견해 백로그에 넣었다.
 
 - **프론트엔드 컴포넌트 테스트 환경(jsdom/RTL)** ✅ 2026-08-29 — 러너를 **Vitest**로 골랐다.
   `node --test`는 JSX도 `import.meta.env`도 못 다루는데, Vitest는 기존 `vite.config.js`의
