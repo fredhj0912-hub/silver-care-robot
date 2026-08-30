@@ -9,6 +9,7 @@ const messagesRepo = require('./src/repositories/messages');
 const history = require('./src/services/history');
 const gemini = require('./src/services/gemini');
 const tts = require('./src/services/tts');
+const medication = require('./src/services/medication');
 
 getDB(); // 스키마 적용 + 상태 행 보장
 
@@ -37,6 +38,13 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
   // 복원을 기다린 뒤에 listen 한다 — 서버가 뜬 직후 들어온 첫 대화가 복원 전
   // 히스토리를 보면 맥락이 끊긴다.
   const restored = history.restoreFrom(await messagesRepo.recentAscending(config.maxHistoryTurns * 2));
+
+  // 복약 스케줄러. app.js가 아니라 여기 두는 것이 중요하다 — 테스트는 src/app만
+  // require하므로 테스트 중에 타이머가 돌지 않는다.
+  const medicationTimer = setInterval(() => {
+    medication.tick().catch((err) => console.error('[MEDICATION] 스케줄러 실패:', err.message));
+  }, 60 * 1000);
+  medicationTimer.unref();
 
   server = createApp().listen(config.port, '0.0.0.0', () => {
     console.log('\n======================================================');

@@ -342,7 +342,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
 
         for (const command of data.commands) {
           if (command.kind === 'speak') {
-            setRobotSpeech(`보호자님 메시지: ${command.payload.text}`);
+            // 발화의 출처 라벨. 보호자 메시지가 기본이고, 복약 스케줄러처럼
+            // 시스템이 넣은 명령은 payload.label로 자기 이름을 밝힌다.
+            const label = command.payload.label || '보호자님 메시지';
+            setRobotSpeech(`${label}: ${command.payload.text}`);
             // 보호자가 말을 걸었으니 어르신이 바로 대답할 수 있게 창을 열어둔다.
             // 이때 "효돌아"부터 다시 불러야 한다면 대화가 끊긴다.
             openGate();

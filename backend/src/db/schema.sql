@@ -23,7 +23,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages (sender, id DESC);
 CREATE TABLE IF NOT EXISTS alerts (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   ts           TEXT    NOT NULL,
-  type         TEXT    NOT NULL,   -- fall_detected | voice_trigger | manual_panic_button | vision_anomaly | no_motion
+  type         TEXT    NOT NULL,   -- fall_detected | voice_trigger | manual_panic_button | vision_anomaly | no_motion | medication_missed
   severity     TEXT    NOT NULL DEFAULT 'critical' CHECK (severity IN ('critical', 'warning', 'info')),
   description  TEXT,
   confidence   REAL,               -- 감지기 신뢰도 0~1 (수동 버튼은 NULL)
@@ -80,3 +80,21 @@ CREATE TABLE IF NOT EXISTS detections (
   alert_id    INTEGER REFERENCES alerts (id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_detections_ts ON detections (ts DESC);
+
+-- 복약 일정. 한 행 = 한 번의 복용.
+-- 반복(매일 먹는 약)은 반복 규칙 테이블이나 RRULE 대신 등록 시점에 하루 간격 행을
+-- 그만큼 만들어 둔다 — 스키마를 단순하게 두고 반복 로직을 한 곳(routes)에만 둔다.
+CREATE TABLE IF NOT EXISTS medications (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  medicine_name TEXT    NOT NULL,
+  scheduled_at  TEXT    NOT NULL,   -- ISO8601 UTC
+  status        TEXT    NOT NULL DEFAULT 'scheduled'
+                CHECK (status IN ('scheduled', 'taken', 'missed')),
+  taken_at      TEXT,
+  taken_by      TEXT CHECK (taken_by IS NULL OR taken_by IN ('senior', 'guardian')),
+  -- 로봇이 실제로 소리 내어 알린 시각. 스케줄러가 같은 약을 반복해서 말하지 않게 하는 가드다.
+  reminded_at   TEXT,
+  notes         TEXT,
+  created_at    TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_medications_due ON medications (status, scheduled_at);

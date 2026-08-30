@@ -19,7 +19,8 @@ src/
     guardian.css                  guardian palette + components; .is-emergency swaps the whole palette
     format.js                     Korean copy + KST time formatting; buildDailyNote() writes the home
                                     screen's note in the robot's first-person voice
-    screens/                      HomeScreen, AlertsScreen, LogScreen, SendScreen, LiveScreen
+    screens/                      HomeScreen, AlertsScreen, LogScreen, SendScreen, LiveScreen,
+                                    MedicationScreen
   lib/
     api.js                        apiFetch() — fetch wrapper that stamps x-api-key from VITE_ROBOT_API_KEY
     wakeword.js                    pure functions: containsWakeWord/isBypassUtterance/decideAction/
@@ -40,6 +41,7 @@ test/
   wakeword.test.js                 pure functions (no DOM)
   HomeScreen.test.jsx              guardian home: emergency-vs-note branch, resolve, offline notice
   AlertsScreen.test.jsx            alert history: empty state, resolve button gating, reload after resolve
+  MedicationScreen.test.jsx        복약: 등록 시 UTC 변환, 복용 버튼 게이팅, 시리즈 삭제
 ```
 
 ## Conventions

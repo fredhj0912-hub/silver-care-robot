@@ -161,6 +161,19 @@ AL2023엔 `git`이 없어 `sudo dnf install -y git`이 먼저 필요하고, IMDS
 
 ### RDS PostgreSQL — 가장 비쌈, 마지막
 
+**팀원이 이미 RDS를 띄워 놨다** (2026-08-30 확인). `seola0219/silver-care-medication-api`의
+`sql/schema.sql`은 손으로 쓴 DDL이 아니라 **PostgreSQL 18.3에서 뜬 진짜 `pg_dump`**다 —
+인스턴스가 실제로 존재한다는 뜻이다. 이전할 때 인스턴스를 새로 만들 필요가 없다.
+
+**그리고 이건 "AWS는 EC2 안에서만 검증 가능"이라는 우리 전제의 예외다.** RDS는 IAM Role이
+아니라 **사용자/비밀번호로 인증**하고, 대회 계정 RDS 샌드박스는 퍼블릭 액세스를 허용한다
+(위 "AWS에 대하여" 참고). 즉 **Access Key 없이 로컬에서 바로 연결 테스트가 된다** — S3 때처럼
+EC2에 올라가야만 확인할 수 있는 것이 아니다. `pg` 전환 작업을 로컬에서 끝까지 검증할 수 있다.
+
+팀원 쪽 접속 정보(호스트/유저/비밀번호)는 `.env`에만 있고 레포에 없다 — 이전 시작 전에 받을 것.
+팀원 `app/database.py`에서 가져올 설정은 `sslmode: require` 하나다(`pg` 클라이언트에도 필요).
+
+
 - [x] **[선행 필수] 리포지토리 async 전환** ✅ 2026-08-29 — 완료. `repositories/*.js` 6개와
       호출자 전부가 async가 됐다. DB는 아직 `node:sqlite` 그대로이고 동작도 동일하다
       (테스트 49/49). 푸시는 `raise()`가 async가 된 뒤에도 fire-and-forget을 유지했다 —
@@ -208,6 +221,24 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 
 ## 백로그 (위 로드맵에 안 들어간 것들)
 
+- [ ] **감정 이력을 남길 곳이 없다** (2026-08-30, 팀원 코드 검토 중 확인). `routes/vision.js`가
+      Gemini에서 `expression`/`confidence`를 받아 놓고 `robot_status.senior_expression`에
+      **덮어쓰기만** 한다 — 시간에 따른 감정 추이를 볼 방법이 없다. 팀원 레포엔
+      `emotion_records` 테이블이 따로 있는데, 우리는 새 테이블 없이 기존 `detections`
+      (`source`/`confidence`/`meta_json` 이미 있음)에 한 줄 기록하면 된다. 보호자 홈의
+      `emotionCounts`가 robot 발화 emotion만 세고 있는 것도 이걸로 보강할 수 있다.
+- [ ] **detector용 presigned 업로드** (2026-08-30). YOLOv8 detector가 낙상 스냅샷을 보낼 때
+      지금 계약(`POST /api/detections`의 base64 data URI)은 12MB JSON 바디를 Express로
+      통과시킨다. 팀원 `app/s3_service.py`의 presigned PUT 방식이 이 경우엔 더 낫다
+      (`incoming/{category}/{YYYY}/{MM}/{DD}/{uuid}.{ext}` 키 규칙까지 그대로 쓸 만하다).
+      **보호자 앱 경로에는 쓰지 말 것** — `/api/snapshots/:filename` 프록시 서빙은 LAN 키
+      인증이 안 깨지게 일부러 그렇게 만든 것이다.
+- [ ] **팀원 `requirements.txt`를 그대로 설치하지 말 것** (2026-08-30). 오염된 venv의
+      `pip freeze`라 FastAPI와 무관한 `agent-detector==1.1.0`, `detect-installer==0.1.0`,
+      `fastar==0.12.0`이 섞여 있다. 정체를 확인하기 전에는 설치하지 말고, `detector/`
+      venv를 만들 때도 이 파일을 재사용하지 말 것 (fastapi/uvicorn/ultralytics만 직접 명시).
+      팀원 `deploy/silvercare-api.service`(systemd 유닛)는 그대로 쓸 만한 템플릿이다.
+
 - [ ] **보호자 로그인(제대로 된 인증)** — 2026-08-29 EC2 상시 배포로 **위험도가 올라갔다.**
       `ROBOT_API_KEY`는 `VITE_ROBOT_API_KEY`로 프론트 번들에 평문으로 들어가므로, 이제는
       "터널 주소를 아는 사람만 쓴다" 수준이다. 주소를 아는 사람은 번들에서 키를 읽어
@@ -247,6 +278,36 @@ CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIR
 ## 완료
 
 상세 변경 이력은 git log 참고 (`PR #1`, `e90616a`~`26b2124`가 main에 merge됨).
+
+- **복약 관리 (팀원 코드 통합)** ✅ 2026-08-30 — 팀원(seola0219)의 FastAPI 레포에서
+  **복약 기능만** 가져와 기존 Node 백엔드에 흡수했다. 판정 내역:
+  - **채택**: `medication_records` 모델과 status CHECK(`scheduled/taken/missed`). 단
+    `senior_id` 제거(어르신 1인 전용이고 기존 6개 테이블에 없다), `timestamptz` →
+    ISO8601 TEXT, `reminded_at` 추가(같은 약을 반복해서 말하지 않게 하는 가드).
+  - **제외**: `emergency_records`/`/api/emergencies`. 팀원 것은 INSERT 한 줄인데 우리
+    `emergency.js`에는 쿨다운·2단 severity·warning 승격·푸시·이동명령 폐기가 있다.
+    합치면 알림 생성 경로가 둘로 갈라져 CLAUDE.md 규칙 2를 정면으로 위반한다.
+  - **제외(기록만)**: presigned URL 업로드. 우리 `snapshots.js`는 LAN 키 인증이 안 깨지게
+    일부러 백엔드 경유로 서빙하고 파일명에 provider를 새긴다 — presigned는 둘 다 깬다.
+    detector용으로는 유효해서 백로그에 남겼다.
+  **가장 큰 재사용 이득: 로봇 키오스크가 사실상 그대로다.** 알림 전달에 새 경로를 만들지 않고
+  기존 `outbound_commands`(kind: `speak`) 큐를 탔다 — 키오스크가 이미 2.5초마다 폴링해
+  읽어주고 웨이크워드 게이트까지 열어준다. 다만 키오스크가 모든 speak를 "보호자님 메시지:"로
+  표시하고 있어서 `payload.label`을 추가했다(복약 알림이 보호자가 보낸 말로 보이면 안 된다).
+  **설계에서 일부러 안전한 쪽으로 기울인 것 둘**:
+  - "밥 먹었어"는 어르신이 가장 자주 하는 말 중 하나다. 약을 명시하지 않은 짧은 확인
+    ("먹었어")은 **방금 복약 알림을 받은 경우에만** 복용으로 인정한다. 놓치는 쪽(보호자가
+    직접 표시)이 잘못 표시하는 쪽(보호자가 드신 줄 알고 넘어감)보다 훨씬 안전하다.
+  - 미복용 알림은 **1회로는 만들지 않고**, 24시간 내 3회일 때만 `severity: 'warning'`으로
+    올린다. `raise()`는 critical일 때만 푸시하므로 약 때문에 보호자 폰이 울리는 일은 없다 —
+    규칙 5가 말하는 "보호자가 알림을 꺼버리는" 실패 모드를 피하기 위함.
+  구현 중 발견해 고친 것 둘: ① 로봇이 몇 시간 꺼져 있다 켜지면 밀린 알림을 한꺼번에
+  쏟아내던 문제(유예 시간 안의 것만 알리고 나머지는 미복용으로만 넘긴다) ② 30일치를 잘못
+  등록하면 한 건씩만 지울 수 있어 남은 것이 미복용으로 쌓이던 문제(`?scope=series`로
+  앞으로 남은 일정을 한 번에 삭제. 같은 시리즈는 `created_at`이 동일한 것을 키로 썼다).
+  백엔드 54 → 75, 프론트 22 → 29. 양쪽 다 변이 3건씩 일부러 넣어 단언이 실제로 잡는 것을
+  확인하고 원복했다. **팀원의 다른 레포 `silver-care-robot`은 우리 레포를 포크만 한
+  상태라(HEAD가 우리 커밋 `7e9d505`) 합칠 것이 없었다.**
 
 - **푸시 구독 재등록 버그 수정** ✅ 2026-08-29 — EC2 배포 직후 실기기에서 드러난 것.
   권한 요청 배너는 `Notification.permission === 'default'` 일 때만 뜨므로, **한 번

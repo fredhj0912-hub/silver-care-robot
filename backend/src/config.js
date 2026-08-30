@@ -68,6 +68,12 @@ const config = {
   maxChatChars: 1000,
   maxSpeakChars: 500,
 
+  // 복약 일정 입력 한계 (팀원 FastAPI 스키마의 max_length를 그대로 가져왔다)
+  maxMedicineNameChars: 100,
+  maxMedicationNotesChars: 1000,
+  // 반복 등록은 행을 미리 펼쳐 두므로 상한이 곧 한 번에 만들어지는 행 수다
+  maxRepeatDays: 30,
+
   // 대화 히스토리
   maxHistoryTurns: 8,
   sessionTimeoutMs: 10 * 60 * 1000,
