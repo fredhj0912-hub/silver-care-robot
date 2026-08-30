@@ -35,10 +35,10 @@ test.before(async () => {
   BASE = `http://127.0.0.1:${server.address().port}`;
 });
 
-test.after(() => {
+test.after(async () => {
   motion.stop(); // 데드맨 타이머가 남아 프로세스 종료를 막지 않도록
   server.close();
-  closeDB();
+  await closeDB();
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 

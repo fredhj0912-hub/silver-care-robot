@@ -18,7 +18,7 @@ process.env.VAPID_PUBLIC_KEY = '';
 process.env.VAPID_PRIVATE_KEY = '';
 
 const { createApp } = require('../src/app');
-const { getDB, closeDB } = require('../src/db');
+const { exec, initDB, closeDB } = require('../src/db');
 const medication = require('../src/services/medication');
 const medicationsRepo = require('../src/repositories/medications');
 const commandsRepo = require('../src/repositories/commands');
@@ -36,22 +36,23 @@ const del = (p) => fetch(BASE + p, { method: 'DELETE', headers: H })
   .then(async (r) => ({ s: r.status, b: await r.json().catch(() => null) }));
 
 /** 틱 테스트끼리 서로의 행을 보지 않도록 초기화한다. */
-function reset() {
-  getDB().exec('DELETE FROM medications');
-  getDB().exec('DELETE FROM outbound_commands');
+async function reset() {
+  await exec('DELETE FROM medications');
+  await exec('DELETE FROM outbound_commands');
 }
 
 const minutesAgo = (from, n) => new Date(from.getTime() - n * 60 * 1000).toISOString();
 
 test.before(async () => {
+  await initDB();
   server = createApp().listen(0);
   await new Promise((r) => server.once('listening', r));
   BASE = `http://127.0.0.1:${server.address().port}`;
 });
 
-test.after(() => {
+test.after(async () => {
   server.close();
-  closeDB();
+  await closeDB();
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -93,7 +94,7 @@ test('복약과 무관한 발화는 아무 의도도 없다', () => {
 // ──────────────────────────────────────────────
 
 test('등록하면 목록에 나오고, repeatDays 만큼 하루 간격 행이 생긴다', async () => {
-  reset();
+  await reset();
   const at = '2026-09-01T09:00:00.000Z';
   const res = await post('/api/medications', { medicineName: '혈압약', scheduledAt: at, repeatDays: 3 });
 
@@ -126,7 +127,7 @@ test('잘못된 입력은 400으로 막는다', async () => {
 });
 
 test('보호자가 복용을 표시하면 takenBy 가 guardian 으로 남는다', async () => {
-  reset();
+  await reset();
   const created = await post('/api/medications', { medicineName: '당뇨약', scheduledAt: '2026-09-01T09:00:00.000Z' });
   const id = created.b.medications[0].id;
 
@@ -143,7 +144,7 @@ test('없는 일정은 404 (복용 표시/삭제 모두)', async () => {
 });
 
 test('삭제하면 목록에서 사라진다', async () => {
-  reset();
+  await reset();
   const created = await post('/api/medications', { medicineName: '지울약', scheduledAt: '2026-09-05T09:00:00.000Z' });
   const id = created.b.medications[0].id;
 
@@ -157,7 +158,7 @@ test('삭제하면 목록에서 사라진다', async () => {
 // ──────────────────────────────────────────────
 
 test('시간이 되면 기존 speak 명령 큐에 복약 알림이 들어간다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   await medicationsRepo.createMany({
     medicineName: '혈압약', scheduledAt: minutesAgo(now, 5), notes: '식후에 드세요',
@@ -174,7 +175,7 @@ test('시간이 되면 기존 speak 명령 큐에 복약 알림이 들어간다'
 });
 
 test('틱이 두 번 돌아도 같은 약을 두 번 말하지 않는다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   await medicationsRepo.createMany({ medicineName: '혈압약', scheduledAt: minutesAgo(now, 5) });
 
@@ -186,7 +187,7 @@ test('틱이 두 번 돌아도 같은 약을 두 번 말하지 않는다', async
 });
 
 test('아직 시간이 안 된 약은 알리지 않는다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   await medicationsRepo.createMany({ medicineName: '저녁약', scheduledAt: minutesAgo(now, -30) });
 
@@ -196,7 +197,7 @@ test('아직 시간이 안 된 약은 알리지 않는다', async () => {
 
 test('유예 시간을 넘긴 약은 뒤늦게 알리지 않고 미복용으로만 넘긴다', async () => {
   // 로봇이 몇 시간 꺼져 있다 켜졌을 때 밀린 알림을 쏟아내면 안 된다.
-  reset();
+  await reset();
   const now = new Date();
   await medicationsRepo.createMany({ medicineName: '아침약', scheduledAt: minutesAgo(now, 5 * 60) });
 
@@ -207,7 +208,7 @@ test('유예 시간을 넘긴 약은 뒤늦게 알리지 않고 미복용으로�
 });
 
 test('한 번 걸렀다고 알림을 만들지는 않는다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   await medicationsRepo.createMany({ medicineName: '한번약', scheduledAt: minutesAgo(now, 5 * 60) });
 
@@ -217,7 +218,7 @@ test('한 번 걸렀다고 알림을 만들지는 않는다', async () => {
 });
 
 test('24시간 내 3번 거르면 warning 알림이 생기고, 응급 상태는 켜지지 않는다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   for (const n of [5 * 60, 8 * 60, 11 * 60]) {
     await medicationsRepo.createMany({ medicineName: '혈압약', scheduledAt: minutesAgo(now, n) });
@@ -242,7 +243,7 @@ test('24시간 내 3번 거르면 warning 알림이 생기고, 응급 상태는 
 // ──────────────────────────────────────────────
 
 test('"약 먹었어" 발화로 지난 일정이 복용 처리된다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   await medicationsRepo.createMany({ medicineName: '혈압약', scheduledAt: minutesAgo(now, 10) });
 
@@ -253,7 +254,7 @@ test('"약 먹었어" 발화로 지난 일정이 복용 처리된다', async () 
 });
 
 test('아직 오지 않은 일정은 발화로 복용 처리되지 않는다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   await medicationsRepo.createMany({ medicineName: '저녁약', scheduledAt: minutesAgo(now, -180) });
 
@@ -261,7 +262,7 @@ test('아직 오지 않은 일정은 발화로 복용 처리되지 않는다', a
 });
 
 test('"밥 먹었어"는 방금 복약 알림을 받은 경우에만 복용으로 인정한다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   await medicationsRepo.createMany({ medicineName: '혈압약', scheduledAt: minutesAgo(now, 30) });
 
@@ -276,7 +277,7 @@ test('"밥 먹었어"는 방금 복약 알림을 받은 경우에만 복용으�
 });
 
 test('부정 발화는 복용 처리하지 않는다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   await medicationsRepo.createMany({ medicineName: '혈압약', scheduledAt: minutesAgo(now, 10) });
 
@@ -286,7 +287,7 @@ test('부정 발화는 복용 처리하지 않는다', async () => {
 });
 
 test('대화 API 가 복약 확인을 함께 처리한다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   await medicationsRepo.createMany({ medicineName: '혈압약', scheduledAt: minutesAgo(now, 10) });
 
@@ -298,7 +299,7 @@ test('대화 API 가 복약 확인을 함께 처리한다', async () => {
 });
 
 test('시리즈 삭제는 앞으로 남은 예정만 지우고 지난 기록은 남긴다', async () => {
-  reset();
+  await reset();
   const now = new Date();
   const created = await medicationsRepo.createMany({
     medicineName: '혈압약', scheduledAt: minutesAgo(now, 60), repeatDays: 5,

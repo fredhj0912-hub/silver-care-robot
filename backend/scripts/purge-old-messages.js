@@ -12,7 +12,7 @@
  * 지금은 실행 스케줄이 없다(cron/작업 스케줄러 미설정). 배포 시 주기적으로
  * 돌리도록 등록하거나, 서버 부팅 훅에 연결하는 것을 고려할 것.
  */
-const { getDB } = require('../src/db');
+const { initDB, queryOne } = require('../src/db');
 const messagesRepo = require('../src/repositories/messages');
 
 function arg(name, fallback) {
@@ -30,21 +30,21 @@ if (!Number.isFinite(days) || days <= 0) {
 
 const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-if (dryRun) {
-  const target = getDB()
-    .prepare('SELECT COUNT(*) AS n FROM messages WHERE ts < ?')
-    .get(cutoff).n;
-  console.log(`[dry-run] ${days}일(${cutoff} 이전) 초과 메시지 ${target}건이 삭제 대상입니다.`);
-  console.log('실제로 삭제하려면 --dry-run 없이 다시 실행하세요.');
-  process.exit(0);
-}
-
 // 리포지토리가 async라 IIFE로 감싼다 (CommonJS는 top-level await 불가).
 (async () => {
-  const total = getDB().prepare('SELECT COUNT(*) AS n FROM messages').get().n;
+  await initDB();
+
+  if (dryRun) {
+    const { n: target } = await queryOne('SELECT COUNT(*) AS n FROM messages WHERE ts < ?', [cutoff]);
+    console.log(`[dry-run] ${days}일(${cutoff} 이전) 초과 메시지 ${Number(target)}건이 삭제 대상입니다.`);
+    console.log('실제로 삭제하려면 --dry-run 없이 다시 실행하세요.');
+    return;
+  }
+
+  const { n: total } = await queryOne('SELECT COUNT(*) AS n FROM messages', []);
   const deleted = await messagesRepo.purgeOlderThan(cutoff);
 
-  console.log(`${days}일(${cutoff} 이전) 초과 메시지 ${deleted}건 삭제 완료 (전체 ${total}건 중).`);
+  console.log(`${days}일(${cutoff} 이전) 초과 메시지 ${deleted}건 삭제 완료 (전체 ${Number(total)}건 중).`);
 })().catch((err) => {
   console.error('삭제 실패:', err.stack || err);
   process.exit(1);

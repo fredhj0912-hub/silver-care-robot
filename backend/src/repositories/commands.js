@@ -1,4 +1,4 @@
-const { getDB, nowISO } = require('../db');
+const { query, queryOne, nowISO } = require('../db');
 
 function toApi(row) {
   if (!row) return null;
@@ -13,14 +13,17 @@ function toApi(row) {
 }
 
 async function enqueue({ kind, payload }) {
-  const info = getDB()
-    .prepare('INSERT INTO outbound_commands (ts, kind, payload) VALUES (?, ?, ?)')
-    .run(nowISO(), kind, JSON.stringify(payload));
-  return byId(info.lastInsertRowid);
+  const row = await queryOne(
+    `INSERT INTO outbound_commands (ts, kind, payload)
+     VALUES (?, ?, ?)
+     RETURNING *`,
+    [nowISO(), kind, JSON.stringify(payload)]
+  );
+  return toApi(row);
 }
 
 async function byId(id) {
-  return toApi(getDB().prepare('SELECT * FROM outbound_commands WHERE id = ?').get(Number(id)));
+  return toApi(await queryOne('SELECT * FROM outbound_commands WHERE id = ?', [Number(id)]));
 }
 
 /**
@@ -33,24 +36,32 @@ async function pending({ kind = null, limit = 20 } = {}) {
   const params = [];
   if (kind) { where.push('kind = ?'); params.push(kind); }
 
-  return getDB()
-    .prepare(`SELECT * FROM outbound_commands WHERE ${where.join(' AND ')} ORDER BY id ASC LIMIT ?`)
-    .all(...params, Math.min(Number(limit) || 20, 100))
-    .map(toApi);
+  const { rows } = await query(
+    `SELECT * FROM outbound_commands WHERE ${where.join(' AND ')} ORDER BY id ASC LIMIT ?`,
+    [...params, Math.min(Number(limit) || 20, 100)]
+  );
+  return rows.map(toApi);
 }
 
 async function ack(id) {
-  const changes = getDB()
-    .prepare('UPDATE outbound_commands SET delivered = 1, delivered_at = ? WHERE id = ? AND delivered = 0')
-    .run(nowISO(), Number(id)).changes;
-  return { found: changes > 0, command: await byId(id) };
+  const { rowCount } = await query(
+    'UPDATE outbound_commands SET delivered = 1, delivered_at = ? WHERE id = ? AND delivered = 0',
+    [nowISO(), Number(id)]
+  );
+  return { found: rowCount > 0, command: await byId(id) };
 }
 
-/** 이동 명령은 지나면 의미가 없다 — 미전달 move 명령을 한꺼번에 폐기한다(비상 정지 등). */
-async function dropPending(kind) {
-  return getDB()
-    .prepare('UPDATE outbound_commands SET delivered = 1, delivered_at = ? WHERE delivered = 0 AND kind = ?')
-    .run(nowISO(), kind).changes;
+/**
+ * 이동 명령은 지나면 의미가 없다 — 미전달 move 명령을 한꺼번에 폐기한다(비상 정지 등).
+ * `tx`를 넘기면 그 트랜잭션 안에서 실행된다 (`emergency.raise()`가 쓴다).
+ */
+async function dropPending(kind, tx = null) {
+  const run = tx ? tx.query : query;
+  const { rowCount } = await run(
+    'UPDATE outbound_commands SET delivered = 1, delivered_at = ? WHERE delivered = 0 AND kind = ?',
+    [nowISO(), kind]
+  );
+  return rowCount;
 }
 
 module.exports = { enqueue, byId, pending, ack, dropPending };

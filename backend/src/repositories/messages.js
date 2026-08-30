@@ -1,4 +1,4 @@
-const { getDB, nowISO } = require('../db');
+const { query, queryOne, nowISO } = require('../db');
 
 function toApi(row) {
   return {
@@ -12,12 +12,14 @@ function toApi(row) {
 }
 
 async function add({ sender, text, emotion = 'neutral', source = null, ts = null }) {
-  const info = getDB()
-    .prepare('INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, ?, ?, ?, ?)')
-    .run(ts || nowISO(), sender, text, emotion, source);
-  return toApi(
-    getDB().prepare('SELECT * FROM messages WHERE id = ?').get(info.lastInsertRowid)
+  // RETURNING 으로 새 행을 바로 받는다 — lastInsertRowid 는 드라이버마다 달라 쓰지 않는다.
+  const row = await queryOne(
+    `INSERT INTO messages (ts, sender, text, emotion, source)
+     VALUES (?, ?, ?, ?, ?)
+     RETURNING *`,
+    [ts || nowISO(), sender, text, emotion, source]
   );
+  return toApi(row);
 }
 
 /**
@@ -35,9 +37,10 @@ async function list({ before = null, limit = 50, sender = null, q = null } = {})
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const capped = Math.min(Number(limit) || 50, 200);
 
-  const rows = getDB()
-    .prepare(`SELECT * FROM messages ${clause} ORDER BY id DESC LIMIT ?`)
-    .all(...params, capped + 1);
+  const { rows } = await query(
+    `SELECT * FROM messages ${clause} ORDER BY id DESC LIMIT ?`,
+    [...params, capped + 1]
+  );
 
   const hasMore = rows.length > capped;
   const page = hasMore ? rows.slice(0, capped) : rows;
@@ -54,29 +57,32 @@ async function list({ before = null, limit = 50, sender = null, q = null } = {})
  * 가져오므로, 과거 날짜를 조회하면 그 구간이 최신 N건 밖에 있어 누락될 수 있다.
  */
 async function listInRange(fromIso, toIso) {
-  return getDB()
-    .prepare('SELECT * FROM messages WHERE ts >= ? AND ts < ? ORDER BY id ASC')
-    .all(fromIso, toIso)
-    .map(toApi);
+  const { rows } = await query(
+    'SELECT * FROM messages WHERE ts >= ? AND ts < ? ORDER BY id ASC',
+    [fromIso, toIso]
+  );
+  return rows.map(toApi);
 }
 
 /** 오래된 순으로 최근 N개 — Gemini 대화 히스토리 복원용 */
 async function recentAscending(count) {
-  const rows = getDB()
-    .prepare(`SELECT * FROM messages WHERE sender IN ('senior', 'robot') ORDER BY id DESC LIMIT ?`)
-    .all(count);
+  const { rows } = await query(
+    `SELECT * FROM messages WHERE sender IN ('senior', 'robot') ORDER BY id DESC LIMIT ?`,
+    [count]
+  );
   return rows.reverse().map(toApi);
 }
 
 async function countSince(isoTs) {
-  return getDB()
-    .prepare('SELECT COUNT(*) AS n FROM messages WHERE ts >= ?')
-    .get(isoTs).n;
+  // COUNT는 pg에서 int8이라 문자열로 오기 쉽다 — pg 드라이버가 숫자로 정규화한다.
+  const row = await queryOne('SELECT COUNT(*) AS n FROM messages WHERE ts >= ?', [isoTs]);
+  return Number(row.n);
 }
 
 /** 보관 정책: 어르신 대화 로그는 민감 정보이므로 무한 적재하지 않는다. */
 async function purgeOlderThan(isoTs) {
-  return getDB().prepare('DELETE FROM messages WHERE ts < ?').run(isoTs).changes;
+  const { rowCount } = await query('DELETE FROM messages WHERE ts < ?', [isoTs]);
+  return rowCount;
 }
 
 module.exports = { add, list, listInRange, recentAscending, countSince, purgeOlderThan };

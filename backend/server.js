@@ -4,14 +4,13 @@
  */
 const { createApp } = require('./src/app');
 const { config, describeStartup } = require('./src/config');
-const { getDB, closeDB } = require('./src/db');
+const { initDB, closeDB, describeDB } = require('./src/db');
 const messagesRepo = require('./src/repositories/messages');
 const history = require('./src/services/history');
 const gemini = require('./src/services/gemini');
 const tts = require('./src/services/tts');
 const medication = require('./src/services/medication');
 
-getDB(); // 스키마 적용 + 상태 행 보장
 
 let server = null;
 
@@ -37,6 +36,9 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
   // 이전에는 히스토리가 프로세스 메모리에만 있어 재시작 시 통째로 사라졌다.
   // 복원을 기다린 뒤에 listen 한다 — 서버가 뜬 직후 들어온 첫 대화가 복원 전
   // 히스토리를 보면 맥락이 끊긴다.
+  // 스키마 적용 + 상태 행 보장. pg는 네트워크 I/O라 반드시 await 해야 한다.
+  await initDB();
+
   const restored = history.restoreFrom(await messagesRepo.recentAscending(config.maxHistoryTurns * 2));
 
   // 복약 스케줄러. app.js가 아니라 여기 두는 것이 중요하다 — 테스트는 src/app만
@@ -50,7 +52,7 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
     console.log('\n======================================================');
     console.log('🤖 효돌이 백엔드 서버 실행 중');
     console.log(`   URL:      http://0.0.0.0:${config.port}`);
-    console.log(`   Database: ${config.dbPath}`);
+    console.log(`   Database: ${describeDB()}`);
     console.log(`   Gemini:   ${gemini.isAvailable() ? `사용 가능 (${config.geminiModel})` : '사용 불가 → mock 대화'}`);
     console.log(`   TTS:      ${tts.isEnabled() ? `${config.ttsProvider} / ${config.ttsVoice}` : '브라우저 SpeechSynthesis'}`);
     console.log(`   히스토리:  최근 대화 ${restored}개 복원됨`);

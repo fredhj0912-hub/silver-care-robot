@@ -1,4 +1,4 @@
-const { getDB, transaction, nowISO } = require('../db');
+const { query, queryOne, transaction, nowISO } = require('../db');
 
 /**
  * 복약 일정. 한 행 = 한 번의 복용.
@@ -24,7 +24,7 @@ function toApi(row) {
 }
 
 async function byId(id) {
-  return toApi(getDB().prepare('SELECT * FROM medications WHERE id = ?').get(Number(id)));
+  return toApi(await queryOne('SELECT * FROM medications WHERE id = ?', [Number(id)]));
 }
 
 /**
@@ -38,19 +38,20 @@ async function createMany({ medicineName, scheduledAt, notes = null, repeatDays 
   const start = new Date(scheduledAt).getTime();
   const created = nowISO();
 
-  const ids = transaction((conn) => {
-    const stmt = conn.prepare(
-      'INSERT INTO medications (medicine_name, scheduled_at, notes, created_at) VALUES (?, ?, ?, ?)'
-    );
+  return transaction(async (tx) => {
     const out = [];
     for (let day = 0; day < repeatDays; day += 1) {
       const at = new Date(start + day * 24 * 60 * 60 * 1000).toISOString();
-      out.push(stmt.run(medicineName, at, notes, created).lastInsertRowid);
+      const row = await tx.queryOne(
+        `INSERT INTO medications (medicine_name, scheduled_at, notes, created_at)
+         VALUES (?, ?, ?, ?)
+         RETURNING *`,
+        [medicineName, at, notes, created]
+      );
+      out.push(toApi(row));
     }
     return out;
   });
-
-  return Promise.all(ids.map(byId));
 }
 
 async function list({ from = null, to = null, status = null, limit = 100 } = {}) {
@@ -63,10 +64,11 @@ async function list({ from = null, to = null, status = null, limit = 100 } = {})
 
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-  return getDB()
-    .prepare(`SELECT * FROM medications ${clause} ORDER BY scheduled_at ASC, id ASC LIMIT ?`)
-    .all(...params, Math.min(Number(limit) || 100, 500))
-    .map(toApi);
+  const { rows } = await query(
+    `SELECT * FROM medications ${clause} ORDER BY scheduled_at ASC, id ASC LIMIT ?`,
+    [...params, Math.min(Number(limit) || 100, 500)]
+  );
+  return rows.map(toApi);
 }
 
 /**
@@ -77,44 +79,48 @@ async function list({ from = null, to = null, status = null, limit = 100 } = {})
  * 도움이 안 되고 어르신을 혼란스럽게 한다. 그런 건은 알리지 않고 미복용으로만 남긴다.
  */
 async function due(nowIso, notBeforeIso) {
-  return getDB()
-    .prepare(
-      `SELECT * FROM medications
-       WHERE status = 'scheduled' AND reminded_at IS NULL
-         AND scheduled_at <= ? AND scheduled_at >= ?
-       ORDER BY scheduled_at ASC`
-    )
-    .all(nowIso, notBeforeIso)
-    .map(toApi);
+  const { rows } = await query(
+    `SELECT * FROM medications
+     WHERE status = 'scheduled' AND reminded_at IS NULL
+       AND scheduled_at <= ? AND scheduled_at >= ?
+     ORDER BY scheduled_at ASC`,
+    [nowIso, notBeforeIso]
+  );
+  return rows.map(toApi);
 }
 
 async function markReminded(id) {
-  return getDB()
-    .prepare('UPDATE medications SET reminded_at = ? WHERE id = ? AND reminded_at IS NULL')
-    .run(nowISO(), Number(id)).changes > 0;
+  const { rowCount } = await query(
+    'UPDATE medications SET reminded_at = ? WHERE id = ? AND reminded_at IS NULL',
+    [nowISO(), Number(id)]
+  );
+  return rowCount > 0;
 }
 
 async function markTaken(id, by = 'senior') {
-  const changes = getDB()
-    .prepare(
-      `UPDATE medications SET status = 'taken', taken_at = ?, taken_by = ?
-       WHERE id = ? AND status != 'taken'`
-    )
-    .run(nowISO(), by, Number(id)).changes;
-  return { found: changes > 0, medication: await byId(id) };
+  const { rowCount } = await query(
+    `UPDATE medications SET status = 'taken', taken_at = ?, taken_by = ?
+     WHERE id = ? AND status != 'taken'`,
+    [nowISO(), by, Number(id)]
+  );
+  return { found: rowCount > 0, medication: await byId(id) };
 }
 
 /** 유예 시간이 지나도 복용 표시가 없는 건을 missed로 넘긴다. @returns 바뀐 행 수 */
 async function markMissedBefore(iso) {
-  return getDB()
-    .prepare("UPDATE medications SET status = 'missed' WHERE status = 'scheduled' AND scheduled_at < ?")
-    .run(iso).changes;
+  const { rowCount } = await query(
+    `UPDATE medications SET status = 'missed' WHERE status = 'scheduled' AND scheduled_at < ?`,
+    [iso]
+  );
+  return rowCount;
 }
 
 async function countMissedSince(iso) {
-  return getDB()
-    .prepare("SELECT COUNT(*) AS n FROM medications WHERE status = 'missed' AND scheduled_at >= ?")
-    .get(iso).n;
+  const row = await queryOne(
+    `SELECT COUNT(*) AS n FROM medications WHERE status = 'missed' AND scheduled_at >= ?`,
+    [iso]
+  );
+  return Number(row.n);
 }
 
 /**
@@ -124,18 +130,18 @@ async function countMissedSince(iso) {
  */
 async function latestPendingBefore(iso) {
   return toApi(
-    getDB()
-      .prepare(
-        `SELECT * FROM medications
-         WHERE status IN ('scheduled', 'missed') AND scheduled_at <= ?
-         ORDER BY scheduled_at DESC, id DESC LIMIT 1`
-      )
-      .get(iso)
+    await queryOne(
+      `SELECT * FROM medications
+       WHERE status IN ('scheduled', 'missed') AND scheduled_at <= ?
+       ORDER BY scheduled_at DESC, id DESC LIMIT 1`,
+      [iso]
+    )
   );
 }
 
 async function remove(id) {
-  return getDB().prepare('DELETE FROM medications WHERE id = ?').run(Number(id)).changes > 0;
+  const { rowCount } = await query('DELETE FROM medications WHERE id = ?', [Number(id)]);
+  return rowCount > 0;
 }
 
 /**
@@ -147,16 +153,19 @@ async function remove(id) {
  * 이미 지난 일정과 복용 기록은 건드리지 않는다.
  */
 async function removeSeriesFrom(id, fromIso) {
-  const row = getDB().prepare('SELECT medicine_name, created_at FROM medications WHERE id = ?').get(Number(id));
+  const row = await queryOne(
+    'SELECT medicine_name, created_at FROM medications WHERE id = ?',
+    [Number(id)]
+  );
   if (!row) return 0;
 
-  return getDB()
-    .prepare(
-      `DELETE FROM medications
-       WHERE medicine_name = ? AND created_at = ?
-         AND status = 'scheduled' AND scheduled_at >= ?`
-    )
-    .run(row.medicine_name, row.created_at, fromIso).changes;
+  const { rowCount } = await query(
+    `DELETE FROM medications
+     WHERE medicine_name = ? AND created_at = ?
+       AND status = 'scheduled' AND scheduled_at >= ?`,
+    [row.medicine_name, row.created_at, fromIso]
+  );
+  return rowCount;
 }
 
 module.exports = {

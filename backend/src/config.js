@@ -31,6 +31,14 @@ const config = {
   // LAN 공유 비밀키. 미설정이면 모든 API가 열린다(개발 편의) — 부팅 시 경고를 띄운다.
   robotApiKey: process.env.ROBOT_API_KEY || '',
 
+  // DB 드라이버 — 'sqlite'(기본, 개발·테스트) | 'pg'(RDS PostgreSQL).
+  // S3와 달리 RDS는 사용자/비밀번호 인증이라 Access Key 금지 제약에 걸리지 않는다
+  // — 로컬에서도 실제 연결 검증이 된다 (npm run verify-rds).
+  dbDriver: process.env.DB_DRIVER || 'sqlite',
+  databaseUrl: process.env.DATABASE_URL || '',
+  // RDS는 SSL을 요구한다. 로컬 PostgreSQL로 시험할 때만 0으로 끈다.
+  databaseSsl: process.env.DATABASE_SSL !== '0',
+
   dbPath: process.env.DB_PATH || path.join(BACKEND_ROOT, 'data', 'hyodol.sqlite'),
   snapshotDir: process.env.SNAPSHOT_DIR || path.join(BACKEND_ROOT, 'data', 'snapshots'),
   ttsCacheDir: process.env.TTS_CACHE_DIR || path.join(BACKEND_ROOT, 'data', 'tts-cache'),
@@ -105,6 +113,13 @@ function describeStartup() {
   if (!config.vapidPublicKey || !config.vapidPrivateKey) {
     lines.push('⚠️  VAPID 키 미설정 → 응급 상황이 발생해도 보호자에게 푸시 알림이 가지 않습니다');
     lines.push('   npx web-push generate-vapid-keys 로 발급 후 VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY를 설정하세요');
+  }
+  if (config.dbDriver === 'pg' && !config.databaseUrl) {
+    lines.push('⚠️  DB_DRIVER=pg 인데 DATABASE_URL 미설정 → 첫 DB 접근에서 서버가 죽습니다');
+    lines.push('   postgres://사용자:비밀번호@호스트:5432/DB이름 형식으로 설정하세요');
+  }
+  if (!['sqlite', 'pg'].includes(config.dbDriver)) {
+    lines.push(`⚠️  DB_DRIVER="${config.dbDriver}"는 알 수 없는 값 → sqlite로 조용히 동작합니다 (오타 확인)`);
   }
   if (config.snapshotStorage === 's3' && !config.s3Bucket) {
     lines.push('⚠️  SNAPSHOT_STORAGE=s3 인데 S3_BUCKET 미설정 → 스냅샷 저장이 실패합니다');

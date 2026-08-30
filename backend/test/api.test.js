@@ -20,7 +20,7 @@ process.env.ALERT_COOLDOWN_MS = '60000';
 process.env.PUBLIC_DIR = '';              // 실제 .env에 배포용 값이 있어도 개발 모드로 고정
 
 const { createApp } = require('../src/app');
-const { closeDB } = require('../src/db');
+const { query, initDB, closeDB } = require('../src/db');
 
 let server;
 let BASE;
@@ -31,14 +31,15 @@ const post = (p, body) => fetch(BASE + p, { method: 'POST', headers: H, body: JS
   .then(async (r) => ({ s: r.status, b: await r.json().catch(() => null) }));
 
 test.before(async () => {
+  await initDB();
   server = createApp().listen(0);
   await new Promise((r) => server.once('listening', r));
   BASE = `http://127.0.0.1:${server.address().port}`;
 });
 
-test.after(() => {
+test.after(async () => {
   server.close();
-  closeDB();
+  await closeDB();
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -210,9 +211,10 @@ test('일일 요약: KST 자정 기준으로 날짜 경계를 계산한다 (UTC 
   // KST 2026-08-26 03:00 은 UTC로 2026-08-25T18:00:00Z 다.
   // UTC 자정 기준이었다면 getUTCDate() 가 25일을 반환해 8/25로 잘못 집계됐을 시각이다.
   const kstEarlyMorning = new Date('2026-08-25T18:00:00.000Z');
-  const db = require('../src/db').getDB();
-  db.prepare(`INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', ?, 'neutral', 'legacy')`)
-    .run(kstEarlyMorning.toISOString(), 'KST 새벽 3시 테스트 발화');
+  await query(
+    `INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', ?, 'neutral', 'legacy')`,
+    [kstEarlyMorning.toISOString(), 'KST 새벽 3시 테스트 발화']
+  );
 
   const summary = await get('/api/summary/daily?date=2026-08-26');
   assert.strictEqual(summary.b.date, '2026-08-26');
@@ -229,15 +231,18 @@ test('일일 요약: KST 자정 기준으로 날짜 경계를 계산한다 (UTC 
 test('일일 요약: 전체 메시지가 200건을 넘어도 과거 날짜를 정확히 조회한다', async () => {
   // list({limit:200}) + JS 필터 방식이었다면, 이 200건 채우기 이후로는
   // 과거 날짜 조회가 항상 0건을 반환했다 (그 날짜의 메시지가 "최신 200건" 밖으로 밀려나서).
-  const db = require('../src/db').getDB();
   const targetDate = '2026-01-15T09:00:00.000Z'; // KST 2026-01-15 18:00
-  db.prepare(`INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', '과거 날짜 테스트', 'neutral', 'legacy')`)
-    .run(targetDate);
-
-  const insertMany = db.prepare(
-    `INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', '채우기', 'neutral', 'legacy')`
+  await query(
+    `INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', '과거 날짜 테스트', 'neutral', 'legacy')`,
+    [targetDate]
   );
-  for (let i = 0; i < 205; i++) insertMany.run(new Date().toISOString());
+
+  for (let i = 0; i < 205; i++) {
+    await query(
+      `INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', '채우기', 'neutral', 'legacy')`,
+      [new Date().toISOString()]
+    );
+  }
 
   const summary = await get('/api/summary/daily?date=2026-01-15');
   assert.ok(summary.b.conversationTurns >= 1, '200건 초과 후 과거 날짜 조회가 누락되었다');
