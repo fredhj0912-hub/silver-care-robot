@@ -485,6 +485,103 @@
   color: var(--ink-faint);
 }
 
+/* ── 복약 ───────────────────────────────────── */
+.g-medform {
+  margin: 0 16px 8px;
+  display: grid;
+  gap: 10px;
+}
+
+.g-medform__row {
+  display: grid;
+  grid-template-columns: 1fr 104px;
+  gap: 10px;
+}
+
+.g-medform__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+
+.g-med {
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  background: var(--surface);
+  border-left: 3px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(26, 29, 43, 0.04);
+}
+
+.g-med.is-taken { border-left-color: var(--calm); }
+.g-med.is-missed { border-left-color: #d99a2b; }
+
+.g-med__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.g-med__name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.g-med__time {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.g-med__notes {
+  margin-top: 4px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.g-med__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.g-med__state {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ink-faint);
+}
+
+.g-med__state.is-taken { color: var(--calm); }
+.g-med__state.is-missed { color: #d99a2b; }
+
+/* 행 안에 들어가는 작은 버튼 — .g-btn 은 전체 너비 블록이라 여기서는 쓸 수 없다 */
+.g-med__btn {
+  margin-left: auto;
+  padding: 8px 14px;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.g-med__btn--take {
+  margin-left: 0;
+  background: var(--indigo);
+  border-color: var(--indigo);
+  color: #fff;
+  font-weight: 600;
+}
+
 /* ── 공통 ───────────────────────────────────── */
 .g-section-title {
   padding: 4px 20px 14px;
@@ -532,7 +629,7 @@
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--line);

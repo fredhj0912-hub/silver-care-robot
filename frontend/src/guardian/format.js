@@ -21,6 +21,17 @@ export function formatDay(iso) {
   }).format(new Date(iso));
 }
 
+/**
+ * KST 달력일의 시작을 ISO UTC로. `offsetDays`만큼 앞뒤로 옮긴다.
+ * 백엔드 `routes/status.js`의 kstDayRange와 같은 규칙 — 조회 구간은 화면이 정하고
+ * 백엔드는 받은 구간만 본다.
+ */
+export function kstDayStartISO(offsetDays = 0) {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: KST }).format(new Date());
+  const start = new Date(`${today}T00:00:00+09:00`);
+  return new Date(start.getTime() + offsetDays * 24 * 60 * 60 * 1000).toISOString();
+}
+
 /** 목록의 날짜 구분선용 키 (KST 달력일) */
 export function dayKey(iso) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: KST }).format(new Date(iso));
@@ -66,6 +77,7 @@ const ALERT_LABELS = {
   voice_trigger: '음성 위급 신호',
   vision_anomaly: '카메라 이상 감지',
   no_motion: '장시간 움직임 없음',
+  medication_missed: '복약 미확인',
 };
 
 export const alertLabel = (type) => ALERT_LABELS[type] || type;

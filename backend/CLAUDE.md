@@ -14,10 +14,10 @@ src/
   config.js              single source of all env-derived config — check here before adding a new env var
   db/
     schema.sql            full SQLite schema (messages, alerts, outbound_commands, robot_status,
-                            push_subscriptions, detections)
+                            push_subscriptions, detections, medications)
     index.js               getDB()/transaction()/nowISO() — node:sqlite DatabaseSync wrapper
   repositories/           one file per table; the only files that call getDB()
-    messages.js, alerts.js, commands.js, detections.js, status.js, subscriptions.js
+    messages.js, alerts.js, commands.js, detections.js, status.js, subscriptions.js, medications.js
   services/               business logic + external API adapters — routes call these, never SDKs directly
     gemini.js              chat()/analyzeImage(), retry + model-fallback chain, mock fallback
     tts.js                  synthesize()/prewarm(), 3-provider switch, disk cache (sha1 of provider|voice|text)
@@ -30,10 +30,14 @@ src/
     events.js                SSE pub/sub (EventEmitter-based), role-scoped event filtering
     prompts.js                Gemini system instructions
     snapshots.js               data-URI → file on disk, path-traversal-safe read-back
+    medication.js            classifyUtterance()/evaluateUtterance()/tick() — emergency.js와 같은 형태.
+                              tick()이 시간이 된 약을 기존 speak 명령 큐에 넣고, 24시간 내 3회
+                              미복용을 emergency.raise()로 **warning** 알림 1건으로 올린다
     motion.js                  move()/stop()/getState() — remote-control virtual position + dead-man
                                  timer safety switch. No real actuator yet; simulates coordinates in memory
   routes/                 one file per resource, mounted under /api in app.js
-    status.js, chat.js, alerts.js, vision.js, commands.js, events.js, tts.js, push.js, control.js
+    status.js, chat.js, alerts.js, vision.js, commands.js, events.js, tts.js, push.js, control.js,
+    medications.js
   middleware/index.js     securityHeaders, apiKeyAuth, asyncHandler, notFound, errorHandler
 scripts/
   migrate-json-to-sqlite.js   one-time database.json import — idempotent (no-ops if messages already exist)

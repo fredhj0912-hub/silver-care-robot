@@ -14,6 +14,7 @@ const controlRoutes = require('./routes/control');
 const eventRoutes = require('./routes/events');
 const ttsRoutes = require('./routes/tts');
 const pushRoutes = require('./routes/push');
+const medicationRoutes = require('./routes/medications');
 
 /**
  * 사설 네트워크에서 온 요청만 허용한다.
@@ -70,6 +71,7 @@ function createApp() {
   app.use('/api', eventRoutes);
   app.use('/api', ttsRoutes);
   app.use('/api', pushRoutes);
+  app.use('/api', medicationRoutes);
 
   if (servePublic) {
     app.use(express.static(path.resolve(config.publicDir)));

@@ -5,6 +5,7 @@ const messagesRepo = require('../repositories/messages');
 const statusRepo = require('../repositories/status');
 const gemini = require('../services/gemini');
 const emergency = require('../services/emergency');
+const medication = require('../services/medication');
 const { emit, EVENTS } = require('../services/events');
 
 const router = express.Router();
@@ -40,6 +41,10 @@ router.post('/chat', asyncHandler(async (req, res) => {
   //    "외로워요" 같은 말에도 concerned가 나오므로 오탐의 주원인이었다.
   const alert = await emergency.evaluateUtterance(utterance);
 
+  //    응급 판정 다음에 둔다 — "약 먹고 어지러워" 처럼 둘 다 걸리는 발화에서
+  //    응급 신호가 복약 처리에 묻히면 안 된다. 서로 독립적으로 동작한다.
+  const takenMedication = await medication.evaluateUtterance(utterance);
+
   // 4. 로봇 응답 기록
   const robotMsg = await messagesRepo.add({
     sender: 'robot',
@@ -61,6 +66,9 @@ router.post('/chat', asyncHandler(async (req, res) => {
     model: reply.model || null,    // 대체 모델로 넘어갔는지 확인용
     degradedReason: reply.error,   // mock으로 떨어진 이유 (개발 진단용)
     alert: alert ? { id: alert.id, severity: alert.severity } : null,
+    medicationTaken: takenMedication
+      ? { id: takenMedication.id, medicineName: takenMedication.medicineName }
+      : null,
   });
 }));
 

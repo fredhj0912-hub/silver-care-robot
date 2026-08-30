@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-**효돌이 (Hyodol-i)** — a local software prototype for a multimodal LLM-powered "silver care" companion robot for elderly users living alone. It's a kiosk-style web app meant to run full-screen on a Raspberry Pi 7" display (800×480): a robot face reacts with emotions, listens via voice (Web Speech API, gated by a wake word), talks back via TTS (browser SpeechSynthesis or server-side Gemini/Cloud TTS), and can trigger emergency/SOS alerts to a guardian. Google Gemini powers conversation and vision analysis; both fall back to Korean-language mock logic when no API key is present or a call fails.
+**효돌이 (Hyodol-i)** — a local software prototype for a multimodal LLM-powered "silver care" companion robot for elderly users living alone. It's a kiosk-style web app meant to run full-screen on a Raspberry Pi 7" display (800×480): a robot face reacts with emotions, listens via voice (Web Speech API, gated by a wake word), talks back via TTS (browser SpeechSynthesis or server-side Gemini/Cloud TTS), reminds the senior to take their medication out loud and confirms it by voice, and can trigger emergency/SOS alerts to a guardian. Google Gemini powers conversation and vision analysis; both fall back to Korean-language mock logic when no API key is present or a call fails.
 
 The codebase (comments, prompts, UI copy) is primarily in Korean, since the product targets Korean-speaking senior users and guardians.
 
@@ -84,7 +84,8 @@ ones that matter when writing new code — everything else lives in that doc.
    `db/index.js`'s `getDB()` directly from a route.
 2. **All alert creation goes through `services/emergency.js`'s `raise()`/`evaluateUtterance()`**
    — that's where cooldown and severity logic live, and the only funnel for voice, vision,
-   manual SOS, and external detectors alike.
+   manual SOS, and external detectors alike. Missed medication goes through it too, but is always
+   `warning` and only after 3 misses in 24h — see rule 5.
 3. **Route any new chat-triggering input through `frontend/src/lib/wakeword.js`'s
    `decideAction()`** — it's the single wake-word/emergency-bypass gate.
 4. **Kiosk-only global CSS is scoped to `.kiosk-root`**; putting it back on `*` breaks guardian

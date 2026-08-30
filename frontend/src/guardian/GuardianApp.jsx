@@ -7,6 +7,7 @@ import AlertsScreen from './screens/AlertsScreen';
 import AlertDetailScreen from './screens/AlertDetailScreen';
 import LogScreen from './screens/LogScreen';
 import SendScreen from './screens/SendScreen';
+import MedicationScreen from './screens/MedicationScreen';
 import LiveScreen from './screens/LiveScreen';
 import ControlScreen from './screens/ControlScreen';
 import './guardian.css';
@@ -15,6 +16,7 @@ const TABS = [
   { to: '/guardian', label: '안부', end: true },
   { to: '/guardian/alerts', label: '알림' },
   { to: '/guardian/log', label: '대화' },
+  { to: '/guardian/medication', label: '복약' },
   { to: '/guardian/send', label: '보내기' },
 ];
 
@@ -35,6 +37,7 @@ function GuardianApp() {
         <Route path="alerts" element={<AlertsScreen onChange={data.refresh} />} />
         <Route path="alerts/:id" element={<AlertDetailScreen onChange={data.refresh} />} />
         <Route path="log" element={<LogScreen />} />
+        <Route path="medication" element={<MedicationScreen />} />
         <Route path="send" element={<SendScreen />} />
         <Route path="live" element={<LiveScreen />} />
         <Route path="control" element={<ControlScreen isEmergency={emergency} />} />
