@@ -33,6 +33,10 @@ See TODO.md's AWS section for what's actually feasible before estimating this wo
 - `backend/` — Express API server. `server.js` is now just the entry point (~40 lines); real logic lives under `src/`. SQLite (`node:sqlite`, no native build) replaced the old flat-file `database.json`. See `backend/CLAUDE.md`.
 - `frontend/` — Vite + React 19 app serving **two apps from one build**: `/` is the robot kiosk (dark, fixed 800×480), `/guardian/*` is the guardian PWA (light, phone, installable, receives Web Push for critical alerts). See `frontend/CLAUDE.md`.
 - `start-all.js` — root orchestrator, spawns backend (3001) + frontend (5173) for local dev.
+- `refresh-access.js` — SSHes into the EC2 box, reads the current cloudflared tunnel URL, and
+  regenerates `ACCESS.html` (Pi link + phone link + QR codes). The tunnel URL changes on every
+  instance restart; `ACCESS.html` is gitignored because this repo is public and the URL is
+  effectively the access token.
 - `docs/architecture.md` — system diagrams (components, emergency alert flow, command queue, wake-word gate) referenced from "Architecture notes" below.
 - `docs/fall-detection.md` — contract for a future YOLOv8 fall-detection service (`POST /api/detections`); not yet implemented, only the interface + a mock detector exist.
 - `.agents/skills/` — gstack workflow skills. Not part of the application.
@@ -42,6 +46,8 @@ See TODO.md's AWS section for what's actually feasible before estimating this wo
 ```bash
 npm run install-all
 npm run dev                          # backend (3001) + frontend (5173) via start-all.js
+npm run access -- <EC2 퍼블릭 IP>     # EC2에서 현재 터널 주소를 읽어 ACCESS.html 갱신
+                                     # (파이용 / 폰용 링크 + QR. gitignore — 공개 레포라 주소를 올리지 않는다)
 ```
 
 ```bash
