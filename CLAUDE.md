@@ -22,9 +22,11 @@ ones behind that same pattern. **Two known gaps**, measured 2026-08-27:
   format (`{role:'user'|'model', parts:[{text}]}`), passed straight into the SDK. Swapping to any
   other LLM provider would mean writing one from scratch. (A Bedrock adapter was built and then
   removed once the account limitation was confirmed — see TODO.md.)
-- `node:sqlite`'s `DatabaseSync` is **synchronous**, so every repository (and `emergency.raise()`
-  above them) is a sync function. Moving to RDS/`pg` turns that into an async refactor that
-  propagates through every caller.
+- DB access sits behind a driver switch (`DB_DRIVER=sqlite|pg`) in `db/index.js`. SQLite stays the
+  dev/test default so the backend suite runs with no external dependency; `pg` targets RDS.
+  **Repositories must write SQL that runs on both** — see the five rules in `db/index.js`'s header
+  comment (placeholders stay `?`, use `RETURNING` not `lastInsertRowid`, booleans are integer 0/1,
+  ids are `INTEGER` not `BIGINT`, and `COUNT` must be normalised to a number).
 
 See TODO.md's AWS section for what's actually feasible before estimating this work.
 
@@ -57,6 +59,8 @@ cd backend && npm run migrate        # one-time database.json → SQLite import 
 cd backend && npm run mock-detector -- --type fall --confidence 0.92
 cd backend && npm run prewarm-tts    # pre-cache common TTS phrases
 cd backend && npm run purge-old-messages   # delete conversation history older than 90 days
+cd backend && npm run verify-rds     # RDS PostgreSQL 연결 스모크 테스트 (DB_DRIVER=pg 필요)
+cd backend && npm run migrate-pg     # SQLite → RDS 데이터 이관 (멱등, --dry-run 지원)
 
 cd frontend && npm run dev
 cd frontend && npm run build
@@ -68,7 +72,9 @@ Both packages have test suites, but **different runners**: backend is `node --te
 
 ## Configuration
 
-- `backend/.env`: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-3.6-flash` — see gotcha below), `ROBOT_API_KEY` (LAN shared secret; when set, all routes require an `x-api-key` header), `PORT`, `TTS_PROVIDER` (`browser`|`gemini`|`cloud`, default `browser`), `DETECTION_THRESHOLD`, `ALERT_COOLDOWN_MS`, `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (Web Push; **all three required or push silently disables itself** — the startup banner warns when unset. Regenerate with `npx web-push generate-vapid-keys`).
+- `backend/.env`: `DB_DRIVER` (`sqlite`|`pg`, default `sqlite`), `DATABASE_URL` (required when
+  `DB_DRIVER=pg`; `postgres://user:pass@host:5432/db`), `DATABASE_SSL` (`0` disables TLS — local
+  PostgreSQL only, RDS requires it), `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-3.6-flash` — see gotcha below), `ROBOT_API_KEY` (LAN shared secret; when set, all routes require an `x-api-key` header), `PORT`, `TTS_PROVIDER` (`browser`|`gemini`|`cloud`, default `browser`), `DETECTION_THRESHOLD`, `ALERT_COOLDOWN_MS`, `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (Web Push; **all three required or push silently disables itself** — the startup banner warns when unset. Regenerate with `npx web-push generate-vapid-keys`).
 - `frontend/.env`: `VITE_ROBOT_API_KEY` (must match backend's `ROBOT_API_KEY` — ships in the client bundle, a LAN speed-bump, not real auth), `VITE_VISION_ENABLED` (default `false`, camera capture is opt-in), `VITE_VISION_INTERVAL_MS`, `VITE_VAPID_PUBLIC_KEY` (must match backend's `VAPID_PUBLIC_KEY`).
 - **Gotcha**: `gemini-3.7-flash` frequently returns 503 ("high demand") as of 2026-08. `services/gemini.js` retries transient errors and falls back from `GEMINI_MODEL` to `GEMINI_FALLBACK_MODEL` (default `gemini-3.5-flash`) — don't bump the default model without checking it's actually stable under load.
 - **Gotcha (Windows)**: PowerShell's `Get-Content`/`ConvertFrom-Json` mangle this repo's Korean UTF-8 content into garbage. Read files / parse JSON with Node or the Read/Bash tools, not PowerShell cmdlets — reserve PowerShell for process management (starting/stopping servers, freeing ports).

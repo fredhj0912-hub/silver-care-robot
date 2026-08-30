@@ -166,7 +166,27 @@ AL2023엔 `git`이 없어 `sudo dnf install -y git`이 먼저 필요하고, IMDS
 `com.amazonaws.<리전>.ec2-instance-connect` 접두사 목록을 열어두지 않으면
 `SendSSHPublicKey failed`로 실패한다 — 권한 문제로 착각하기 쉽다.
 
-### RDS PostgreSQL — 가장 비쌈, 마지막
+### RDS PostgreSQL — 코드 완료, 실연결 검증만 남음
+
+**남은 일은 하나뿐이다: 팀원에게 `DATABASE_URL`을 받아 `npm run verify-rds` 실행.**
+코드·스키마·이관 스크립트·테스트는 2026-08-30에 전부 끝났다(아래 체크리스트 참고).
+
+**어디까지 검증됐는가 (과장하지 않고 정확히):**
+
+| 항목 | 상태 |
+|---|---|
+| SQLite 경로 전체 | ✅ 테스트 95건 |
+| `schema.pg.sql` 문법, 플레이스홀더 `?`→`$n`, RETURNING, ON CONFLICT upsert, LIKE/커서, 트랜잭션 **커밋**, JSON 왕복 | ✅ `pg-driver.test.js` (pg-mem 인메모리 PostgreSQL) |
+| 트랜잭션 **롤백**(pg), COUNT/id의 **타입** | ❌ **미검증** — 아래 참고 |
+
+**pg-mem이 못 잡는 것 두 가지** (변이 테스트로 실측 확인했다):
+1. pg-mem의 `pool.connect()`는 격리된 세션이 아니라 같은 객체를 주고 BEGIN/ROLLBACK이
+   no-op이다 → pg 롤백이 실제로 되는지 알 수 없다.
+2. 진짜 node-pg는 int8(COUNT, BIGINT)을 **문자열**로 주는데 pg-mem은 항상 숫자를 준다
+   → int8 파서를 지우거나 스키마를 BIGINT로 바꿔도 테스트가 통과해 버린다.
+
+→ **그래서 `npm run verify-rds`가 이 둘을 직접 검사한다.** RDS에 처음 붙일 때 반드시 실행할 것.
+로컬에 PostgreSQL도 Docker도 없어(2026-08-30 확인) 그 전에는 확인할 방법이 없다.
 
 **팀원이 이미 RDS를 띄워 놨다** (2026-08-30 확인). `seola0219/silver-care-medication-api`의
 `sql/schema.sql`은 손으로 쓴 DDL이 아니라 **PostgreSQL 18.3에서 뜬 진짜 `pg_dump`**다 —
@@ -185,9 +205,22 @@ EC2에 올라가야만 확인할 수 있는 것이 아니다. `pg` 전환 작업
       호출자 전부가 async가 됐다. DB는 아직 `node:sqlite` 그대로이고 동작도 동일하다
       (테스트 49/49). 푸시는 `raise()`가 async가 된 뒤에도 fire-and-forget을 유지했다 —
       푸시 지연이 알림 생성을 막으면 안 되기 때문(CLAUDE.md 규칙 5).
-- [ ] `node:sqlite` → `pg`, 스키마 이관 + 기존 데이터 마이그레이션
-- [ ] **[pg 전환과 반드시 같이] `emergency.js`의 `raise()`/`resolveAlert()`를 트랜잭션으로
-      감쌀 것.** async 전환으로 두 곳이 check-then-write가 됐다. 지금은 `DatabaseSync`가
+- [x] **`node:sqlite` → `pg` 드라이버 + 스키마 + 이관 스크립트** ✅ 2026-08-30 —
+      SQLite를 버리지 않고 `DB_DRIVER=sqlite|pg` 스위치를 뒀다(`SNAPSHOT_STORAGE=local|s3`와
+      같은 패턴). 테스트 스위트가 외부 의존성 없이 도는 것을 지키기 위해서다.
+      `db/index.js`가 `query`/`queryOne`/`exec`/`transaction`/`initDB`만 노출하고,
+      리포지토리 7개(40개 호출 지점)가 전부 그 위로 옮겨갔다.
+      `schema.pg.sql`은 별도 파일이다 — PRAGMA/AUTOINCREMENT가 SQLite 전용이라 합칠 수 없다.
+      **한쪽을 고치면 반드시 다른 쪽도 고쳐야 한다.**
+      이관은 `npm run migrate-pg`(멱등, `--dry-run` 지원). id를 원본 그대로 옮기므로
+      마지막에 IDENTITY 시퀀스를 `setval`로 밀어 준다 — 안 하면 이관 직후 첫 INSERT가
+      중복 id로 실패한다.
+- [x] **`emergency.js`의 `raise()`/`resolveAlert()` 트랜잭션화** ✅ 2026-08-30 —
+      `medications.createMany()`도 함께 전환했다. **설계에서 중요한 부분**: 이벤트 발행·
+      Web Push·모터 정지 같은 되돌릴 수 없는 부수효과를 전부 **커밋 이후로 옮겼다.**
+      트랜잭션 안에서 푸시를 보내면, 롤백된 알림으로 보호자 폰이 울려 존재하지 않는
+      응급을 보호자가 믿게 된다. 아래는 원래 기록해 둔 위험 내용이다.
+      ~~[pg 전환과 반드시 같이] `raise()`/`resolveAlert()`를 트랜잭션으로 감쌀 것.~~ async 전환으로 두 곳이 check-then-write가 됐다. 지금은 `DatabaseSync`가
       동기라 await가 마이크로태스크로만 양보하고 마이크로태스크는 다음 요청보다 먼저
       전부 소진되므로 **요청 간 끼어들기가 없어 안전하다.** `pg`로 가면 진짜 I/O 양보가
       되어 실제 경쟁이 발생한다:

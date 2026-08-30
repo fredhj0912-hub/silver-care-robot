@@ -1,4 +1,5 @@
 const alertsRepo = require('../repositories/alerts');
+const { transaction } = require('../db');
 const { config } = require('../config');
 const { emit, EVENTS } = require('./events');
 
@@ -75,26 +76,48 @@ function classifyUtterance(rawText) {
  * @returns {object|null} 생성된 알림, 쿨다운으로 억제되면 null
  */
 async function raise({ type, severity = 'critical', description, confidence = null, snapshotPath = null, skipCooldown = false }) {
-  // 수동 SOS 버튼은 어르신의 명시적 의사표시이므로 쿨다운을 적용하지 않는다.
-  if (!skipCooldown && await alertsRepo.hasRecentOfType(type, config.alertCooldownMs, severity)) {
+  const statusRepo = require('../repositories/status');
+  const commandsRepo = require('../repositories/commands');
+
+  // DB 쓰기만 트랜잭션 안에서 한다. 쿨다운 확인 -> create 는 check-then-write 라
+  // pg에서는 await 가 진짜 I/O 양보가 되어 동시 요청이 둘 다 통과할 수 있다.
+  //
+  // 이벤트 발행·푸시·모터 정지 같은 **되돌릴 수 없는 부수효과는 커밋 이후에** 한다 —
+  // 롤백된 알림으로 보호자 폰이 울리면 그 알림은 영영 존재하지 않는데 보호자는
+  // 응급이 있었다고 믿게 된다.
+  const written = await transaction(async (tx) => {
+    // 수동 SOS 버튼은 어르신의 명시적 의사표시이므로 쿨다운을 적용하지 않는다.
+    if (!skipCooldown && await alertsRepo.hasRecentOfType(type, config.alertCooldownMs, severity, tx)) {
+      return null;
+    }
+
+    const alert = await alertsRepo.create({ type, severity, description, confidence, snapshotPath }, tx);
+
+    // critical만 로봇/보호자 화면의 비상 모드를 켠다. warning은 기록만 남긴다.
+    let status = null;
+    if (severity === 'critical') {
+      status = await statusRepo.update({ isEmergency: true }, tx);
+      // 응급 상황 진입 — 밀려 있던 이동 명령을 폐기한다 (원격 조종 잠금은
+      // routes/control.js가 이후 요청을 막지만, 이미 큐에 있던 명령은 여기서 걷어내야 한다).
+      await commandsRepo.dropPending('move', tx);
+    }
+
+    return { alert, status };
+  });
+
+  if (!written) {
     console.log(`[ALERT] 쿨다운으로 억제됨 (${type}): ${description}`);
     return null;
   }
 
-  const alert = await alertsRepo.create({ type, severity, description, confidence, snapshotPath });
+  const { alert, status } = written;
 
-  // critical만 로봇/보호자 화면의 비상 모드를 켠다. warning은 기록만 남긴다.
   if (severity === 'critical') {
-    const statusRepo = require('../repositories/status');
-    await statusRepo.update({ isEmergency: true });
-    emit(EVENTS.STATUS_CHANGED, await statusRepo.get());
+    emit(EVENTS.STATUS_CHANGED, status);
 
     // 보호자 브라우저로 Web Push. fire-and-forget — 실패해도 알림 생성 자체는 막지 않는다.
     require('./notify').send(alert).catch((err) => console.error('[PUSH] 발송 실패:', err.message));
 
-    // 응급 상황 진입 — 밀려 있던 이동 명령을 폐기하고 즉시 정지한다 (원격 조종 잠금은
-    // routes/control.js가 이후 요청을 막지만, 이미 큐에 있던 명령은 여기서 걷어내야 한다).
-    await require('../repositories/commands').dropPending('move');
     require('./motion').stop();
   }
 
@@ -151,15 +174,26 @@ async function evaluateUtterance(text) {
  */
 async function resolveAlert(id, by = 'senior') {
   const statusRepo = require('../repositories/status');
-  const { found, alert } = await alertsRepo.resolve(id, by);
 
-  let status = await statusRepo.get();
-  if (await alertsRepo.unresolvedCount() === 0 && status.isEmergency) {
-    status = await statusRepo.update({ isEmergency: false });
-    emit(EVENTS.STATUS_CHANGED, status);
-  }
+  // "미해결 수 조회 -> isEmergency=false" 사이에 새 critical 알림이 끼어들면
+  // 그 알림이 켠 비상 상태를 여기서 도로 꺼버린다 — 보호자가 응급을 놓치는 경로다.
+  // 이벤트 발행은 커밋 이후로 미룬다 (raise()와 같은 이유).
+  const { found, alert, status, statusCleared } = await transaction(async (tx) => {
+    const resolved = await alertsRepo.resolve(id, by, tx);
 
+    let current = await statusRepo.get(tx);
+    let cleared = false;
+    if (await alertsRepo.unresolvedCount(tx) === 0 && current.isEmergency) {
+      current = await statusRepo.update({ isEmergency: false }, tx);
+      cleared = true;
+    }
+
+    return { found: resolved.found, alert: resolved.alert, status: current, statusCleared: cleared };
+  });
+
+  if (statusCleared) emit(EVENTS.STATUS_CHANGED, status);
   if (found) emit(EVENTS.ALERT_RESOLVED, alert);
+
   return { found, alert, isEmergency: status.isEmergency };
 }
 

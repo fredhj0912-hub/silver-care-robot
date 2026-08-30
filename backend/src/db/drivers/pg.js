@@ -25,7 +25,12 @@ function load() {
     // COUNT(*)는 int8(oid 20)이고, node-pg는 int8을 기본적으로 **문자열**로 준다.
     // 그대로 두면 `countMissedSince() >= 3` 같은 비교가 문자열 비교가 되어 조용히 어긋난다.
     // (SQLite는 number를 주므로 두 드라이버의 결과 타입을 여기서 맞춘다.)
-    pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));
+    //
+    // 진짜 `pg`에는 항상 types가 있다. 이 가드는 테스트에서 pg-mem 같은 대역을
+    // 끼워 넣을 때를 위한 것이다 — 대역은 이미 숫자를 돌려주므로 변환이 필요 없다.
+    if (pg.types && typeof pg.types.setTypeParser === 'function') {
+      pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));
+    }
   } catch {
     throw new Error("DB_DRIVER=pg 인데 'pg' 패키지를 불러오지 못했습니다 — npm install pg 를 실행하세요");
   }

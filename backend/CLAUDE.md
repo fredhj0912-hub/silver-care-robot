@@ -15,8 +15,14 @@ src/
   db/
     schema.sql            full SQLite schema (messages, alerts, outbound_commands, robot_status,
                             push_subscriptions, detections, medications)
-    index.js               getDB()/transaction()/nowISO() — node:sqlite DatabaseSync wrapper
-  repositories/           one file per table; the only files that call getDB()
+    schema.pg.sql          같은 스키마의 PostgreSQL 판. **한쪽을 고치면 반드시 다른 쪽도 고칠 것**
+    index.js               query()/queryOne()/exec()/transaction()/initDB()/nowISO().
+                             DB_DRIVER=sqlite|pg 로 드라이버를 고른다. 헤더 주석의
+                             '두 드라이버 공통 SQL 규칙 5가지'를 반드시 읽고 새 쿼리를 쓸 것
+    drivers/sqlite.js      node:sqlite DatabaseSync (개발·테스트 기본값)
+    drivers/pg.js          node-pg 풀. ?→$n 변환, int8→number 파서, 풀에서 빌린 단일
+                             커넥션 트랜잭션
+  repositories/           one file per table; the only files that touch db/index.js
     messages.js, alerts.js, commands.js, detections.js, status.js, subscriptions.js, medications.js
   services/               business logic + external API adapters — routes call these, never SDKs directly
     gemini.js              chat()/analyzeImage(), retry + model-fallback chain, mock fallback
@@ -46,6 +52,9 @@ scripts/
   purge-old-messages.js          deletes conversation history older than 90 days — run manually,
                                    no schedule set up yet
 test/
+  db-driver.test.js       드라이버 계약 (플레이스홀더, RETURNING, COUNT 타입, rowCount, 롤백)
+  pg-driver.test.js       pg 경로를 pg-mem(인메모리 PostgreSQL)로 검증. 헤더에 적힌
+                            '검증되지 않는 것' 두 가지를 읽을 것
   *.test.js               node --test. api.test.js and control.test.js spin up a real app against a temp
                             SQLite DB — set DB_PATH/SNAPSHOT_DIR before requiring src/app. New integration
                             tests must do the same; never point a test at backend/data/hyodol.sqlite (real
@@ -58,6 +67,9 @@ test/
 
 - **Routes stay thin**: validate input, call one or two service/repo functions, shape the response. Business logic belongs in `services/`.
 - **All alert creation goes through `services/emergency.js`'s `raise()`**, never `alertsRepo.create()` directly from a route — that's where the cooldown and `robot_status.is_emergency` flip happen.
+- **DB 접근은 `db/index.js`의 `query`/`queryOne`/`transaction`만 쓴다.** 드라이버를 직접
+  require하지 말 것. SQL은 두 드라이버에서 모두 돌아야 한다(플레이스홀더 `?`, `RETURNING`,
+  정수 0/1 boolean, `COUNT`는 `Number()`로 감싸기).
 - **All timestamps are ISO8601 UTC** (`db.nowISO()`). Migrated legacy data mixed `+09:00` and `Z` — don't reintroduce that.
 - **IDs are `INTEGER PRIMARY KEY AUTOINCREMENT`**, not `array.length + 1` — safe under future deletion/pruning.
 - New external API integrations (AWS or otherwise) belong in `services/`, called from routes — never an inline `fetch()` in a route handler.
@@ -69,9 +81,12 @@ test/
 ## Gotchas
 
 - `node:sqlite` requires Node ≥ 22.5 (repo assumes 24). No native build step, unlike `better-sqlite3`.
-- **`DatabaseSync` is synchronous**, which is why every repository function — and `emergency.raise()`
-  on top of them — is sync, and why `raise()` calls `notify.send()` fire-and-forget instead of
-  awaiting it. A move to RDS/`pg` makes all of that async and the change propagates to every caller;
-  budget it as a refactor, not an adapter swap.
+- **리포지토리는 전부 async다** (2026-08-29 전환 완료). `raise()`가 `notify.send()`를
+  fire-and-forget으로 부르는 것은 푸시 지연이 알림 생성을 막지 않게 하기 위함이다.
+- **`emergency.raise()`/`resolveAlert()`는 트랜잭션 안에서 돈다.** 이벤트 발행·푸시·모터
+  정지 같은 **되돌릴 수 없는 부수효과는 반드시 커밋 이후**에 둘 것 — 롤백된 알림으로
+  보호자 폰이 울리면 존재하지 않는 응급을 보호자가 믿게 된다.
+- **pg 경로에서 pg-mem이 검증하지 못하는 것 둘**: 트랜잭션 롤백, COUNT/id의 타입.
+  RDS에 처음 붙일 때 `npm run verify-rds`를 반드시 돌릴 것 (둘 다 거기서 검사한다).
 - The old `GET /api/history`, `POST /api/remote-message`, and `GET /api/remote-message/poll` compat shims were removed 2026-08-27 (no callers left). Use `/api/messages` + `/api/alerts` and `/api/commands/pending` + `/api/commands/:id/ack`.
 - `config.geminiModel` defaults to `gemini-3.6-flash`, not the newer `gemini-3.7-flash` — the latter 503s under load as of 2026-08.
