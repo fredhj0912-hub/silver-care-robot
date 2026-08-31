@@ -123,7 +123,8 @@ user 서비스는 SSH 로그인에서도 뜨고 컴포지터 환경변수(`WAYLA
 있을 가능성이 크고, NetworkManager는 핫스팟이 실제로 방송 중일 때만 그것을 고른다.
 그래서 복구가 **폰에서 핫스팟 켜기 한 번**이 된다. 파이에 키보드가 없다는 조건에서 이게 맞다.
 
-IP가 바뀌어도 SSH는 `hyodol.local`(mDNS)로 들어갈 수 있다.
+IP가 바뀌어도 SSH는 `<파이 호스트명>.local`(mDNS, 파이 OS 기본값은 `raspberrypi`)로
+들어갈 수 있다. 호스트명은 파이에서 `hostname`, IP는 `hostname -I`로 확인한다.
 
 ## 5. 사전 점검
 
