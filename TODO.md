@@ -145,6 +145,12 @@ RDS를 **사설 IP로** 해석하고 소스도 사설 IP가 된다. 공인 IP로
 VPC 밖이라 공인 IP(`/32`)로 열려 있고, **공인 IP가 바뀌면 다시 막힌다** — 그때는
 `https://checkip.amazonaws.com`으로 새 IP를 확인해 RDS 보안 그룹에 넣는다.
 
+**같은 함정이 EC2 SSH에도 있다** (2026-08-31 확인). 22번도 개발 PC 공인 IP `/32` 하나로만
+열려 있어 **다른 와이파이로 옮기면 `npm run access`와 EC2 접속이 통째로 막힌다** — 증상은
+역시 연결 거부가 아니라 **타임아웃**이다. 액세스 키 발급이 불가능한 계정이므로 콘솔
+**CloudShell**에서 `authorize-security-group-ingress`로 새 IP를 넣거나, **EC2 Instance
+Connect**(AWS 대역이라 어디서든 열린다)로 우회한다. 절차는 `docs/pi-runbook.md` §0-A.
+
 **로컬 `.env`도 pg를 본다.** 로컬에서 본 것이 곧 보호자 앱에 보이는 것이라 편하지만,
 로컬 대화 테스트 데이터가 실제 RDS에 쌓인다는 뜻이기도 하다.
 

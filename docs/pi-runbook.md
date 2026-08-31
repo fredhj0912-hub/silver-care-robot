@@ -11,9 +11,60 @@
 | `[파이]` | 라즈베리파이 5의 터미널 |
 | `[폰]` | 보호자 앱을 여는 휴대전화 |
 | `[EC2]` | 개발 PC에서 SSH로 들어간 서버 |
+| `[콘솔]` | 브라우저로 연 AWS 콘솔 (CloudShell / Instance Connect) |
 
 > **✋ 이 문서는 아직 실측이 아니다.** 09-01에 실행하면서 틀린 것을 고칠 것.
 > 각 단계의 **"성공한 모습"** 을 보고 넘어가고, 안 되면 그 자리에서 §10을 본다.
+
+---
+
+## 0-A. 🔴 평소와 다른 와이파이라면 — 먼저 이것부터 `[개발 PC]` `[콘솔]`
+
+**EC2의 SSH(22번)는 개발 PC의 공인 IP 하나에만 열려 있다.** 그래서 다른 네트워크로 옮기면
+아래 두 가지가 **전부 막힌다**:
+
+- §0의 `npm run access` (내부적으로 EC2에 SSH한다)
+- §8-4의 `mock-detector` (EC2에 들어가야 한다)
+
+**증상이 "연결 거부"가 아니라 타임아웃**이라 원인을 찾는 데 시간을 버리기 쉽다.
+파이와 폰은 영향이 없다 — 터널 주소로 밖으로 나가기만 하므로 어느 네트워크든 된다.
+
+**대응 1 — 새 IP를 보안 그룹에 추가한다 (권장)**
+
+먼저 개발 PC에서 지금 공인 IP를 확인한다:
+
+```powershell
+curl.exe -s https://checkip.amazonaws.com
+```
+
+그다음 **AWS 콘솔 → CloudShell**을 열고(이 계정은 액세스 키 발급이 불가능하므로
+로그인 세션을 그대로 쓰는 CloudShell이 유일한 CLI 경로다):
+
+```bash
+aws ec2 authorize-security-group-ingress \
+  --group-id <EC2 보안 그룹 ID> \
+  --protocol tcp --port 22 --cidr <위에서 확인한 IP>/32 \
+  --region us-west-2
+```
+
+> ⚠️ CloudShell 안에서 `checkip`을 부르면 **CloudShell의 IP**가 나온다. 반드시 개발 PC에서
+> 확인한 값을 넣을 것.
+
+**대응 2 — SSH를 아예 쓰지 않는다**
+
+콘솔의 **EC2 Instance Connect**(브라우저 SSH)는 AWS 대역으로 열려 있어 **어느 네트워크에서든
+접속된다.** 거기서 터널 주소를 직접 읽으면 §0을 건너뛸 수 있다:
+
+```bash
+journalctl -u cloudflared.service --no-pager -o cat \
+  | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1
+```
+
+`mock-detector`(§8-4)도 같은 창에서 실행하면 된다.
+
+> 보안 그룹 ID·현재 열린 IP 같은 값은 **공개 레포라 여기 적지 않는다.** 콘솔에서 확인한다.
+> 로컬에서 RDS에 직접 붙는 작업(`npm run dev`, `verify-rds`)도 같은 이유로 막히지만,
+> 내일 순서에는 없다.
 
 ---
 
@@ -245,6 +296,7 @@ i2cdetect -y 1 2>/dev/null  # 모터 HAT이 I2C면 여기 주소가 뜬다
 | 증상 | 원인 | 조치 |
 |---|---|---|
 | `deploy/pi` 폴더가 없다 | `-b feat/pi-deployment` 없이 clone함 | `git checkout feat/pi-deployment` |
+| **EC2 SSH가 타임아웃** | **와이파이가 바뀌어 공인 IP가 달라짐** | **§0-A** |
 | `set-url.sh`가 `→ 000` | 터널 주소가 낡음 / EC2 죽음 | §0으로 |
 | 부팅해도 키오스크가 안 뜸 | 컴포지터가 자동실행을 안 읽음 | `./preflight.sh` 2번에서 컴포지터 확인 → 수동 실행 `./kiosk.sh` 로 먼저 화면이 뜨는지 본다 |
 | Chromium이 두 개 뜸 | XDG와 labwc 양쪽에 등록됨 | `~/.config/labwc/autostart`에서 hyodol 줄을 지운다 |
