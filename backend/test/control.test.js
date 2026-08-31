@@ -6,6 +6,9 @@ const path = require('node:path');
 
 // config 는 require 시점에 환경변수를 읽는다. 반드시 app 을 부르기 전에 설정한다.
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'hyodol-test-control-'));
+// .env에 DB_DRIVER=pg 가 설정돼 있어도 테스트가 실제 RDS를 치지 않게 고정한다
+// (SNAPSHOT_STORAGE='local' 과 같은 이유 — 통합 테스트는 임시 SQLite에서만 돈다).
+process.env.DB_DRIVER = 'sqlite';
 process.env.DB_PATH = path.join(TMP, 'test.sqlite');
 process.env.SNAPSHOT_DIR = path.join(TMP, 'snapshots');
 process.env.ROBOT_API_KEY = 'test-key';
@@ -35,10 +38,10 @@ test.before(async () => {
   BASE = `http://127.0.0.1:${server.address().port}`;
 });
 
-test.after(() => {
+test.after(async () => {
   motion.stop(); // 데드맨 타이머가 남아 프로세스 종료를 막지 않도록
   server.close();
-  closeDB();
+  await closeDB();
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 

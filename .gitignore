@@ -21,3 +21,22 @@ tools/
 # 접속 주소 파일. 레포가 공개라 터널 주소를 올리면 "주소를 아는 사람만 쓴다"는
 # 현재 보안 모델이 깨진다. npm run access 로 각자 로컬에서 생성한다.
 ACCESS.html
+
+# 환경변수 변형 — RDS 접속 정보(호스트/사용자/비밀번호)가 여기 들어간다.
+# .env 만 막혀 있어서 .env.production 같은 변형이 그대로 올라갈 수 있었다.
+# .env.example 은 값이 비어 있는 순수 템플릿이라 추적을 유지한다.
+.env.*
+!.env.example
+
+# DB 덤프·백업 — 어르신 대화와 알림 로그가 통째로 들어간다.
+# RDS 이전 중 pg_dump / sqlite 사본을 레포 안에서 만들기 쉬우므로 미리 막는다.
+*.dump
+*.sql.gz
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# 접속 키·인증서 — EC2 SSH 키(.pem)와 RDS SSL 번들.
+# 한 번 올라가면 히스토리에서 지워도 이미 유출된 것으로 취급해야 한다.
+*.pem
+*.key

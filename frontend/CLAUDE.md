@@ -42,6 +42,8 @@ test/
   HomeScreen.test.jsx              guardian home: emergency-vs-note branch, resolve, offline notice
   AlertsScreen.test.jsx            alert history: empty state, resolve button gating, reload after resolve
   MedicationScreen.test.jsx        복약: 등록 시 UTC 변환, 복용 버튼 게이팅, 시리즈 삭제
+  useGuardianData.test.jsx         SSE 정체 감지·재연결, 폴백 폴링 중에는 오프라인 안내 안 함
+  RobotFaceDisplay.test.jsx        키오스크가 웨이크워드 게이트를 실제로 통과시키는지 (STT/TTS 스텁)
 ```
 
 ## Conventions
@@ -66,8 +68,14 @@ uses Vitest while the backend stays on `node --test`.
 - **`test/setup.js` stubs `Notification`**, because jsdom has none and `HomeScreen` reads
   `Notification.permission` on mount whenever `VITE_VAPID_PUBLIC_KEY` is set.
 - Covered so far: the guardian screens whose branches decide *whether the guardian sees an
-  emergency*. `RobotFaceDisplay.jsx` is still untested (Web Speech / TTS / camera APIs) — verify
-  kiosk changes by running `npm run dev` against the real backend.
+  emergency*, plus `useGuardianData`'s SSE/fallback path.
+- **`RobotFaceDisplay.test.jsx`는 화면 전체가 아니라 게이트 배선만 덮는다** — 웨이크워드
+  없는 발화가 `/api/chat`을 부르지 않는지, 응급 우회 발화는 통과하는지. 판정 로직 자체는
+  `wakeword.test.js`가 덮으므로 되풀이하지 말 것. 얼굴 렌더·TTS 재생·카메라 경로는 여전히
+  미검증이니 키오스크 변경은 `npm run dev`로 실제 백엔드에 붙여 확인한다.
+- **`stt.js`는 모듈 로드 시점에 `window.SpeechRecognition`을 붙잡는다.** 그래서
+  `RobotFaceDisplay.test.jsx`는 스텁을 먼저 심고 컴포넌트를 **동적 import**한다 —
+  정적 import로 바꾸면 스텁이 늦어 STT 경로가 통째로 죽는다.
 
 ## Guardian app conventions
 

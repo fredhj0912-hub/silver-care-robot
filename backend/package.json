@@ -10,7 +10,9 @@
     "verify-s3": "node scripts/verify-s3.js",
     "prewarm-tts": "node scripts/prewarm-tts.js",
     "purge-old-messages": "node scripts/purge-old-messages.js",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "verify-rds": "node scripts/verify-rds.js",
+    "migrate-pg": "node scripts/migrate-sqlite-to-pg.js"
   },
   "engines": {
     "node": ">=22.5"
@@ -21,6 +23,10 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "pg": "^8.23.0",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "pg-mem": "^3.0.14"
   }
 }

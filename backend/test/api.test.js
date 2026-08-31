@@ -7,6 +7,9 @@ const path = require('node:path');
 // config 는 require 시점에 환경변수를 읽는다. 반드시 app 을 부르기 전에 설정한다.
 // 실제 대화 로그(backend/data/hyodol.sqlite)를 건드리지 않도록 임시 DB를 쓴다.
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'hyodol-test-'));
+// .env에 DB_DRIVER=pg 가 설정돼 있어도 테스트가 실제 RDS를 치지 않게 고정한다
+// (SNAPSHOT_STORAGE='local' 과 같은 이유 — 통합 테스트는 임시 SQLite에서만 돈다).
+process.env.DB_DRIVER = 'sqlite';
 process.env.DB_PATH = path.join(TMP, 'test.sqlite');
 process.env.SNAPSHOT_DIR = path.join(TMP, 'snapshots');
 process.env.ROBOT_API_KEY = 'test-key';
@@ -20,7 +23,7 @@ process.env.ALERT_COOLDOWN_MS = '60000';
 process.env.PUBLIC_DIR = '';              // 실제 .env에 배포용 값이 있어도 개발 모드로 고정
 
 const { createApp } = require('../src/app');
-const { closeDB } = require('../src/db');
+const { query, initDB, closeDB } = require('../src/db');
 
 let server;
 let BASE;
@@ -31,14 +34,15 @@ const post = (p, body) => fetch(BASE + p, { method: 'POST', headers: H, body: JS
   .then(async (r) => ({ s: r.status, b: await r.json().catch(() => null) }));
 
 test.before(async () => {
+  await initDB();
   server = createApp().listen(0);
   await new Promise((r) => server.once('listening', r));
   BASE = `http://127.0.0.1:${server.address().port}`;
 });
 
-test.after(() => {
+test.after(async () => {
   server.close();
-  closeDB();
+  await closeDB();
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -155,6 +159,8 @@ test('감지 이벤트에 스냅샷을 첨부하면 파일로 저장되고 알�
 
   const img = await fetch(BASE + alert.snapshotUrl, { headers: H });
   assert.strictEqual(img.status, 200, '저장된 스냅샷 파일을 열 수 없다');
+  // Content-Type 없이도 <img src>는 브라우저 스니핑 덕에 뜬다 — 그 운에 기대지 않는다.
+  assert.strictEqual(img.headers.get('content-type'), 'image/png');
 });
 
 test('스냅샷: 존재하지 않는 파일은 404', async () => {
@@ -179,9 +185,17 @@ test('감지 이벤트: 임계값 미만은 기록만, 이상은 알림', async 
   const low = await post('/api/detections', { source: 'mock', type: 'fall', confidence: 0.3 });
   assert.strictEqual(low.b.alertRaised, false);
   assert.strictEqual(low.b.accepted, true);
+  assert.strictEqual(low.b.suppressedBy, 'threshold');
 
   const high = await post('/api/detections', { source: 'mock', type: 'fall', confidence: 0.95 });
   assert.strictEqual(high.b.alertRaised, true);
+  assert.strictEqual(high.b.suppressedBy, null);
+
+  // 임계값을 넘겼는데도 알림이 안 나는 두 번째 이유가 쿨다운이다. 이 둘을 구분해 주지
+  // 않으면 감지기 쪽에서 임계값 문제로 오해한다(실제로 그렇게 디버깅이 헛돌았다).
+  const again = await post('/api/detections', { source: 'mock', type: 'fall', confidence: 0.95 });
+  assert.strictEqual(again.b.alertRaised, false);
+  assert.strictEqual(again.b.suppressedBy, 'cooldown');
 
   assert.ok((await get('/api/detections')).b.detections.length >= 2, '감지 원본이 기록되지 않았다');
 });
@@ -210,9 +224,10 @@ test('일일 요약: KST 자정 기준으로 날짜 경계를 계산한다 (UTC 
   // KST 2026-08-26 03:00 은 UTC로 2026-08-25T18:00:00Z 다.
   // UTC 자정 기준이었다면 getUTCDate() 가 25일을 반환해 8/25로 잘못 집계됐을 시각이다.
   const kstEarlyMorning = new Date('2026-08-25T18:00:00.000Z');
-  const db = require('../src/db').getDB();
-  db.prepare(`INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', ?, 'neutral', 'legacy')`)
-    .run(kstEarlyMorning.toISOString(), 'KST 새벽 3시 테스트 발화');
+  await query(
+    `INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', ?, 'neutral', 'legacy')`,
+    [kstEarlyMorning.toISOString(), 'KST 새벽 3시 테스트 발화']
+  );
 
   const summary = await get('/api/summary/daily?date=2026-08-26');
   assert.strictEqual(summary.b.date, '2026-08-26');
@@ -229,15 +244,18 @@ test('일일 요약: KST 자정 기준으로 날짜 경계를 계산한다 (UTC 
 test('일일 요약: 전체 메시지가 200건을 넘어도 과거 날짜를 정확히 조회한다', async () => {
   // list({limit:200}) + JS 필터 방식이었다면, 이 200건 채우기 이후로는
   // 과거 날짜 조회가 항상 0건을 반환했다 (그 날짜의 메시지가 "최신 200건" 밖으로 밀려나서).
-  const db = require('../src/db').getDB();
   const targetDate = '2026-01-15T09:00:00.000Z'; // KST 2026-01-15 18:00
-  db.prepare(`INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', '과거 날짜 테스트', 'neutral', 'legacy')`)
-    .run(targetDate);
-
-  const insertMany = db.prepare(
-    `INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', '채우기', 'neutral', 'legacy')`
+  await query(
+    `INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', '과거 날짜 테스트', 'neutral', 'legacy')`,
+    [targetDate]
   );
-  for (let i = 0; i < 205; i++) insertMany.run(new Date().toISOString());
+
+  for (let i = 0; i < 205; i++) {
+    await query(
+      `INSERT INTO messages (ts, sender, text, emotion, source) VALUES (?, 'senior', '채우기', 'neutral', 'legacy')`,
+      [new Date().toISOString()]
+    );
+  }
 
   const summary = await get('/api/summary/daily?date=2026-01-15');
   assert.ok(summary.b.conversationTurns >= 1, '200건 초과 후 과거 날짜 조회가 누락되었다');
@@ -277,4 +295,25 @@ test('SSE: 연결 시 현재 상태를 보내고 이후 이벤트를 실시간 �
 
   assert.ok(seen.includes('hello'), `hello 미수신 (수신: ${seen.join(', ')})`);
   assert.ok(seen.includes('command.issued'), `command.issued 미수신 (수신: ${seen.join(', ')})`);
+});
+
+test('푸시 구독: 새 origin으로 구독하면 옛 터널 주소의 구독은 정리된다', async () => {
+  const subscribe = (origin, endpoint) => fetch(BASE + '/api/push/subscribe', {
+    method: 'POST',
+    headers: { ...H, Origin: origin },
+    body: JSON.stringify({ endpoint, keys: { p256dh: 'p', auth: 'a' } }),
+  }).then((r) => r.json());
+
+  assert.deepStrictEqual(await subscribe('https://old.example', 'https://fcm.test/old'), { success: true });
+  await subscribe('https://new.example', 'https://fcm.test/new');
+
+  // 옛 origin의 구독을 FCM은 410으로 거부하지 않고 성공으로 응답한다 —
+  // notify.js의 자동 정리에 안 걸리므로 구독 시점에 여기서 걷어내야 한다.
+  const { rows } = await query('SELECT endpoint, origin FROM push_subscriptions', []);
+  assert.deepStrictEqual(
+    rows.map((r) => r.endpoint),
+    ['https://fcm.test/new'],
+    '사라진 터널 주소의 구독이 남아 있다'
+  );
+  assert.strictEqual(rows[0].origin, 'https://new.example');
 });

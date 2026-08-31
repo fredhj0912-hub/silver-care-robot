@@ -6,438 +6,199 @@
 - 작업 시작: "TODO.md 읽고 첫 번째 항목부터 시작해"
 - 세션 종료: "TODO.md 업데이트해줘"
 
-전체 아키텍처와 각 단계의 배경은 계획서를 참고할 것:
-`C:\Users\fredh\.claude\plans\modular-rolling-wozniak.md`
+아키텍처는 `docs/architecture.md`, 초기 계획서는
+`C:\Users\fredh\.claude\plans\modular-rolling-wozniak.md`.
+완료 이력은 맨 아래 요약 + `git log`.
 
 ---
 
-## AWS에 대하여 — 시작 전에 반드시 읽을 것
+## 지금 할 것
 
-**대회(한이음 드림업) 제공 계정으로 할 수 있는 것과 없는 것** (2026-08-27 실측 확정):
+### 1순위 — RDS 실연결 검증 (막판 한 걸음)
+
+코드·스키마·이관 스크립트·테스트는 **2026-08-30에 전부 끝났다.** 남은 건 실제 연결뿐이다.
+
+- [ ] **팀원(seola0219)에게 RDS 접속 정보를 받는다** — 호스트/DB이름/사용자/비밀번호.
+      팀원 레포엔 `.env`가 없어 값이 안 올라와 있다.
+- [ ] `backend/.env`에 `DB_DRIVER=pg` + `DATABASE_URL` 설정 → `npm run verify-rds`
+- [ ] 성공하면 `npm run migrate-pg`로 기존 SQLite 데이터 이관 (멱등, `--dry-run` 먼저)
+- [ ] EC2 `.env`에도 같은 값 넣고 재기동 → 보호자 앱에서 대화 로그·알림이 그대로 보이는지
+
+**⚠️ `verify-rds`를 반드시 돌려야 하는 이유** — 테스트가 잡지 못하는 구멍이 정확히 둘 있다.
+`pg-driver.test.js`는 pg-mem(인메모리 PostgreSQL)으로 도는데, **변이 테스트로 확인한 결과**
+아래 두 가지는 코드를 망가뜨려도 통과해 버린다:
+
+| | 왜 안 잡히나 |
+|---|---|
+| 트랜잭션 **롤백** | pg-mem의 `pool.connect()`가 격리 세션이 아니라 BEGIN/ROLLBACK이 no-op |
+| **COUNT/id 타입** | 진짜 node-pg는 int8(COUNT·BIGINT)을 **문자열**로 주는데 pg-mem은 늘 숫자 |
+
+`verify-rds`가 이 둘을 실제 RDS에서 직접 검사한다. 로컬에 PostgreSQL도 Docker도 없어
+(2026-08-30 확인) 그 전에는 확인할 방법이 없다.
+
+**RDS는 우리 AWS 전제의 예외다** — IAM Role이 아니라 사용자/비밀번호 인증이고 대회 계정
+샌드박스는 퍼블릭 액세스를 허용하므로, **S3와 달리 로컬에서 끝까지 검증된다.** EC2에
+올라갈 필요가 없다. 팀원 `app/database.py`에서 가져올 설정은 `sslmode: require` 하나다.
+
+### 2순위 — 남은 백로그
+
+RDS를 기다리는 동안 집을 만한 것들. 아래 "백로그" 섹션에 상세가 있다.
+(2026-08-31에 4건 + 테스트 보강 2건을 `fix/backlog` 브랜치에서 처리했다 — 아직 머지 전.)
+
+- [ ] 감정 이력을 남길 곳이 없다 (`detections`에 한 줄 기록하면 됨)
+- [ ] `purge-old-messages` 정기 실행 등록
+
+### 막혀 있음 — 실물 하드웨어가 있어야 함
+
+- [ ] **YOLOv8 낙상 감지 실제 구현** — 백엔드 계약(`POST /api/detections`)과 mock은 이미
+      완성돼 있어 **백엔드 변경은 불필요**하다. `detector/`에 Python(FastAPI) 서비스를 만들어
+      계약대로 POST만 하면 된다. `docs/fall-detection.md` 참고.
+      배포 골격은 팀원 레포의 `deploy/silvercare-api.service`(systemd)를 그대로 쓸 만하다.
+      - [ ] 카메라 → detector 데이터 흐름 미정 (RTSP / HTTP 스트리밍 / 파일 감시)
+      - [ ] 낙상 스냅샷 전송 인코딩 미정 (백로그의 presigned 업로드 항목 참고)
+      - [ ] 파이5 CPU 추론 가속(ONNX Runtime/OpenVINO) 여부와 목표 FPS 미정
+- [ ] **라즈베리파이 5 실물 배포** — kiosk 모드, systemd, 카메라/마이크 연결
+      - [ ] **원격조종 네트워크 지연/단절 정책** (Phase 7 잔여) — 500ms 데드맨보다 명령
+            전송이 늦어지면 로봇이 끊겨 이동하거나 정지 요청이 유실될 수 있다.
+            시뮬레이션에선 안 드러나고 실물에서만 문제가 되므로 거기서 결정한다
+      - [ ] 와이파이가 동아리방 SSID로만 등록돼 있어 이동 시 연결 끊김.
+            NetworkManager에 여러 SSID(우선순위) + 대회장 대비 폰 핫스팟도 등록
+      - [ ] 파이 ↔ 백엔드(EC2) ↔ 보호자 앱 네트워크 구성 미정
+            (퍼블릭 도메인 vs 터널 유지)
+
+---
+
+## 프로젝트 제약 — 시작 전에 반드시 읽을 것
+
+**대회(한이음 드림업) 제공 AWS 계정** (2026-08-27 실측 확정):
 
 | 가능 | 불가능 |
 |---|---|
 | EC2, Lambda, RDS, DynamoDB, S3, API GW, Amplify, SQS, SNS | **Bedrock, Polly, Transcribe 등 클라우드 AI 전부** |
 
 → **AI는 Gemini API를 계속 쓴다.** 대화·비전·음성을 AWS로 옮기는 계획은 세우지 말 것.
+Bedrock 어댑터를 실제로 만들어 테스트했으나 `BedrockDeny` 명시적 거부 정책이 걸려 있었고,
+explicit deny는 EC2 IAM Role을 거쳐도 우회 불가라 **전부 제거했다**(2026-08-27).
 
 **계정 공통 제약**
-- **Access Key 발급 절대 불가.** 인증은 IAM Role만 — EC2는 `SafeInstanceProfile-{username}`,
-  그 외(Lambda 등)는 `SafeRole-{username}`. IAM Role은 AWS 인프라 안에서 도는 프로세스에만
-  붙으므로 **로컬에서는 어떤 AWS 서비스도 인증 테스트가 불가능**하다. 검증은 EC2에서만.
+- **Access Key 발급 절대 불가.** 인증은 IAM Role만 — EC2는 `SafeInstanceProfile-{username}`.
+  IAM Role은 AWS 안에서 도는 프로세스에만 붙으므로 **로컬에서는 인증 테스트가 불가능**하다.
+  **예외: RDS**(사용자/비밀번호 인증) — 위 1순위 항목 참고.
 - MFA 설정 후 재로그인해야 자원 생성 가능(`DenyAllWithoutMFA`).
-- 지정 리전 밖에서는 모든 활동 제한 — **문제 생기면 리전부터 확인**. 본인이 만든 리소스만
-  중지/시작/삭제 가능.
+- 지정 리전 밖에서는 모든 활동 제한 — **문제 생기면 리전부터 확인.**
 - EC2는 `t3.nano`~`t3.small`만. S3 버킷 이름은 본인 username으로 시작해야 함.
-- RDS는 MySQL/PostgreSQL + Free Tier만, 샌드박스 생성 시 EC2 연결 불가·퍼블릭 액세스 허용.
-- 콘솔 **CloudShell**은 로그인 세션 자격증명을 자동으로 쓰므로 Access Key 없이 CLI 사용 가능
-  — 사전 확인은 여기서 하는 게 가장 싸다.
+- 콘솔 **CloudShell**은 로그인 세션 자격증명을 자동으로 쓰므로 Access Key 없이 CLI 사용 가능.
 
-**남아 있는 아키텍처 함정** (AWS와 별개로 유효)
-1. **`services/history.js`에는 변환 계층이 아예 없다.** 저장 형식이 곧 Gemini 와이어
-   포맷이다(`{role:'user'|'model', parts:[{text}]}`). `history.get()`이 Gemini SDK의
-   `startChat({history})`로 **그대로** 들어간다. 다른 LLM provider로 갈아탈 일이 생기면
-   변환 계층을 새로 만들어야 한다. 덤으로 model 턴 인코딩이 두 가지로 섞여 있다 —
-   실시간 대화는 `JSON.stringify({text,emotion})`을 저장하는데 재시작 복원은 평문을 넣는다.
-2. **RDS 전환은 어댑터 교체가 아니라 전면 async 리팩터링이다.** `node:sqlite`의
-   `DatabaseSync`는 **동기**라서 `repositories/*.js`가 전부 동기 함수고, 그 위의
-   `emergency.raise()`도 동기다(Phase 5에서 푸시를 fire-and-forget으로 붙인 이유가 이것).
-   `pg`는 비동기라 **모든 리포지토리와 호출자에 async가 번져 나간다.**
-
-### 취소됨 — Phase 6(Bedrock) / Phase 8(Polly·Transcribe)
-
-Bedrock 어댑터까지 실제로 만들어 테스트했으나, 계정이 Bedrock을 지원하지 않는다는 것이
-확정되어 **전부 제거했다**(2026-08-27, 상세는 git log). 안내 문서엔 사용 가능하다고
-적혀 있었지만 `BedrockDeny` 명시적 거부 정책이 걸려 있었고, explicit deny는 EC2 IAM
-Role을 거쳐도 우회 불가다. "어댑터만 갈면 된다"는 가정이 스키마 CHECK 제약까지는
-커버하지 못한다는 것도 확인했다(`messages.source`) — RDS 이전 때 참고할 것.
+**남아 있는 아키텍처 함정**
+- **`services/history.js`에는 변환 계층이 아예 없다.** 저장 형식이 곧 Gemini 와이어
+  포맷(`{role, parts:[{text}]}`)이고 SDK의 `startChat({history})`로 **그대로** 들어간다.
+  다른 LLM으로 갈아탈 일이 생기면 변환 계층을 새로 만들어야 한다. 덤으로 model 턴 인코딩이
+  두 가지로 섞여 있다 — 실시간 대화는 `JSON.stringify({text,emotion})`, 재시작 복원은 평문.
 
 ---
 
-## 지금 할 것
+## 운영 메모
 
-**로컬에서 할 수 있는 것 / 없는 것** (2026-08-29 확인)
-
-로컬에 AWS CLI가 없고(`aws: command not found`), 계정이 Access Key 발급을 막아
-인증이 IAM Role 전용이다. 따라서 **S3 버킷 생성·EC2 인스턴스 생성·연결 검증은
-전부 콘솔/CloudShell/EC2 안에서만** 가능하다. 낙상 감지·파이 배포도 카메라와 실물
-파이가 없어 실물 검증이 안 된다.
-
-AWS 쪽은 **S3 실연결 검증과 EC2 상시 배포가 모두 끝났다**(2026-08-29). 남은 AWS 항목은
-RDS 이전 하나뿐이고, 그건 로컬 코드 작업(`pg` 전면 async + 트랜잭션)이 대부분이다.
-나머지(낙상 감지·파이 배포)는 실물 하드웨어가 있어야 한다 — 아래 "큰 것들" 참고.
-다음 세션에 로컬로 할 것을 찾는다면 후보는:
-- [ ] `useGuardianData`의 SSE/정체 감지 훅 테스트 (`EventSource` 목킹)
-- [ ] `RobotFaceDisplay.jsx` 테스트 (701줄, Web Speech/TTS/카메라 목킹 부담이 큼)
-
----
-
-## 그다음 — 정리 라운드 (작고 확실한 것들)
-
-전부 완료 ✅ 2026-08-27 — 상세는 "완료" 섹션 참고.
-
----
-
-## 그다음 — 큰 것들
-
-- [ ] **YOLOv8 낙상 감지 실제 구현** — 백엔드 계약(`POST /api/detections`)과 mock은 이미
-      완성돼 있다. `detector/` 디렉터리에 Python(FastAPI) 서비스를 만들어 계약대로
-      POST만 하면 되고 **백엔드 변경은 불필요**하다. `docs/fall-detection.md` 참고
-      - [ ] 카메라 → detector 데이터 흐름 설계 필요 (RTSP/HTTP 스트리밍/파일 감시 중
-            방식 미정, 낙상 스냅샷을 `POST /api/detections`로 보낼 인코딩도 미정)
-- [ ] **라즈베리파이 5 실물 배포** — kiosk 모드, systemd, 카메라/마이크 연결
-      - [ ] **원격조종 네트워크 지연/단절 정책** (Phase 7 잔여) — 500ms 데드맨보다 명령
-            전송이 늦어지면 로봇이 끊겨 이동하거나 정지 요청이 유실될 수 있다. 시뮬레이션
-            상태에선 드러나지 않고 실물에서만 문제가 되므로 여기서 결정한다
-      - [ ] 와이파이가 동아리방 SSID로만 등록돼 있어 다른 장소(기숙사 등) 이동 시 연결
-            끊김. 실물 파이가 생기면: NetworkManager에 여러 SSID 등록(우선순위 설정) +
-            대회장 등 미지의 장소 대비 스마트폰 핫스팟(고정 SSID/비번)도 등록
-      - [ ] YOLOv8을 파이5에서 CPU로 돌릴 때 가속(ONNX Runtime/OpenVINO) 여부와
-            목표 FPS 미정
-      - [ ] 파이 ↔ 백엔드(EC2 이전 시) ↔ 보호자 앱 간 네트워크 구성 미정
-            (퍼블릭 도메인 vs 로컬 터널 유지 여부)
-- [x] 프론트엔드 컴포넌트 테스트 환경(jsdom/RTL) 도입 ✅ 2026-08-29 — 아래 "완료" 참고
-
----
-
-## 마지막 — AWS (EC2 / S3 / RDS만)
-
-"대회에서 AWS를 실제로 썼다"를 보여주는 용도. 제품 기능이 정리된 뒤에 착수.
-전체 절차는 `docs/deploy-ec2-aws-test.md`.
-
-### S3 스냅샷 — 전부 완료 ✅ 2026-08-29 (코드 8/27, 실연결 검증 8/29)
-"`services/snapshots.js` 하나만 바꾸면 된다"는 처음 예상은 **정확히는 아니었다** —
-`save()`가 네트워크 I/O로 async가 되면서 호출부(`routes/vision.js` 2곳, `routes/alerts.js`
-1곳)에 `await`를 추가해야 했다. `GET /snapshots/:filename`의 스트리밍 로직도 새 `serve()`
-함수로 `snapshots.js` 안으로 옮겨 라우트가 로컬/S3를 몰라도 되게 했다. 다행히
-`emergency.raise()`는 `snapshots.js`를 직접 부르지 않고 계산된 `snapshotPath` 문자열만
-받으므로, 아래 "리포지토리 async 전환"의 전제조건은 아니었다.
-- [x] `local`/`s3` provider 스위치 (`SNAPSHOT_STORAGE` env), `@aws-sdk/client-s3` 추가
-- [x] 프론트엔드 `assetUrl()`은 그대로 — 항상 `/api/snapshots/:filename` 프록시로 서빙해서
-      S3 여부와 무관하게 LAN 키 인증이 안 깨지게 설계
-- [x] `npm run verify-s3` 스모크 테스트 (로컬은 `SNAPSHOT_STORAGE=local` 왕복만 확인 —
-      `s3` 모드는 스크립트 주석대로 로컬에서 Access Key 문제로 항상 실패하는 게 정상)
-- [x] 버킷 생성(이름은 username으로 시작) + EC2에서 `SNAPSHOT_STORAGE=s3`로 실제 확인
-      ✅ 2026-08-29 — **S3 섹션 전부 완료.** 버킷
-      `project9-80-oregon-hyodol-snapshots`(`us-west-2`), 검증용 인스턴스
-      `i-0459de4bc22c04d52`(`t3.small`, AL2023). `verify-s3` 성공 + AWS CLI 교차 확인 +
-      `POST /api/alerts`에 데이터 URI를 실어 저장→S3→서빙 왕복까지 확인(HTTP 200,
-      실제 PNG 바이트). 절차 중 문서와 달랐던 부분은 `docs/deploy-ec2-aws-test.md`에
-      실측으로 교정했다.
-
-### EC2 상시 배포 — 완료 ✅ 2026-08-29
-전체 절차는 **`docs/deploy-ec2-production.md`**(전부 실측). 아래는 요약과 남은 한계다.
-
-- [x] 백엔드가 `PUBLIC_DIR`로 프론트엔드 빌드를 **같은 오리진에서 서빙** (커밋 `ee032d7`)
-- [x] `systemd`로 백엔드 + cloudflared 상시 기동, 재부팅 생존 확인(약 30초 복귀)
-- [x] HTTPS 확보 → 폰에서 **PWA 설치 + 응급 푸시 도착 + 상세 딥링크 + 해제**까지 실기기 확인
-- [x] 스냅샷 왕복(터널 → EC2 → S3 → 터널) 200 / 실제 PNG
-
-**⚠️ quick tunnel은 SSE를 통과시키지 못한다** (실측). `GET /api/events`가 터널 경유로
-본문 0바이트다(헤더는 200 + `text/event-stream` 정상). 우리 코드와 무관한 최소 청크
-서버로 격리 검증했고 QUIC/HTTP2 둘 다, 2KB 패딩 우회도 동일하다 — `trycloudflare.com`
-엣지 버퍼링이라 코드로 못 고친다. 계획 때 API Gateway를 "SSE가 깨져서" 배제했는데
-cloudflared도 같은 함정이었다.
-→ **응급 푸시는 무사하다**(브라우저↔FCM 직통, 터널을 안 지남). 보호자 앱은 30초 폴백
-폴링으로 동작하고, 화면을 열어둔 상태의 알림 표시만 최대 30초 밀린다.
-
-**터널 주소는 재시작마다 바뀐다** → 바뀌면 브라우저 기준 다른 사이트라 **푸시 구독을
-다시 해야 한다.** 고정 주소와 실시간이 동시에 필요해지면 도메인 + Let's Encrypt 직결
-(포트 80/443 개방 + certbot). 중간에 아무것도 없으니 SSE도 확실히 동작한다.
-
-**인스턴스를 껐다 켤 때마다 할 일** — 새 퍼블릭 IP로 아래 한 줄만 돌리면 된다.
-`ACCESS.html`(gitignore)에 파이용/폰용 링크와 QR이 갱신된다:
+**인스턴스를 껐다 켤 때마다** — 새 퍼블릭 IP로 한 줄만 돌리면 `ACCESS.html`(gitignore)에
+파이용/폰용 링크와 QR이 갱신된다. `reboot`은 IP가 유지되지만 **stop/start는 바뀐다.**
 
 ```bash
 npm run access -- <새 퍼블릭 IP>     # 끌 때는: npm run access -- --stopped
 ```
 
-**메모리 실측 ✅ 2026-08-29**: `t3.small`(1.9Gi)에서 `npm install` ×2 + 프론트 빌드 +
-백엔드 상시 기동까지 돌려 여유 1.1Gi 이상. **`t3.small`이면 충분하다.** `t3.nano`(512MB)는
-`@aws-sdk/client-s3` 설치에서 OOM 위험이 있어 권하지 않는다.
-비용은 24시간 가동 시 월 $15 안팎 — 장기간 안 쓰면 중지(stop)한다. reboot은 퍼블릭 IP가
-유지되지만 **stop/start는 IP가 바뀐다.**
+**배포된 앱의 알려진 한계 3가지** — 전부 `docs/deploy-ec2-production.md`의 "알려진 한계"에
+상세가 있다. 요약만:
+1. **quick tunnel은 SSE를 통과시키지 못한다**(실측, 코드로 못 고침). 응급 푸시는 FCM
+   직통이라 무사하고, 보호자 앱은 30초 폴백 폴링으로 동작한다.
+2. **터널 주소가 재시작마다 바뀐다** → 브라우저 기준 다른 사이트라 **푸시 구독을 다시 해야
+   한다.** 고정 주소 + 실시간이 동시에 필요해지면 도메인 + Let's Encrypt 직결.
+3. `ROBOT_API_KEY`는 진짜 인증이 아니다 → 백로그의 "보호자 로그인" 항목.
 
-접속·설치에서 문서에 빠져 있던 것들(전부 `docs/deploy-ec2-aws-test.md`에 반영):
-AL2023엔 `git`이 없어 `sudo dnf install -y git`이 먼저 필요하고, IMDSv2가 필수라
-메타데이터 조회에 토큰이 필요하며, 인스턴스 안에서 보이는 역할 이름은
-`SafeInstanceProfile-{username}`이 아니라 그것이 감싸는 **`SafeRole-{username}`** 이다.
-콘솔 「연결」(EC2 Instance Connect)은 보안 그룹에
-`com.amazonaws.<리전>.ec2-instance-connect` 접두사 목록을 열어두지 않으면
-`SendSSHPublicKey failed`로 실패한다 — 권한 문제로 착각하기 쉽다.
+**인스턴스 크기**: `t3.small`(1.9Gi)면 충분하다(실측 — `npm install` ×2 + 프론트 빌드 +
+백엔드 상시 기동에 여유 1.1Gi 이상). `t3.nano`(512MB)는 `@aws-sdk/client-s3` 설치에서
+OOM 위험이 있어 권하지 않는다. 24시간 가동 시 월 $15 안팎.
 
-### RDS PostgreSQL — 가장 비쌈, 마지막
+**로컬에서 HTTPS로 폰 테스트할 때** — `npm run dev`가 아니라 **preview를 터널링**해야 한다.
+서비스 워커는 `main.jsx`의 `import.meta.env.PROD` 가드 때문에 프로덕션 빌드에서만 등록된다.
 
-**팀원이 이미 RDS를 띄워 놨다** (2026-08-30 확인). `seola0219/silver-care-medication-api`의
-`sql/schema.sql`은 손으로 쓴 DDL이 아니라 **PostgreSQL 18.3에서 뜬 진짜 `pg_dump`**다 —
-인스턴스가 실제로 존재한다는 뜻이다. 이전할 때 인스턴스를 새로 만들 필요가 없다.
-
-**그리고 이건 "AWS는 EC2 안에서만 검증 가능"이라는 우리 전제의 예외다.** RDS는 IAM Role이
-아니라 **사용자/비밀번호로 인증**하고, 대회 계정 RDS 샌드박스는 퍼블릭 액세스를 허용한다
-(위 "AWS에 대하여" 참고). 즉 **Access Key 없이 로컬에서 바로 연결 테스트가 된다** — S3 때처럼
-EC2에 올라가야만 확인할 수 있는 것이 아니다. `pg` 전환 작업을 로컬에서 끝까지 검증할 수 있다.
-
-팀원 쪽 접속 정보(호스트/유저/비밀번호)는 `.env`에만 있고 레포에 없다 — 이전 시작 전에 받을 것.
-팀원 `app/database.py`에서 가져올 설정은 `sslmode: require` 하나다(`pg` 클라이언트에도 필요).
-
-
-- [x] **[선행 필수] 리포지토리 async 전환** ✅ 2026-08-29 — 완료. `repositories/*.js` 6개와
-      호출자 전부가 async가 됐다. DB는 아직 `node:sqlite` 그대로이고 동작도 동일하다
-      (테스트 49/49). 푸시는 `raise()`가 async가 된 뒤에도 fire-and-forget을 유지했다 —
-      푸시 지연이 알림 생성을 막으면 안 되기 때문(CLAUDE.md 규칙 5).
-- [ ] `node:sqlite` → `pg`, 스키마 이관 + 기존 데이터 마이그레이션
-- [ ] **[pg 전환과 반드시 같이] `emergency.js`의 `raise()`/`resolveAlert()`를 트랜잭션으로
-      감쌀 것.** async 전환으로 두 곳이 check-then-write가 됐다. 지금은 `DatabaseSync`가
-      동기라 await가 마이크로태스크로만 양보하고 마이크로태스크는 다음 요청보다 먼저
-      전부 소진되므로 **요청 간 끼어들기가 없어 안전하다.** `pg`로 가면 진짜 I/O 양보가
-      되어 실제 경쟁이 발생한다:
-      - `raise()`: 동시 요청이 둘 다 쿨다운을 통과해 중복 알림 생성
-      - `resolveAlert()`: "미해결 수 조회 → isEmergency=false" 사이에 새 critical 알림이
-        끼어들면 그 알림이 켠 비상 상태를 도로 꺼버림 — **보호자가 응급을 놓치는 경로**
-      (코드에도 ⚠️ 주석으로 남겨둠)
-
----
-
-**로컬에서 HTTPS로 폰 테스트가 필요할 때** (Phase 5에서 확립한 방법 — EC2 상시 배포 후에도
-**로컬 개발 중 폰 확인용으로는 여전히 유효하다.** 배포된 앱을 볼 때는 EC2 터널 주소를 쓴다):
-`npm run dev`가 아니라 **preview 서버를 터널링해야 한다** — 서비스 워커는 `main.jsx`의
-`import.meta.env.PROD` 가드 때문에 프로덕션 빌드에서만 등록된다.
-```
+```bash
 cd frontend && npm run build && npm run preview        # 4173
 C:\Users\fredh\bin\cloudflared-windows-amd64.exe tunnel --url http://localhost:4173
 ```
-preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다. quick tunnel은 실행할 때마다
-주소가 바뀌고, 주소가 바뀌면 브라우저 기준 다른 사이트라 **푸시 구독을 다시 해야 한다.**
+
+preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다.
 
 ---
 
-## 코드 리뷰 발견 사항 (2026-08-26 /code-review)
+## 백로그
 
-CONFIRMED 5건은 전부 수정 완료 — 완료 섹션의 "코드리뷰 CONFIRMED 5건 수정" 참고.
-
-### 추정 (PLAUSIBLE — 재검증 완료 ✅ 2026-08-27)
-- [x] `frontend/src/lib/useGuardianData.js:54` — 재검증 결과 실제 비효율 확인. 전체
-      재조회 자체는 의도된 설계(화면 수가 적어 부분 갱신보다 단순함이 낫다는 판단)라
-      유지하되, SSE가 연결돼 있는 동안엔 30초 폴백 폴링을 스킵하도록 수정
-- [x] `backend/src/services/gemini.js:166` — 정규식 quantifier 불일치(`.*` vs `.+`)
-      확인. `snapshots.js`의 `parseDataUri()`와 동일하게 `.+`로 맞춰 빈 base64
-      페이로드를 `bad_data_uri`로 거르도록 수정 (두 함수를 하나로 합치는 것까지는
-      이번 스코프 밖 — 재구현 통합은 미룸)
-
----
-
-## 백로그 (위 로드맵에 안 들어간 것들)
+로드맵에 안 들어갔지만 언젠가 해야 할 것들. 발견 시점과 이유를 함께 적는다.
 
 - [ ] **감정 이력을 남길 곳이 없다** (2026-08-30, 팀원 코드 검토 중 확인). `routes/vision.js`가
       Gemini에서 `expression`/`confidence`를 받아 놓고 `robot_status.senior_expression`에
-      **덮어쓰기만** 한다 — 시간에 따른 감정 추이를 볼 방법이 없다. 팀원 레포엔
-      `emotion_records` 테이블이 따로 있는데, 우리는 새 테이블 없이 기존 `detections`
-      (`source`/`confidence`/`meta_json` 이미 있음)에 한 줄 기록하면 된다. 보호자 홈의
-      `emotionCounts`가 robot 발화 emotion만 세고 있는 것도 이걸로 보강할 수 있다.
+      **덮어쓰기만** 한다 — 시간에 따른 추이를 볼 방법이 없다. 팀원 레포엔 `emotion_records`
+      테이블이 따로 있는데, 우리는 새 테이블 없이 기존 `detections`(`source`/`confidence`/
+      `meta_json` 이미 있음)에 한 줄 기록하면 된다. 보호자 홈의 `emotionCounts`가 robot 발화
+      emotion만 세고 있는 것도 이걸로 보강할 수 있다.
 - [ ] **detector용 presigned 업로드** (2026-08-30). YOLOv8 detector가 낙상 스냅샷을 보낼 때
       지금 계약(`POST /api/detections`의 base64 data URI)은 12MB JSON 바디를 Express로
       통과시킨다. 팀원 `app/s3_service.py`의 presigned PUT 방식이 이 경우엔 더 낫다
-      (`incoming/{category}/{YYYY}/{MM}/{DD}/{uuid}.{ext}` 키 규칙까지 그대로 쓸 만하다).
+      (`incoming/{category}/{YYYY}/{MM}/{DD}/{uuid}.{ext}` 키 규칙까지 쓸 만하다).
       **보호자 앱 경로에는 쓰지 말 것** — `/api/snapshots/:filename` 프록시 서빙은 LAN 키
       인증이 안 깨지게 일부러 그렇게 만든 것이다.
-- [ ] **팀원 `requirements.txt`를 그대로 설치하지 말 것** (2026-08-30). 오염된 venv의
-      `pip freeze`라 FastAPI와 무관한 `agent-detector==1.1.0`, `detect-installer==0.1.0`,
-      `fastar==0.12.0`이 섞여 있다. 정체를 확인하기 전에는 설치하지 말고, `detector/`
-      venv를 만들 때도 이 파일을 재사용하지 말 것 (fastapi/uvicorn/ultralytics만 직접 명시).
-      팀원 `deploy/silvercare-api.service`(systemd 유닛)는 그대로 쓸 만한 템플릿이다.
-
 - [ ] **보호자 로그인(제대로 된 인증)** — 2026-08-29 EC2 상시 배포로 **위험도가 올라갔다.**
       `ROBOT_API_KEY`는 `VITE_ROBOT_API_KEY`로 프론트 번들에 평문으로 들어가므로, 이제는
       "터널 주소를 아는 사람만 쓴다" 수준이다. 주소를 아는 사람은 번들에서 키를 읽어
       SOS·카메라·원격조종 API를 부를 수 있다. 시연·발표용으로 수용한 상태이며 실사용
-      전에는 세션/JWT 기반 보호자 로그인이 필요하다.
-- [ ] **`mock-detector`가 쿨다운을 "임계값 미만"으로 잘못 안내한다** (2026-08-29 발견).
-      `scripts/mock-detector.js:73`이 `alertRaised: false`면 무조건 "임계값 미만이라
-      기록만 되었습니다"를 찍는데, `raise()`는 **쿨다운에 걸려도** null을 돌려준다.
-      신뢰도 0.95(임계값 0.7)를 보냈는데 임계값 문제라고 안내해 디버깅을 헛돌게 했다.
-      응답에 억제 사유를 실어 구분해 주는 게 맞다.
-- [ ] **죽은 구독을 정리할 방법이 없다** (2026-08-29 발견). 터널 주소가 바뀌면 옛
-      origin의 구독이 서버에 남는데, FCM은 그 구독을 404/410으로 거부하지 않고
-      **성공으로 응답한다.** 그래서 `notify.js`의 자동 정리(404/410 → 삭제)에 안 걸리고
-      로그에는 "발송 완료"가 찍힌다. 실제로는 보호자가 알림을 눌러도 사라진 주소가 열려
-      Cloudflare Error 1033이 떴다. 구독에 origin을 함께 저장하면 구분할 수 있다.
-- [ ] **SSE가 죽은 환경에서 "오프라인" 안내가 깜빡인다** (2026-08-29 EC2 배포 중 발견).
-      `useGuardianData.js`가 SSE를 열지만 이벤트가 하나도 안 오면 60초마다 정체로 판정해
-      `connected`를 false로 내리고 재연결한다. 데이터는 폴백 폴링으로 갱신되므로 기능은
-      멀쩡한데 화면에만 연결 끊김 안내가 뜬다. 프록시가 SSE를 버퍼링하는 환경(현재 배포)
-      에서 계속 재현된다.
-- [ ] **`snapshots.js`의 `serve()`가 `Content-Type`을 안 붙인다** (2026-08-29 S3 실검증
-      중 발견). `serveLocal`/`serveS3` 둘 다 스트림을 그대로 `pipe`해서 응답에 타입
-      헤더가 없다. 지금 동작하는 건 브라우저가 `<img src>`에서 내용을 스니핑해 주기
-      때문이라 운에 기대고 있는 셈이다. S3는 업로드 때 `ContentType`을 이미 저장하므로
-      (`saveS3`) `GetObject` 응답의 `object.ContentType`을 그대로 내려주면 되고, 로컬은
-      확장자로 정하면 된다.
+      전에는 세션/JWT 기반 로그인이 필요하다.
 - [ ] `purge-old-messages` 정기 실행 등록 (지금은 수동, 스케줄 없음)
 - [ ] 목소리 품질을 급히 올려야 하면 Cloud TTS 전환 — `TTS_PROVIDER=cloud` +
-      `npm run prewarm-tts`. 콘솔에서 API 활성화 1회 필요:
-      https://console.cloud.google.com/apis/library/texttospeech.googleapis.com
+      `npm run prewarm-tts`. 콘솔에서 API 활성화 1회 필요.
       (Polly는 계정에서 불가능하므로 이게 유일한 업그레이드 경로다)
-- [x] CLAUDE.md 구조 정리 — "Architecture notes"를 `docs/architecture.md`(Mermaid 다이어그램)로
-      분리. `purge-old-messages` 커맨드 문서화 누락 수정.
+
+**하지 말 것**
+- ⛔ **팀원 `requirements.txt`를 그대로 설치하지 말 것** (2026-08-30). 오염된 venv의
+  `pip freeze`라 FastAPI와 무관한 `agent-detector==1.1.0`, `detect-installer==0.1.0`,
+  `fastar==0.12.0`이 섞여 있다. `detector/` venv를 만들 때도 재사용하지 말고
+  fastapi/uvicorn/ultralytics만 직접 명시할 것.
 
 ---
 
-## 완료
+## 완료 요약
 
-상세 변경 이력은 git log 참고 (`PR #1`, `e90616a`~`26b2124`가 main에 merge됨).
+상세는 `git log`와 각 문서에 있다. 여기엔 **날짜와 한 줄**만 남긴다.
 
-- **복약 관리 (팀원 코드 통합)** ✅ 2026-08-30 — 팀원(seola0219)의 FastAPI 레포에서
-  **복약 기능만** 가져와 기존 Node 백엔드에 흡수했다. 판정 내역:
-  - **채택**: `medication_records` 모델과 status CHECK(`scheduled/taken/missed`). 단
-    `senior_id` 제거(어르신 1인 전용이고 기존 6개 테이블에 없다), `timestamptz` →
-    ISO8601 TEXT, `reminded_at` 추가(같은 약을 반복해서 말하지 않게 하는 가드).
-  - **제외**: `emergency_records`/`/api/emergencies`. 팀원 것은 INSERT 한 줄인데 우리
-    `emergency.js`에는 쿨다운·2단 severity·warning 승격·푸시·이동명령 폐기가 있다.
-    합치면 알림 생성 경로가 둘로 갈라져 CLAUDE.md 규칙 2를 정면으로 위반한다.
-  - **제외(기록만)**: presigned URL 업로드. 우리 `snapshots.js`는 LAN 키 인증이 안 깨지게
-    일부러 백엔드 경유로 서빙하고 파일명에 provider를 새긴다 — presigned는 둘 다 깬다.
-    detector용으로는 유효해서 백로그에 남겼다.
-  **가장 큰 재사용 이득: 로봇 키오스크가 사실상 그대로다.** 알림 전달에 새 경로를 만들지 않고
-  기존 `outbound_commands`(kind: `speak`) 큐를 탔다 — 키오스크가 이미 2.5초마다 폴링해
-  읽어주고 웨이크워드 게이트까지 열어준다. 다만 키오스크가 모든 speak를 "보호자님 메시지:"로
-  표시하고 있어서 `payload.label`을 추가했다(복약 알림이 보호자가 보낸 말로 보이면 안 된다).
-  **설계에서 일부러 안전한 쪽으로 기울인 것 둘**:
-  - "밥 먹었어"는 어르신이 가장 자주 하는 말 중 하나다. 약을 명시하지 않은 짧은 확인
-    ("먹었어")은 **방금 복약 알림을 받은 경우에만** 복용으로 인정한다. 놓치는 쪽(보호자가
-    직접 표시)이 잘못 표시하는 쪽(보호자가 드신 줄 알고 넘어감)보다 훨씬 안전하다.
-  - 미복용 알림은 **1회로는 만들지 않고**, 24시간 내 3회일 때만 `severity: 'warning'`으로
-    올린다. `raise()`는 critical일 때만 푸시하므로 약 때문에 보호자 폰이 울리는 일은 없다 —
-    규칙 5가 말하는 "보호자가 알림을 꺼버리는" 실패 모드를 피하기 위함.
-  구현 중 발견해 고친 것 둘: ① 로봇이 몇 시간 꺼져 있다 켜지면 밀린 알림을 한꺼번에
-  쏟아내던 문제(유예 시간 안의 것만 알리고 나머지는 미복용으로만 넘긴다) ② 30일치를 잘못
-  등록하면 한 건씩만 지울 수 있어 남은 것이 미복용으로 쌓이던 문제(`?scope=series`로
-  앞으로 남은 일정을 한 번에 삭제. 같은 시리즈는 `created_at`이 동일한 것을 키로 썼다).
-  백엔드 54 → 75, 프론트 22 → 29. 양쪽 다 변이 3건씩 일부러 넣어 단언이 실제로 잡는 것을
-  확인하고 원복했다. **팀원의 다른 레포 `silver-care-robot`은 우리 레포를 포크만 한
-  상태라(HEAD가 우리 커밋 `7e9d505`) 합칠 것이 없었다.**
+| 날짜 | 항목 | 상세 위치 |
+|---|---|---|
+| 08-31 | **백로그 4건** — 스냅샷 `Content-Type`, 감지 응답의 `suppressedBy`(쿨다운/임계값 구분), 푸시 구독 origin 정리, 보호자 앱 오프라인 안내 기준 변경 | `fix/backlog` 브랜치 |
+| 08-31 | **테스트 보강** — `useGuardianData`(SSE 정체/폴백), `RobotFaceDisplay`(웨이크워드 게이트 배선). 백엔드 95→96 / 프론트 29→39 | `frontend/CLAUDE.md` |
+| 08-30 | **RDS PostgreSQL 이전** — `DB_DRIVER=sqlite\|pg` 드라이버, `schema.pg.sql`, 이관/검증 스크립트, `emergency` 트랜잭션화. 테스트 75→95 | `backend/CLAUDE.md`, 위 1순위 |
+| 08-30 | **복약 관리** — 팀원 코드에서 복약만 흡수. 로봇 알림 + 음성 복용 확인. 테스트 백엔드 54→75 / 프론트 22→29 | 아래 "살아남은 교훈" |
+| 08-29 | 접속 주소 파일(`ACCESS.html`) + `npm run access` 갱신 스크립트 | 위 운영 메모 |
+| 08-29 | 푸시 구독 재등록 버그 수정 (`ensurePushRegistered()`) | 아래 "살아남은 교훈" |
+| 08-29 | **EC2 상시 배포** — `PUBLIC_DIR` 같은 오리진 서빙 + cloudflared + systemd | `docs/deploy-ec2-production.md` |
+| 08-29 | **S3 스냅샷 실연결 검증** — 버킷 `project9-80-oregon-hyodol-snapshots`(`us-west-2`) | `docs/deploy-ec2-aws-test.md` |
+| 08-29 | 프론트엔드 테스트 환경(Vitest + jsdom/RTL) 도입 | `frontend/CLAUDE.md` |
+| 08-29 | 리포지토리 전면 async 전환 (RDS 선행 작업) + `/review` 발견 5건 수정 | `git log` |
+| 08-29 | INVESTIGATE 2건 — SSE 정체 감지(named heartbeat), 스냅샷 provider 접두어 | `git log` |
+| 08-28 | 알림 상세 화면 + 푸시 딥링크 / `/ship` 커버리지 감사 + 안정성 수정 | `git log` |
+| 08-27 | Phase 5(응급 푸시), Phase 7(원격조종), 코드리뷰 5건, 정리 라운드 | `git log` |
+| 08-27 | Bedrock 어댑터 구현 → 계정 미지원 확인 → 전면 제거 | 위 "프로젝트 제약" |
+| 08-26 | Phase 0~4 (기반 재설계·대화 안정화·응급 감지·대화 로그·보호자 PWA) | 계획서 |
 
-- **접속 주소 파일 + 갱신 스크립트** ✅ 2026-08-29 — 터널 주소가 재시작마다 바뀌는 데다
-  파이용(`/`)과 폰용(`/guardian`)이 경로가 달라 헷갈리던 문제. `refresh-access.js`가
-  퍼블릭 IP 하나만 받아 SSH로 현재 터널 주소를 읽고, 헬스체크까지 한 뒤 `ACCESS.html`을
-  다시 쓴다. **퍼블릭 IP 자체는 접속 주소가 아니다** — 보안 그룹에 22번만 열려 있고 앱은
-  터널로만 열리므로 이 SSH 한 단계가 반드시 필요하다.
-  QR 코드를 넣어 폰에서 긴 주소를 타이핑하지 않게 했다(cdnjs에서 받아 **브라우저에서**
-  그리므로 주소가 외부로 나가지 않는다). 마지막 IP는 HTML 안 주석에 심어 두어 다음
-  실행 때 인수 없이 돌릴 수 있고, 상태 파일을 따로 만들지 않는다.
-  **`ACCESS.html`은 gitignore** — 레포가 공개라 주소를 올리면 "주소를 아는 사람만 쓴다"는
-  현재 보안 모델이 통째로 깨진다. 새 npm 의존성 없음(`child_process`/`fs`/전역 `fetch`).
-  실제 EC2로 6가지 경로 확인: 갱신·링크 200·QR 렌더·IP 생략 재사용·`--stopped`·
-  잘못된 IP(기존 파일 보존 + 한국어 안내).
+### 살아남은 교훈 — 다시 겪지 않기 위해
 
-- **푸시 구독 재등록 버그 수정** ✅ 2026-08-29 — EC2 배포 직후 실기기에서 드러난 것.
-  권한 요청 배너는 `Notification.permission === 'default'` 일 때만 뜨므로, **한 번
-  허용한 뒤 서버가 구독을 잃으면 재등록할 경로가 아예 없었다.** EC2는 DB가 새로
-  시작하니 구독 0건인데 폰은 "허용됨"이라 배너가 안 떠서, 보호자 화면은 멀쩡한데
-  응급 푸시만 조용히 안 가는 상태 — CLAUDE.md 규칙 5가 말하는 최악의 실패 모드다.
-  `lib/push.js`에 `ensurePushRegistered()`를 추가해 보호자 홈 마운트 때 조용히
-  재등록한다(권한 요청은 하지 않고, 백엔드가 endpoint upsert라 반복 호출이 안전).
-  회귀 테스트 4건 (프론트 18 → 22), 변이 검증 완료. 실기기에서 새로고침만으로
-  구독이 자동 등록되고 푸시 도착 → 상세 화면 정상 오픈까지 확인.
-  **로컬에서는 절대 못 찾았을 버그다** — DB가 계속 같아 구독이 사라질 일이 없었다.
-
-- **EC2 상시 배포** ✅ 2026-08-29 — 노트북을 켜 두지 않아도 보호자 앱이 살아 있게 됐다.
-  백엔드에 `PUBLIC_DIR`을 추가해 프론트엔드 빌드를 **같은 오리진에서 서빙**하고(그래서
-  `lib/api.js`의 `API_BASE`와 CORS 화이트리스트를 안 건드렸다), HTTPS는 EC2 안의
-  cloudflared 터널로 얻었다 — 대회 계정에 ALB/CloudFront가 없어 ACM을 붙일 곳이 없기 때문.
-  systemd 두 유닛으로 상시 기동 + 재부팅 생존(약 30초). 실기기에서 PWA 설치 → 응급 푸시
-  도착 → 상세 딥링크 → 해제(`resolved_by=guardian`, `is_emergency=0`)까지 확인.
-  배포 준비 중 **`ROBOT_API_KEY`가 설정되면 정적 자산이 전부 401이 되는 문제**를 발견해
-  고쳤다(`apiKeyAuth`가 전역이었음). 증상이 "앱이 백지"라 EC2에서 만났으면 한참 헤맸을 것.
-  **쓴 교훈: quick tunnel은 SSE를 통과시키지 못한다.** 계획 때 API Gateway를 SSE 때문에
-  배제했으면서 cloudflared는 확인하지 않았다. 격리 실험(최소 청크 서버)으로 우리 코드
-  문제가 아님을 확정했고, 응급 푸시는 FCM 직통이라 무사한 것도 확인했다. 상세는 위
-  "EC2 상시 배포" 섹션과 `docs/deploy-ec2-production.md`.
-
-- **S3 실연결 검증 (AWS 첫 실사용)** ✅ 2026-08-29 — 코드는 8/27에 끝났지만 대회 계정이
-  Access Key 발급을 막아 **로컬에서는 인증 자체가 불가능**해 미검증으로 남아 있던 항목.
-  CloudShell로 버킷 생성 → `t3.small`/AL2023 인스턴스에 `SafeInstanceProfile-` 부착 →
-  `verify-s3` 성공 → AWS CLI로 교차 확인 → `POST /api/alerts`에 데이터 URI를 실어
-  저장→S3→서빙 왕복까지 확인(HTTP 200, 실제 PNG 바이트).
-  **"어댑터만 갈면 된다"가 이번엔 맞았다** — 백엔드 코드는 한 줄도 안 고쳤고 `.env` 세
-  줄(`SNAPSHOT_STORAGE`/`AWS_REGION`/`S3_BUCKET`)로 끝났다. Bedrock 때와 달리 계정
-  제약에 걸리는 것도 없었다.
-  부수 소득 둘: 문서에 빠져 있던 단계들을 실측으로 교정했고(위 EC2 섹션 참고),
-  `serve()`가 `Content-Type`을 안 붙인다는 것을 발견해 백로그에 넣었다.
-
-- **프론트엔드 컴포넌트 테스트 환경(jsdom/RTL)** ✅ 2026-08-29 — 러너를 **Vitest**로 골랐다.
-  `node --test`는 JSX도 `import.meta.env`도 못 다루는데, Vitest는 기존 `vite.config.js`의
-  `@vitejs/plugin-react`를 그대로 재사용하므로 설정이 `test` 블록 하나로 끝난다. 프론트만
-  Vitest이고 **백엔드는 `node --test` 유지** — 러너가 갈린 이유를 두 CLAUDE.md에 적어뒀다.
-  기존 `wakeword.test.js`는 import 한 줄만 바꿔 그대로 옮겼다(본문 무변경).
-  첫 대상은 보호자 앱의 응급 분기 — `HomeScreen`(쪽지 vs 응급 섹션, resolve 명의,
-  잔여 건수, 연결 끊김 안내) 5건 + `AlertsScreen`(빈 목록, 해제 버튼 게이팅, 해제 후
-  재조회) 3건. 프론트 테스트 10 → 18.
-  단언이 실제로 의미가 있는지 확인하려고 소스를 4가지로 일부러 깨뜨려(응급 분기 무력화,
-  `by:'guardian'` 변조, 해제 버튼 상시 노출, `reload()` 제거) 전부 실패하는 것을 보고
-  원복했다. **`lib/api.js`는 목킹하지 않고 `fetch`만 스텁**한 게 핵심 — 키 스탬핑까지
-  실제 코드로 통과시켜야 회귀를 잡는다. `Notification`은 jsdom에 없어 `test/setup.js`에서
-  스텁(`.env`의 VAPID 키 유무로 결과가 흔들리지 않게).
-- `feat/s3-snapshots` → `main` PR 생성 + 머지 ✅ 2026-08-29 — `PR #2`
-  (https://github.com/fredhj0912-hub/silver-care-robot/pull/2), 머지 커밋 `b0800b6`.
-- **리포지토리 async 전환** ✅ 2026-08-29 — RDS 이전의 선행 필수 작업(위 RDS 섹션 참고).
-  `repositories/*.js` 6개 + 호출자(routes 8개, `notify.js`, `emergency.js`, `server.js`,
-  `purge-old-messages.js`) 전부 async화. DB는 `node:sqlite` 그대로 — 동작 무변경 순수
-  리팩터링. CommonJS는 top-level await가 안 되므로 `server.js`/`purge-old-messages.js`는
-  async IIFE로 감쌌다. `raise()`의 `notify.send()` fire-and-forget과 순수 함수인
-  `classifyUtterance()`의 동기성은 의도적으로 유지.
-- `/review` 발견 사항 수정 ✅ 2026-08-29 — async 전환 리뷰에서 나온 5건:
-  `middleware/index.js`의 errorHandler에 `res.headersSent` 가드 추가(스트리밍 응답이
-  헤더 전송 후 실패하면 `ERR_HTTP_HEADERS_SENT`로 프로세스가 죽을 수 있었음),
-  SSE 라우트의 DB 조회를 `writeHead` 앞으로 이동(같은 이유), `server.js`/
-  `purge-old-messages.js`의 async IIFE에 `.catch()` 추가(부팅 실패가 원인 안 보이는
-  unhandled rejection이 되던 문제), `control.test.js`의 미await `statusRepo.update()`
-  2곳 수정(finally 복원이 floating promise라 이후 테스트로 `isEmergency:true`가
-  샐 수 있었음). 경쟁 조건 2건은 코드 주석 + RDS 섹션에 기록.
-- INVESTIGATE 2건 조사 + 수정 ✅ 2026-08-29:
-  - SSE 정체 감지: 백엔드 하트비트가 SSE 주석(`: keepalive`)이라 `EventSource`의 JS
-    리스너에 전달되지 않아, "연결은 열려 있지만 응답 없음"을 감지할 방법이 `onerror` 뿐
-    이었던 게 원인. 하트비트를 named event(`heartbeat`)로 바꾸고, 프론트에서
-    `lastEventAt`을 모든 이벤트(하트비트 포함)에서 갱신 → 60초(하트비트의 ~2.4배) 이상
-    갱신이 없으면 `onerror` 없이도 정체로 간주해 `connected`를 false로 내리고
-    EventSource를 새로 열어 재연결. (`backend/src/routes/events.js`,
-    `frontend/src/lib/useGuardianData.js`)
-  - 스냅샷 스토리지 마이그레이션 경로: `serve()`가 파일별 정보가 아니라 그 순간의 전역
-    `SNAPSHOT_STORAGE`만 보고 provider를 고르던 게 원인 — 전환 시 기존 local 파일이
-    전부 404. `save()`가 파일명에 provider를 새겨 넣도록(`local-...`/`s3-...`) 바꾸고
-    `serve()`는 파일명 접두어로 provider를 고르게 변경. 접두어 없는 레거시 파일명은
-    `local`로 폴백해 하위호환 유지. 백필 스크립트 불필요. (`backend/src/services/snapshots.js`,
-    회귀 테스트 2건 추가 — 백엔드 테스트 47 → 49)
-- Phase 0~4(기반 재설계·대화 안정화·응급 감지·대화 로그·보호자 PWA) ✅ 2026-08-26 —
-  안드로이드 실기기 검증 완료.
-- Phase 5 — 응급 푸시 알림 ✅ 2026-08-27. 안드로이드 실기기 검증 완료.
-- 알림 상세 화면(`/guardian/alerts/:id`) ✅ 2026-08-28 — Phase 5 마지막 조각.
-  `GET /api/alerts/:id`는 이미 있었고, 딥링크가 안 되던 원인은 `notify.js` push
-  payload의 `url`이 `/guardian/alerts`(목록) 고정이었던 것. `alert.id`를 넣어 상세
-  화면으로 바로 열리게 수정. `sw.js`의 `notificationclick`도 실기기 테스트에서
-  "이미 열린 창이 있어도 새 창이 뜨는" 문제 발견 → 기존 창 재사용(`navigate()`)으로
-  수정. 안드로이드 실기기 검증 완료(푸시 클릭 → 상세 딥링크 → 기존 창 재사용).
-  iOS 미검증으로 남음.
-- `/ship` 커버리지 감사 + adversarial review 기반 안정성 수정 ✅ 2026-08-28 —
-  가장 중요한 발견: **S3 스냅샷 저장 실패(네트워크 장애 등)가 `snapshots.save()`의
-  async 전환 이후 예외를 던지게 되면서 `emergency.raise()` 퍼널 자체가 죽어
-  SOS 버튼/낙상 감지 알림이 통째로 사라질 수 있었음** — `save()`가 실패 시 null을
-  반환하도록 수정(호출부의 기존 계약 복원). 스트림 에러로 서버 전체가 죽을 수 있던
-  문제, `navigate()` 실패 시 알림 클릭이 무반응이던 문제도 수정. 회귀 테스트
-  (`snapshots.test.js`) + 커버리지 테스트(수동 SOS, 원격조종 클램핑, 스냅샷
-  404/경로순회) 추가. 백엔드 테스트 39 → 47.
-- 코드리뷰 CONFIRMED 5건 수정 ✅ 2026-08-27 (쿨다운 severity 무시, 스냅샷 401, 다중 알림
-  오재생, 웨이크워드 게이트 우회, 저장 실패 무음)
-- Phase 7 — 원격조종 시뮬레이션 ✅ 2026-08-27. 안전 로직 테스트(데드맨 자동정지, 응급 중
-  423 잠금, 잘못된 방향 400, `durationMs` 회귀)까지 완료 — `test/motion.test.js`,
-  `test/control.test.js`. `ControlScreen.jsx` 위치 dot 클램핑 + 중복 요청 방지,
-  `motion.js`의 자체 `nowISO()` → `db/index.js` 공용 함수 교체도 완료.
-  남은 것은 실물 배포 때 정할 네트워크 지연/단절 정책 하나뿐(위 "큰 것들" 참고).
-- Phase 7 code-review 수정 ✅ 2026-08-27 — 데드맨 타이머가 `durationMs`보다 먼저 끝나던
-  버그.
-- Bedrock 어댑터 구현 → 계정 미지원 확인 → 전면 제거 ✅ 2026-08-27 — 이유는 위
-  "취소됨" 참고.
-- 정리 라운드 ✅ 2026-08-27 — 구버전 호환 라우트 3개(`GET /api/history`,
-  `POST /remote-message`, `GET /remote-message/poll`) 제거, `backend/database.json`
-  삭제, `useGuardianData.js` SSE 연결 중 폴백 폴링 스킵, `gemini.js` base64 정규식을
-  `snapshots.js`와 통일, `lucide-react` 제거, 미사용 CSS 토큰 8개 삭제, `--primary`
-  색상 불일치 수정. 백엔드 테스트 38/38, 프론트 빌드 통과.
+- **"어댑터만 갈면 된다"는 세 번 중 한 번만 맞았다.** S3는 정말 `.env` 세 줄로 끝났지만,
+  Bedrock은 계정의 explicit deny에 막혔고(스키마 CHECK 제약까지는 어댑터가 못 덮는다),
+  pg는 리포지토리 40곳 + 트랜잭션 구조 변경이었다. 추정 전에 호출 지점부터 세어 볼 것.
+- **로컬에서 절대 못 찾는 버그가 있다.** 푸시 구독 재등록 버그는 EC2에서 DB가 새로
+  시작해야만 재현됐다(폰은 "허용됨"인데 서버엔 구독 0건 → 배너가 안 떠서 재등록 경로가
+  없음). 배포 환경에서만 드러나는 상태 차이를 의심할 것.
+- **테스트는 일부러 깨뜨려 보고 믿는다.** 이 프로젝트의 관례다. 실제로 복약·드라이버
+  작업에서 "통과하지만 아무것도 증명하지 않는" 단언을 이 방법으로 두 번 찾아냈다
+  (pg-mem이 COUNT/id 타입을 정규화해 버리는 문제 — 위 1순위 표 참고).
+- **알림 경로는 하나여야 한다.** 팀원 `emergency_records`를 합치지 않은 이유이고,
+  복약 미복용도 `raise()`를 거치게 한 이유다. `warning`으로만 올리는 것도 같은 맥락 —
+  약 한 번 걸렀다고 푸시를 보내면 보호자가 알림을 꺼버린다(CLAUDE.md 규칙 5).
+- **계획 때 배제한 이유를 새 후보에도 적용할 것.** API Gateway를 "SSE가 깨져서" 배제해
+  놓고 cloudflared는 확인하지 않아 같은 함정에 빠졌다.

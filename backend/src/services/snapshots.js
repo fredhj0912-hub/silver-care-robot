@@ -28,6 +28,21 @@ const EXT_BY_MIME = {
   'image/webp': 'webp',
 };
 
+const MIME_BY_EXT = {
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+};
+
+/**
+ * 파일명 확장자로 Content-Type을 정한다. 헤더가 없으면 브라우저의 내용 스니핑에
+ * 기대게 되는데(<img src>는 봐주지만 fetch/다운로드는 아니다) 그건 운에 맡기는 것이다.
+ */
+function mimeFromFilename(filename) {
+  const ext = path.extname(String(filename || '')).slice(1).toLowerCase();
+  return MIME_BY_EXT[ext] || 'application/octet-stream';
+}
+
 /** data URI를 파싱한다. 유효하지 않으면 null. */
 function parseDataUri(dataUri) {
   const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(String(dataUri || ''));
@@ -112,6 +127,7 @@ function serveLocal(filename, res) {
     res.status(404).json({ error: '스냅샷을 찾을 수 없습니다' });
     return;
   }
+  res.setHeader('Content-Type', mimeFromFilename(safe));
   res.setHeader('Cache-Control', 'private, max-age=86400');
   const stream = fs.createReadStream(full);
   // 스트림 도중 에러(예: 두 체크 사이 파일 삭제)가 나면 unhandled 'error'로
@@ -135,6 +151,8 @@ async function serveS3(filename, res) {
   if (!client) throw new Error('S3 클라이언트를 사용할 수 없습니다 (@aws-sdk/client-s3 로드 실패)');
   try {
     const object = await client.send(new GetObjectCommand({ Bucket: config.s3Bucket, Key: safe }));
+    // 업로드 때 PutObjectCommand에 ContentType을 저장하므로 보통 그대로 쓸 수 있다.
+    res.setHeader('Content-Type', object.ContentType || mimeFromFilename(safe));
     res.setHeader('Cache-Control', 'private, max-age=86400');
     object.Body.on('error', (err) => {
       console.error('[SNAPSHOT] S3 스트리밍 실패:', err.message);

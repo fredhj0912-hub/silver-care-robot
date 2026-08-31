@@ -89,7 +89,8 @@ router.post('/detections', asyncHandler(async (req, res) => {
 
   // 임계값 미만은 기록만 한다 — 알림은 올리지 않되 임계값 튜닝 근거로 남긴다.
   let alert = null;
-  if (confidence >= config.detectionThreshold) {
+  const overThreshold = confidence >= config.detectionThreshold;
+  if (overThreshold) {
     alert = await emergency.raise({
       type: type === 'fall' ? 'fall_detected' : type === 'no_motion' ? 'no_motion' : 'vision_anomaly',
       severity: 'critical',
@@ -108,6 +109,9 @@ router.post('/detections', asyncHandler(async (req, res) => {
     detectionId: id,
     accepted: true,
     alertRaised: Boolean(alert),
+    // raise()는 쿨다운에 걸려도 null을 돌려준다. 억제 사유를 실어 주지 않으면
+    // 감지기 쪽에서 임계값 문제로 오해해 디버깅이 헛돈다(mock-detector가 실제로 그랬다).
+    suppressedBy: alert ? null : (overThreshold ? 'cooldown' : 'threshold'),
     alert: alert ? { id: alert.id } : null,
     threshold: config.detectionThreshold,
   });
