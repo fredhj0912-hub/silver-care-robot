@@ -156,6 +156,8 @@ test('감지 이벤트에 스냅샷을 첨부하면 파일로 저장되고 알�
 
   const img = await fetch(BASE + alert.snapshotUrl, { headers: H });
   assert.strictEqual(img.status, 200, '저장된 스냅샷 파일을 열 수 없다');
+  // Content-Type 없이도 <img src>는 브라우저 스니핑 덕에 뜬다 — 그 운에 기대지 않는다.
+  assert.strictEqual(img.headers.get('content-type'), 'image/png');
 });
 
 test('스냅샷: 존재하지 않는 파일은 404', async () => {
