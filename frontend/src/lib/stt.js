@@ -21,6 +21,31 @@ const SpeechRecognitionImpl =
 export const isSupported = () => Boolean(SpeechRecognitionImpl);
 
 /**
+ * 되돌릴 수 없는 오류 — 다시 시도해도 같은 결과가 나온다.
+ * 마이크 권한 거부, 음성 서비스 자체를 못 쓰는 빌드, 입력 장치 없음, 미지원 언어.
+ */
+export const FATAL_STT_ERRORS = [
+  'not-allowed',
+  'service-not-allowed',
+  'audio-capture',
+  'language-not-supported',
+];
+
+/**
+ * 오류 심각도를 나눈다 — 'ignorable' | 'fatal' | 'transient'.
+ *
+ * 'network'를 fatal이 아니라 transient로 두는 것이 중요하다. 진짜 일시적 끊김일 수도 있지만,
+ * 구글 음성 키 없이 빌드된 Chromium(라즈베리파이 OS 저장소 빌드가 그럴 수 있다)에서는
+ * **매 세션이 network로 끝난다.** 그래서 호출부가 연속 횟수를 세서 판단해야 한다.
+ */
+export function classifySttError(err) {
+  // no-speech(침묵)와 aborted(우리가 직접 멈춤)는 정상 동작의 일부다.
+  if (!err || err === 'no-speech' || err === 'aborted') return 'ignorable';
+  if (FATAL_STT_ERRORS.includes(err)) return 'fatal';
+  return 'transient';
+}
+
+/**
  * 연속 음성 인식기를 만든다.
  *
  * @param {object} opts
@@ -46,9 +71,8 @@ export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko
   recognition.onend = () => { onEnd?.(); };
 
   recognition.onerror = (event) => {
-    // no-speech(침묵)와 aborted(우리가 직접 멈춤)는 정상 동작의 일부다.
-    // 이걸 오류로 취급하면 로그가 쓸모없어지고 화면이 깜빡인다.
-    if (event.error === 'no-speech' || event.error === 'aborted') return;
+    // ignorable을 오류로 취급하면 로그가 쓸모없어지고 화면이 깜빡인다.
+    if (classifySttError(event.error) === 'ignorable') return;
     onError?.(event.error);
   };
 

@@ -128,6 +128,25 @@ test('명령 큐: 조회해도 큐가 비지 않고, ack 해야 사라진다 (�
   assert.ok(!after.some((c) => c.id === id), 'ack 후에도 명령이 남아 있다');
 });
 
+test('명령 큐: maxAgeMs를 주면 오래된 명령은 빼고 준다', async () => {
+  // 이동 명령은 지나면 의미가 없다 — 네트워크가 30초 끊겼다 돌아온 구동부가 낡은 "앞으로"를
+  // 실행하면 안 된다. 반대로 보호자 speak 메시지는 늦더라도 반드시 전달돼야 하므로
+  // 제한을 주지 않았을 때의 동작(무제한)은 그대로여야 한다.
+  const fresh = (await post('/api/commands', { kind: 'move', payload: { direction: 'left' } })).b.command.id;
+  const stale = (await post('/api/commands', { kind: 'move', payload: { direction: 'right' } })).b.command.id;
+  await query(
+    'UPDATE outbound_commands SET ts = ? WHERE id = ?',
+    [new Date(Date.now() - 60000).toISOString(), stale]
+  );
+
+  const limited = (await get('/api/commands/pending?kind=move&maxAgeMs=2000')).b.commands.map((c) => c.id);
+  assert.ok(limited.includes(fresh), '방금 내린 명령이 빠졌다');
+  assert.ok(!limited.includes(stale), '오래된 명령이 그대로 나왔다');
+
+  const unlimited = (await get('/api/commands/pending?kind=move')).b.commands.map((c) => c.id);
+  assert.ok(unlimited.includes(stale), '제한이 없는데도 오래된 명령이 사라졌다');
+});
+
 test('보호자 메시지는 대화 로그에도 기록된다', async () => {
   const r = await get('/api/messages?sender=guardian&limit=10');
   assert.ok(r.b.messages.some((m) => m.text === '약 드실 시간이에요'));

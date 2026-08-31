@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '../lib/api';
-import { createRecognizer, isSupported as isSTTSupported } from '../lib/stt';
+import { createRecognizer, isSupported as isSTTSupported, classifySttError } from '../lib/stt';
 import { decideAction, pickAcknowledgeReply, ACTIVE_WINDOW_MS } from '../lib/wakeword';
 import { useCameraMonitor } from '../lib/useCameraMonitor';
 
@@ -10,6 +10,21 @@ const VISION_ENABLED = import.meta.env.VITE_VISION_ENABLED === 'true';
 const VISION_INTERVAL_MS = Number(import.meta.env.VITE_VISION_INTERVAL_MS) || 15000;
 
 const MOVE_ARROWS = { up: '⬆️', down: '⬇️', left: '⬅️', right: '➡️' };
+
+// 일시적 STT 오류가 이만큼 연속되면 음성 인식을 포기하고 텍스트 입력으로 안내한다.
+const STT_FAIL_LIMIT = 3;
+
+// 음성 인식이 안 될 때 화면에 뜨는 문구. 원인을 말해야 앞에 선 사람이 고칠 수 있다.
+const STT_UNAVAILABLE_TEXT = {
+  insecure: '안전하지 않은 주소로 열렸어요 (HTTPS 필요) · 아래에 글로 말씀해 주세요',
+  denied: '마이크를 쓸 수 없어요 · 아래에 글로 말씀해 주세요',
+  network: '음성 인식 서버에 닿지 않아요 · 아래에 글로 말씀해 주세요',
+  unsupported: '아래에 글로 말씀해 주세요',
+};
+
+// 화면에 뜨는 이동 화살표는 '방금 내린 명령'만 반영한다. 이보다 오래된 미처리 명령은
+// 네트워크가 끊겼다 돌아온 흔적이므로 지금 실행하면 안 된다.
+const MOVE_MAX_AGE_MS = 2000;
 
 /**
  * RobotFaceDisplay — 라즈베리파이 7인치 디스플레이(800×480) 전용 전체 화면 로봇 얼굴 컴포넌트.
@@ -42,6 +57,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   const isSpeakingRef = useRef(false);
   const shouldListenRef = useRef(true);
   const audioRef = useRef(null);          // 서버 TTS 오디오 재생 핸들
+  const speechWatchdogRef = useRef(null); // 발화 완료 콜백이 영영 안 올 때를 대비한 타이머
 
   // status.isEmergency 를 ref로도 들고 있는다.
   // speakText가 상태값에 직접 의존하면 비상 상태가 바뀔 때마다 콜백이 새로 만들어지고,
@@ -58,9 +74,18 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // 이 브라우저에서 음성 인식이 아예 안 되는 경우 (텍스트 입력만 안내)
   const [sttUnavailable, setSttUnavailable] = useState(false);
 
+  // 음성 인식이 안 되는 '이유' — 'insecure' | 'unsupported' | 'denied' | 'network'.
+  // 이 화면 앞에는 devtools를 열어 둘 사람이 없다. 콘솔이 아니라 7인치 화면에 떠야 한다.
+  const [sttReason, setSttReason] = useState(null);
+
+  // 일시적 오류(주로 'network')의 연속 횟수. onresult가 오면 0으로 되돌린다.
+  const sttFailStreakRef = useRef(0);
+
   // 보호자 원격조종 이동 인디케이터 — 방향을 잠깐 보여주고 사라진다
   const [moveDirection, setMoveDirection] = useState(null);
   const moveIndicatorTimerRef = useRef(null);
+  // 같은 move 명령을 폴링마다 다시 그리지 않도록 마지막으로 본 id를 기억한다
+  const lastSeenMoveIdRef = useRef(null);
 
   // ──────────────────────────────────────────────
   // 카메라 모니터링 (기본 비활성 — VITE_VISION_ENABLED=true 로 켠다)
@@ -93,13 +118,37 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // 이게 풀리면 로봇이 자기 말을 듣고 무한히 대답한다.
   // ──────────────────────────────────────────────
 
-  /** 말하기가 끝났을 때(정상/오류 모두) 공통으로 하는 뒷정리 */
+  /**
+   * 말하기가 끝났을 때(정상/오류/워치독 모두) 공통으로 하는 뒷정리.
+   * 워치독과 실제 완료 콜백이 겹칠 수 있으므로 **멱등**이어야 한다.
+   */
   const finishSpeaking = useCallback(() => {
+    clearTimeout(speechWatchdogRef.current);
+    speechWatchdogRef.current = null;
+    if (!isSpeakingRef.current) return;
+
     isSpeakingRef.current = false;
     if (!emergencyRef.current) setRobotEmotion('neutral');
     setVoiceState('idle');
     startListening();
   }, []);
+
+  /**
+   * 발화 완료 콜백이 영영 오지 않는 경우를 대비한 워치독.
+   *
+   * speech-dispatcher/espeak가 없는 리눅스에서는 `speechSynthesis.speak()`가 조용히
+   * 무시되어 onend/onerror가 **한 번도 오지 않는다.** 그러면 isSpeakingRef가 true로 잠기고
+   * startListening()이 영구 차단되어 **로봇이 완전히 귀머거리가 된다.**
+   * 워치독이 그 상태를 "한 문장 유실"로 낮춘다.
+   */
+  const armSpeechWatchdog = useCallback((text) => {
+    clearTimeout(speechWatchdogRef.current);
+    const budget = Math.min(30000, 3000 + text.length * 200);
+    speechWatchdogRef.current = setTimeout(() => {
+      console.warn(`발화 완료 신호가 ${budget}ms 안에 오지 않았습니다 — 강제로 듣기를 재개합니다.`);
+      finishSpeaking();
+    }, budget);
+  }, [finishSpeaking]);
 
   const speakWithBrowser = useCallback((text) => {
     if (!window.speechSynthesis) return finishSpeaking();
@@ -128,7 +177,9 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     utterance.onerror = finishSpeaking;
 
     window.speechSynthesis.speak(utterance);
-  }, [finishSpeaking]);
+    // 실제 재생이 시작되는 시점 기준으로 예산을 다시 잡는다
+    armSpeechWatchdog(text);
+  }, [finishSpeaking, armSpeechWatchdog]);
 
   const speakText = useCallback(async (text) => {
     if (!text) return;
@@ -136,6 +187,8 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     // 인식을 먼저 멈춘다 — 서버 응답을 기다리는 동안에도 자기 목소리를 들으면 안 된다
     isSpeakingRef.current = true;
     setVoiceState('speaking');
+    // 여기서부터 무장한다 — /api/tts 응답이 영영 안 와도 같은 교착에 빠지기 때문이다
+    armSpeechWatchdog(text);
     if (recognitionRef.current) recognitionRef.current.stop();
     window.speechSynthesis?.cancel();
 
@@ -181,7 +234,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       console.warn('서버 TTS 요청 실패 → 브라우저 TTS:', err.message);
       speakWithBrowser(text);
     }
-  }, [speakWithBrowser, finishSpeaking]);
+  }, [speakWithBrowser, finishSpeaking, armSpeechWatchdog]);
 
   // ──────────────────────────────────────────────
   // AI 대화 요청
@@ -292,24 +345,59 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   }, [openGate, speakText, sendVoiceMessage]);
 
   useEffect(() => {
+    // 보안 컨텍스트(HTTPS 또는 localhost)가 아니면 음성 인식·카메라·서비스워커가 전부
+    // 조용히 죽는다. 파이를 http://<LAN IP>:3001 로 연 경우가 정확히 이것이다.
+    if (!window.isSecureContext) {
+      console.warn('보안 컨텍스트가 아닙니다 (HTTPS 필요) — 음성 인식을 쓸 수 없습니다.');
+      setSttUnavailable(true);
+      setSttReason('insecure');
+      return;
+    }
+
     if (!isSTTSupported()) {
       console.warn('이 브라우저는 Web Speech API를 지원하지 않습니다. 텍스트 입력을 사용하세요.');
       setSttUnavailable(true);
+      setSttReason('unsupported');
       return;
     }
+
+    let restartTimer = null;
+
+    /** 음성 인식을 포기하고 텍스트 입력으로 안내한다 (재시작 루프도 멈춘다) */
+    const disableStt = (reason) => {
+      shouldListenRef.current = false;
+      setSttUnavailable(true);
+      setSttReason(reason);
+      setVoiceState('idle');
+    };
 
     const recognizer = createRecognizer({
       onStart: () => {
         if (!isSpeakingRef.current) setVoiceState('listening');
       },
-      onResult: (text) => handleTranscript(text),
-      onError: (err) => console.error('음성 인식 오류:', err),
+      onResult: (text) => {
+        sttFailStreakRef.current = 0;  // 한 번이라도 들렸으면 연속 실패가 아니다
+        handleTranscript(text);
+      },
+      onError: (err) => {
+        console.error('음성 인식 오류:', err);
+        if (classifySttError(err) === 'fatal') {
+          disableStt('denied');
+          return;
+        }
+        // 일시적 오류는 연속 횟수를 센다. 구글 음성 키 없이 빌드된 Chromium은
+        // 매 세션 'network'로 끝나므로, 세지 않으면 영원히 재시작만 반복한다.
+        sttFailStreakRef.current += 1;
+        if (sttFailStreakRef.current >= STT_FAIL_LIMIT) disableStt('network');
+      },
       onEnd: () => {
         // TTS 출력 중이 아니고 계속 들어야 하면 자동 재시작.
         // 브라우저 STT는 장시간 세션에서 조용히 끊기므로 이 재시작이 필수다.
-        if (!isSpeakingRef.current && shouldListenRef.current) {
-          setTimeout(() => startListening(), 300);
-        }
+        // 다만 실패가 이어지면 간격을 늘린다 — 예전에는 고정 300ms였고,
+        // 영구 실패 상태에서는 초당 3회짜리 무한 루프가 됐다.
+        if (isSpeakingRef.current || !shouldListenRef.current) return;
+        const delay = Math.min(300 * 2 ** sttFailStreakRef.current, 10000);
+        restartTimer = setTimeout(() => startListening(), delay);
       },
     });
 
@@ -320,44 +408,64 @@ function RobotFaceDisplay({ status, onStatusChange }) {
 
     return () => {
       clearTimeout(initTimer);
+      clearTimeout(restartTimer);
       clearTimeout(gateTimerRef.current);
+      clearTimeout(speechWatchdogRef.current);
       shouldListenRef.current = false;
       recognizer.abort();
     };
   }, [handleTranscript, startListening]);
 
   // ──────────────────────────────────────────────
-  // 보호자 명령 큐 폴링 (speak / move)
+  // 보호자 명령 큐 폴링
   //
   // 예전에는 deprecated GET /api/remote-message/poll 을 썼다 — SSE(command.issued)가
   // 이미 있는데도 프론트가 옮겨가지 않았던 것. 이제 현재 API(/api/commands/pending)로
   // 조회하고 ack 한다. 완전한 SSE 전환은 이번 범위 밖이라 폴링 방식은 유지한다.
+  //
+  // **speak만 소비(ack)하고 move는 보기만 한다.** move의 소비자는 실물 구동부를 돌리는
+  // 프로세스 하나뿐이어야 한다 — 여기서 ack해 버리면 모터가 명령을 영영 못 받는다.
+  // 화살표를 계속 그리는 이유는, 구동부가 아직 없을 때 화면에 아무 반응이 없으면
+  // "원격조종이 고장난 것"과 구분이 안 되기 때문이다.
   // ──────────────────────────────────────────────
   useEffect(() => {
+    const pollSpeak = async () => {
+      const res = await apiFetch('/api/commands/pending?kind=speak');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      for (const command of data.commands) {
+        // 발화의 출처 라벨. 보호자 메시지가 기본이고, 복약 스케줄러처럼
+        // 시스템이 넣은 명령은 payload.label로 자기 이름을 밝힌다.
+        const label = command.payload.label || '보호자님 메시지';
+        setRobotSpeech(`${label}: ${command.payload.text}`);
+        // 보호자가 말을 걸었으니 어르신이 바로 대답할 수 있게 창을 열어둔다.
+        // 이때 "효돌아"부터 다시 불러야 한다면 대화가 끊긴다.
+        openGate();
+        speakText(command.payload.text);
+        onStatusChange();
+        await apiFetch(`/api/commands/${command.id}/ack`, { method: 'POST' });
+      }
+    };
+
+    const observeMove = async () => {
+      const res = await apiFetch(`/api/commands/pending?kind=move&maxAgeMs=${MOVE_MAX_AGE_MS}`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const latest = data.commands[data.commands.length - 1];
+      if (!latest || latest.id === lastSeenMoveIdRef.current) return;
+
+      lastSeenMoveIdRef.current = latest.id;
+      setMoveDirection(latest.payload.direction);
+      clearTimeout(moveIndicatorTimerRef.current);
+      moveIndicatorTimerRef.current = setTimeout(() => setMoveDirection(null), 1500);
+    };
+
     const pollCommands = async () => {
       try {
-        const res = await apiFetch('/api/commands/pending');
-        if (!res.ok) return;
-        const data = await res.json();
-
-        for (const command of data.commands) {
-          if (command.kind === 'speak') {
-            // 발화의 출처 라벨. 보호자 메시지가 기본이고, 복약 스케줄러처럼
-            // 시스템이 넣은 명령은 payload.label로 자기 이름을 밝힌다.
-            const label = command.payload.label || '보호자님 메시지';
-            setRobotSpeech(`${label}: ${command.payload.text}`);
-            // 보호자가 말을 걸었으니 어르신이 바로 대답할 수 있게 창을 열어둔다.
-            // 이때 "효돌아"부터 다시 불러야 한다면 대화가 끊긴다.
-            openGate();
-            speakText(command.payload.text);
-            onStatusChange();
-          } else if (command.kind === 'move') {
-            setMoveDirection(command.payload.direction);
-            clearTimeout(moveIndicatorTimerRef.current);
-            moveIndicatorTimerRef.current = setTimeout(() => setMoveDirection(null), 1500);
-          }
-          await apiFetch(`/api/commands/${command.id}/ack`, { method: 'POST' });
-        }
+        await pollSpeak();
+        await observeMove();
       } catch (err) {
         console.error('Command poll error:', err);
       }
@@ -485,7 +593,8 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // 어르신이 말을 걸었는데 반응이 없으면 로봇이 고장난 줄 안다 —
   // 지금 불러야 하는 상태인지 아닌지가 화면에서 분명해야 한다.
   const getStateColor = () => {
-    if (sttUnavailable) return '#64748b';
+    // 고칠 수 있는 실패(주소·권한·음성 서버)는 회색이 아니라 주황으로 — 눈에 띄어야 한다
+    if (sttUnavailable) return sttReason && sttReason !== 'unsupported' ? '#f59e0b' : '#64748b';
     switch (voiceState) {
       case 'listening': return isGateActive ? '#10b981' : '#64748b';
       case 'processing': return '#f59e0b';
@@ -495,7 +604,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   };
 
   const getStateText = () => {
-    if (sttUnavailable) return '아래에 글로 말씀해 주세요';
+    if (sttUnavailable) return STT_UNAVAILABLE_TEXT[sttReason] || STT_UNAVAILABLE_TEXT.unsupported;
     switch (voiceState) {
       case 'listening': return isGateActive ? '말씀하세요, 듣고 있어요' : '"효돌아" 하고 불러주세요';
       case 'processing': return '생각하는 중...';
@@ -633,6 +742,11 @@ function RobotFaceDisplay({ status, onStatusChange }) {
         <div className="move-indicator">
           {MOVE_ARROWS[moveDirection]} 이동 중
         </div>
+      )}
+
+      {/* 카메라를 못 잡았을 때 — 대화는 정상이라는 것까지 알려준다 */}
+      {cameraError && (
+        <div className="camera-error-chip">📷 카메라 없음 · 대화는 정상</div>
       )}
 
       {/* 효돌이 답변 말풍선 자막 */}

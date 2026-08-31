@@ -39,6 +39,10 @@ See TODO.md's AWS section for what's actually feasible before estimating this wo
   regenerates `ACCESS.html` (Pi link + phone link + QR codes). The tunnel URL changes on every
   instance restart; `ACCESS.html` is gitignored because this repo is public and the URL is
   effectively the access token.
+- `deploy/pi/` — 라즈베리파이 5 키오스크 배포 자산(셸 스크립트만). Chromium 실행기 +
+  XDG 자동실행 등록 + 터널 주소 교체 + 사전 점검 + 와이파이 등록. **파이에서는 아무것도
+  빌드하지 않는다** — 앱은 EC2에서 서빙되고 파이는 그 주소를 여는 브라우저다.
+  절차와 알려진 한계는 `docs/deploy-raspberry-pi.md`.
 - `docs/architecture.md` — system diagrams (components, emergency alert flow, command queue, wake-word gate) referenced from "Architecture notes" below.
 - `docs/fall-detection.md` — contract for a future YOLOv8 fall-detection service (`POST /api/detections`); not yet implemented, only the interface + a mock detector exist.
 - `.agents/skills/` — gstack workflow skills. Not part of the application.

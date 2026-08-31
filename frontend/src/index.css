@@ -86,6 +86,22 @@
   pointer-events: none;
 }
 
+/* 카메라를 잡지 못했을 때의 안내 칩. 콘솔에만 찍으면 화면 앞에 선 사람에게는
+   "앱이 통째로 고장난 것"으로 보인다 — 낙상 감지를 확인하려면 이게 보여야 한다. */
+.camera-error-chip {
+  position: fixed;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 100;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: var(--accent-amber);
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid var(--accent-amber);
+  pointer-events: none;
+}
+
 html, body, #root {
   width: 100%;
   min-height: 100%;
@@ -112,6 +128,9 @@ body:has(.kiosk-root) {
     radial-gradient(at 50% 50%, rgba(40, 40, 50, 0.5) 0px, transparent 80%);
   background-attachment: fixed;
   color: var(--text-primary);
+  /* 터치스크린에는 포인터가 필요 없다. Wayland에는 unclutter 대응물이 없어서
+     OS가 아니라 CSS로 숨긴다 (키오스크 스코프 — 보호자 앱에는 영향 없다). */
+  cursor: none;
 }
 
 /* 스크롤바 숨기기 — 키오스크에만 적용 */
