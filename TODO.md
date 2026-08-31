@@ -14,39 +14,14 @@
 
 ## 지금 할 것
 
-### 1순위 — RDS 실연결 검증 (막판 한 걸음)
+### 1순위 — 남은 백로그
 
-코드·스키마·이관 스크립트·테스트는 **2026-08-30에 전부 끝났다.** 남은 건 실제 연결뿐이다.
-
-- [ ] **팀원(seola0219)에게 RDS 접속 정보를 받는다** — 호스트/DB이름/사용자/비밀번호.
-      팀원 레포엔 `.env`가 없어 값이 안 올라와 있다.
-- [ ] `backend/.env`에 `DB_DRIVER=pg` + `DATABASE_URL` 설정 → `npm run verify-rds`
-- [ ] 성공하면 `npm run migrate-pg`로 기존 SQLite 데이터 이관 (멱등, `--dry-run` 먼저)
-- [ ] EC2 `.env`에도 같은 값 넣고 재기동 → 보호자 앱에서 대화 로그·알림이 그대로 보이는지
-
-**⚠️ `verify-rds`를 반드시 돌려야 하는 이유** — 테스트가 잡지 못하는 구멍이 정확히 둘 있다.
-`pg-driver.test.js`는 pg-mem(인메모리 PostgreSQL)으로 도는데, **변이 테스트로 확인한 결과**
-아래 두 가지는 코드를 망가뜨려도 통과해 버린다:
-
-| | 왜 안 잡히나 |
-|---|---|
-| 트랜잭션 **롤백** | pg-mem의 `pool.connect()`가 격리 세션이 아니라 BEGIN/ROLLBACK이 no-op |
-| **COUNT/id 타입** | 진짜 node-pg는 int8(COUNT·BIGINT)을 **문자열**로 주는데 pg-mem은 늘 숫자 |
-
-`verify-rds`가 이 둘을 실제 RDS에서 직접 검사한다. 로컬에 PostgreSQL도 Docker도 없어
-(2026-08-30 확인) 그 전에는 확인할 방법이 없다.
-
-**RDS는 우리 AWS 전제의 예외다** — IAM Role이 아니라 사용자/비밀번호 인증이고 대회 계정
-샌드박스는 퍼블릭 액세스를 허용하므로, **S3와 달리 로컬에서 끝까지 검증된다.** EC2에
-올라갈 필요가 없다. 팀원 `app/database.py`에서 가져올 설정은 `sslmode: require` 하나다.
-
-### 2순위 — 남은 백로그
-
-RDS를 기다리는 동안 집을 만한 것들. 아래 "백로그" 섹션에 상세가 있다.
-(2026-08-31에 4건 + 테스트 보강 2건을 `fix/backlog` 브랜치에서 처리했다 — 아직 머지 전.)
+**RDS 이전은 2026-08-31에 EC2 배포까지 끝났다** (아래 "RDS 운영 메모" 참고).
+아래 "백로그" 섹션에 상세가 있다.
 
 - [ ] 감정 이력을 남길 곳이 없다 (`detections`에 한 줄 기록하면 됨)
 - [ ] `purge-old-messages` 정기 실행 등록
+- [ ] 보호자 로그인(제대로 된 인증)
 
 ### 막혀 있음 — 실물 하드웨어가 있어야 함
 
@@ -83,7 +58,7 @@ explicit deny는 EC2 IAM Role을 거쳐도 우회 불가라 **전부 제거했�
 **계정 공통 제약**
 - **Access Key 발급 절대 불가.** 인증은 IAM Role만 — EC2는 `SafeInstanceProfile-{username}`.
   IAM Role은 AWS 안에서 도는 프로세스에만 붙으므로 **로컬에서는 인증 테스트가 불가능**하다.
-  **예외: RDS**(사용자/비밀번호 인증) — 위 1순위 항목 참고.
+  **예외: RDS**(사용자/비밀번호 인증) — 아래 "RDS 운영 메모" 참고.
 - MFA 설정 후 재로그인해야 자원 생성 가능(`DenyAllWithoutMFA`).
 - 지정 리전 밖에서는 모든 활동 제한 — **문제 생기면 리전부터 확인.**
 - EC2는 `t3.nano`~`t3.small`만. S3 버킷 이름은 본인 username으로 시작해야 함.
@@ -96,6 +71,37 @@ explicit deny는 EC2 IAM Role을 거쳐도 우회 불가라 **전부 제거했�
   두 가지로 섞여 있다 — 실시간 대화는 `JSON.stringify({text,emotion})`, 재시작 복원은 평문.
 
 ---
+
+## RDS 운영 메모
+
+2026-08-31에 EC2까지 PostgreSQL로 전환 완료. `DB_DRIVER=sqlite`로 되돌리면 즉시
+파일 DB로 복귀한다 (EC2의 `data/hyodol.sqlite`는 백업으로 남겨 뒀다).
+
+**팀원과 같은 `silvercare` DB를 쓴다.** 우리 7개 테이블이 팀원 테이블
+(`emergency_records`/`emotion_records`/`medication_records`) 옆에 있다. 지금은 이름이
+겹치지 않지만 **양쪽이 테이블을 추가할 때 충돌할 수 있다.**
+
+**네트워크 구성**(실측) — EC2·RDS·팀원 EC2가 전부 같은 기본 VPC 안에 있다. 그래서 EC2는
+RDS를 **사설 IP로** 해석하고 소스도 사설 IP가 된다. 공인 IP로 인바운드를 열어도 EC2
+경로에는 적용되지 않으므로 **보안 그룹 참조(source-group)로 열어야 한다.** 개발 PC는
+VPC 밖이라 공인 IP(`/32`)로 열려 있고, **공인 IP가 바뀌면 다시 막힌다** — 그때는
+`https://checkip.amazonaws.com`으로 새 IP를 확인해 RDS 보안 그룹에 넣는다.
+
+**로컬 `.env`도 pg를 본다.** 로컬에서 본 것이 곧 보호자 앱에 보이는 것이라 편하지만,
+로컬 대화 테스트 데이터가 실제 RDS에 쌓인다는 뜻이기도 하다.
+
+**테스트는 `.env`와 무관하게 항상 SQLite로 돈다** — 각 테스트 파일이 `DB_DRIVER='sqlite'`를
+직접 고정한다. 이 핀을 빼면 `retention.test.js`가 실제 RDS의 메시지를 지운다.
+
+**⚠️ `verify-rds`를 반드시 돌려야 하는 이유** — `pg-driver.test.js`는 pg-mem으로 도는데,
+**변이 테스트로 확인한 결과** 아래 둘은 코드를 망가뜨려도 통과해 버린다:
+
+| | 왜 안 잡히나 |
+|---|---|
+| 트랜잭션 **롤백** | pg-mem의 `pool.connect()`가 격리 세션이 아니라 BEGIN/ROLLBACK이 no-op |
+| **COUNT/id 타입** | 진짜 node-pg는 int8(COUNT·BIGINT)을 **문자열**로 주는데 pg-mem은 늘 숫자 |
+
+둘 다 실제 RDS에서 통과하는 것을 확인했다(로컬·EC2 양쪽). 드라이버를 건드리면 다시 돌릴 것.
 
 ## 운영 메모
 
@@ -170,9 +176,10 @@ preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다.
 
 | 날짜 | 항목 | 상세 위치 |
 |---|---|---|
+| 08-31 | **RDS 실연결 + EC2 전환 완료** — 보안 그룹(VPC 내부는 source-group), `silvercare` DB로 108건 이관, EC2 배포까지. `verify-rds` 6개 항목 로컬·EC2 양쪽 통과 | 위 "RDS 운영 메모" |
 | 08-31 | **백로그 4건** — 스냅샷 `Content-Type`, 감지 응답의 `suppressedBy`(쿨다운/임계값 구분), 푸시 구독 origin 정리, 보호자 앱 오프라인 안내 기준 변경 | `fix/backlog` 브랜치 |
 | 08-31 | **테스트 보강** — `useGuardianData`(SSE 정체/폴백), `RobotFaceDisplay`(웨이크워드 게이트 배선). 백엔드 95→96 / 프론트 29→39 | `frontend/CLAUDE.md` |
-| 08-30 | **RDS PostgreSQL 이전** — `DB_DRIVER=sqlite\|pg` 드라이버, `schema.pg.sql`, 이관/검증 스크립트, `emergency` 트랜잭션화. 테스트 75→95 | `backend/CLAUDE.md`, 위 1순위 |
+| 08-30 | **RDS PostgreSQL 이전** — `DB_DRIVER=sqlite\|pg` 드라이버, `schema.pg.sql`, 이관/검증 스크립트, `emergency` 트랜잭션화. 테스트 75→95 | `backend/CLAUDE.md`, 위 "RDS 운영 메모" |
 | 08-30 | **복약 관리** — 팀원 코드에서 복약만 흡수. 로봇 알림 + 음성 복용 확인. 테스트 백엔드 54→75 / 프론트 22→29 | 아래 "살아남은 교훈" |
 | 08-29 | 접속 주소 파일(`ACCESS.html`) + `npm run access` 갱신 스크립트 | 위 운영 메모 |
 | 08-29 | 푸시 구독 재등록 버그 수정 (`ensurePushRegistered()`) | 아래 "살아남은 교훈" |
@@ -196,7 +203,7 @@ preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다.
   없음). 배포 환경에서만 드러나는 상태 차이를 의심할 것.
 - **테스트는 일부러 깨뜨려 보고 믿는다.** 이 프로젝트의 관례다. 실제로 복약·드라이버
   작업에서 "통과하지만 아무것도 증명하지 않는" 단언을 이 방법으로 두 번 찾아냈다
-  (pg-mem이 COUNT/id 타입을 정규화해 버리는 문제 — 위 1순위 표 참고).
+  (pg-mem이 COUNT/id 타입을 정규화해 버리는 문제 — 위 "RDS 운영 메모"의 표 참고).
 - **알림 경로는 하나여야 한다.** 팀원 `emergency_records`를 합치지 않은 이유이고,
   복약 미복용도 `raise()`를 거치게 한 이유다. `warning`으로만 올리는 것도 같은 맥락 —
   약 한 번 걸렀다고 푸시를 보내면 보호자가 알림을 꺼버린다(CLAUDE.md 규칙 5).
