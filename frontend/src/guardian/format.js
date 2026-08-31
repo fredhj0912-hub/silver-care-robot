@@ -107,20 +107,26 @@ export function buildDailyNote(summary, status) {
     say(' 이야기를 나눴어요. ');
   }
 
-  const emotions = summary.emotionCounts || {};
+  // 어르신의 실제 표정(카메라)만 근거로 삼는다. 예전에는 summary.emotionCounts를
+  // 썼는데 그건 **로봇이 어떤 표정으로 말했는지**라, 어르신 기분을 말하는 문장의
+  // 근거로는 대상이 틀렸다. 카메라가 꺼져 있으면(VITE_VISION_ENABLED 기본 false)
+  // 근거가 없으므로 기분을 아예 말하지 않는다 — 없는 것을 추측해서 말하는 것보다 낫다.
+  // 어휘: happy | sad | neutral | pain | sleeping | unknown
+  const emotions = summary.seniorEmotionCounts || {};
   const positive = emotions.happy || 0;
-  const negative = (emotions.sad || 0) + (emotions.concerned || 0);
+  const negative = (emotions.sad || 0) + (emotions.pain || 0);
 
-  if (turns > 0) {
+  if (positive > 0 || negative > 0) {
     if (negative > positive) {
       say('오늘은 기운이 조금 없어 보이셨어요. ');
-    } else if (positive > 0) {
+    } else {
       say('기분은 대체로 ');
       emph('좋으셨어요');
       say('. ');
-    } else {
-      say('특별히 힘들어하시는 기색은 없었어요. ');
     }
+  } else if (Object.keys(emotions).length > 0) {
+    // neutral/sleeping만 관찰된 날 — 본 것은 있으니 그렇게 말한다.
+    say('특별히 힘들어하시는 기색은 없었어요. ');
   }
 
   if (summary.alertCount > 0) {

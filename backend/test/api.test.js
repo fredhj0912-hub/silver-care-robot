@@ -317,3 +317,48 @@ test('푸시 구독: 새 origin으로 구독하면 옛 터널 주소의 구독�
   );
   assert.strictEqual(rows[0].origin, 'https://new.example');
 });
+
+// ── 감정 이력 (detections type='emotion') ────────────────────────────────────
+// mock Gemini(GEMINI_API_KEY='')는 항상 expression:'neutral'을 준다. 그래서 직전 표정을
+// 다른 값으로 만들어 두는 방식으로 "변화"를 만든다.
+
+test('감정 이력: 표정이 바뀔 때만 detections에 남는다', async () => {
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+  await post('/api/status', { seniorExpression: 'sad' });
+  const before = (await get('/api/detections?type=emotion')).b.detections.length;
+
+  await post('/api/vision', { image: tinyPng });
+  const after = (await get('/api/detections?type=emotion')).b.detections;
+
+  assert.strictEqual(after.length, before + 1, '표정이 바뀌었는데 기록되지 않았다');
+  assert.strictEqual(after[0].meta.expression, 'neutral');
+  assert.strictEqual(after[0].meta.previous, 'sad', '직전 표정이 meta에 없으면 추이를 못 읽는다');
+
+  // 같은 표정이 다시 들어오면 남지 않는다 — 이 설계의 핵심.
+  await post('/api/vision', { image: tinyPng });
+  assert.strictEqual(
+    (await get('/api/detections?type=emotion')).b.detections.length,
+    after.length,
+    '표정이 그대로인데 행이 늘었다 (카메라 주기가 15초라 하루 수천 행이 된다)'
+  );
+});
+
+test('감정 이력: 임계값 튜닝용 기본 목록에는 섞이지 않는다', async () => {
+  const list = (await get('/api/detections')).b.detections;
+  assert.ok(list.length > 0, '감지 이벤트가 없어 이 검증이 의미를 갖지 못한다');
+  assert.ok(
+    !list.some((d) => d.type === 'emotion'),
+    '감정 행이 감지 목록을 밀어내고 있다 (LIMIT 100 안에서 낙상 기록이 사라진다)'
+  );
+});
+
+test('일일 요약: seniorEmotionCounts는 어르신 표정을 센다 (로봇 발화와 별개)', async () => {
+  const summary = (await get('/api/summary/daily')).b;
+  assert.ok(
+    summary.seniorEmotionCounts.neutral >= 1,
+    '카메라가 남긴 표정이 하루 요약에 집계되지 않았다'
+  );
+  // 로봇 발화 집계는 지우지 않고 그대로 둔다 — 다른 의미의 지표다.
+  assert.strictEqual(typeof summary.emotionCounts, 'object');
+});

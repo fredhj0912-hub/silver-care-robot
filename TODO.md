@@ -40,12 +40,10 @@ B 트랙은 실물 없이는 진행 자체가 불가능하므로 이 분기가 �
 - [ ] **RDS 마스터 암호 교체** — **팀원 앱 설정도 함께 바꿔야 하므로 조율이 필요**해
       제일 먼저 꺼내 둔다. 바꾼 뒤 로컬·EC2 양쪽 `.env`와 팀원 쪽을 모두 갱신하고
       `npm run verify-rds`로 확인한다. (암호 값은 이 레포에 적지 않는다.)
-- [ ] **감정 이력을 `detections`에 남긴다** — 작고 확실하다. 보호자 홈의 `emotionCounts`
-      보강까지 딸려 온다. 상세는 아래 백로그.
 - [ ] **보호자 로그인(세션/JWT)** — 남은 것 중 **가장 큰 구조적 부채**. 여러 세션이 든다.
       상세는 아래 백로그.
-- [ ] **`purge-old-messages` 정기 실행 등록** — 이제 팀원과 공유하는 DB라 더 신중히.
-      삭제 범위가 우리 테이블에만 닿는지 먼저 확인할 것.
+- [ ] **`purge-old-messages` 정기 실행 등록** — 삭제 범위는 확인 끝났다(아래 백로그).
+      남은 건 EC2에 cron/systemd timer를 다는 일이라 로컬에서는 못 끝낸다.
 - [ ] (선택) **Cloud TTS 전환** — 목소리 품질을 급히 올려야 할 때만. 상세는 아래 백로그.
 
 ### B 트랙 — 하드웨어 (실물이 생기면 이게 1순위)
@@ -166,12 +164,6 @@ preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다.
 
 로드맵에 안 들어갔지만 언젠가 해야 할 것들. 발견 시점과 이유를 함께 적는다.
 
-- [ ] **감정 이력을 남길 곳이 없다** (2026-08-30, 팀원 코드 검토 중 확인). `routes/vision.js`가
-      Gemini에서 `expression`/`confidence`를 받아 놓고 `robot_status.senior_expression`에
-      **덮어쓰기만** 한다 — 시간에 따른 추이를 볼 방법이 없다. 팀원 레포엔 `emotion_records`
-      테이블이 따로 있는데, 우리는 새 테이블 없이 기존 `detections`(`source`/`confidence`/
-      `meta_json` 이미 있음)에 한 줄 기록하면 된다. 보호자 홈의 `emotionCounts`가 robot 발화
-      emotion만 세고 있는 것도 이걸로 보강할 수 있다.
 - [ ] **detector용 presigned 업로드** (2026-08-30). YOLOv8 detector가 낙상 스냅샷을 보낼 때
       지금 계약(`POST /api/detections`의 base64 data URI)은 12MB JSON 바디를 Express로
       통과시킨다. 팀원 `app/s3_service.py`의 presigned PUT 방식이 이 경우엔 더 낫다
@@ -189,8 +181,8 @@ preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다.
 - [ ] **EC2의 `data/hyodol.sqlite` 정리** (2026-08-31). RDS 전환 후 백업으로 남겨 뒀다.
       한동안 문제없이 도는 것을 확인하면 지운다. 지금 지우면 되돌릴 곳이 없어진다.
 - [ ] `purge-old-messages` 정기 실행 등록 (지금은 수동, 스케줄 없음).
-      **RDS 전환 후에는 삭제 범위가 우리 테이블에만 닿는지 먼저 확인할 것** — 팀원과
-      DB를 공유한다.
+      삭제 범위는 확인했다(2026-08-31) — `repositories/messages.js`의
+      `DELETE FROM messages` 하나뿐이라 **팀원 테이블에 닿지 않는다.**
 - [ ] 목소리 품질을 급히 올려야 하면 Cloud TTS 전환 — `TTS_PROVIDER=cloud` +
       `npm run prewarm-tts`. 콘솔에서 API 활성화 1회 필요.
       (Polly는 계정에서 불가능하므로 이게 유일한 업그레이드 경로다)
@@ -210,6 +202,7 @@ preview가 `/api`를 3001로 프록시하므로 터널은 하나면 된다.
 | 날짜 | 항목 | 상세 위치 |
 |---|---|---|
 | 08-31 | **RDS 실연결 + EC2 전환 완료** — 보안 그룹(VPC 내부는 source-group), `silvercare` DB로 108건 이관, EC2 배포까지. `verify-rds` 6개 항목 로컬·EC2 양쪽 통과 | 위 "RDS 운영 메모" |
+| 08-31 | **감정 이력** — 표정이 바뀔 때만 `detections`에 기록. 보호자 홈이 로봇 발화가 아니라 어르신 표정을 근거로 말한다. 테스트 백엔드 96→99 / 프론트 39→43 | `git log` |
 | 08-31 | **백로그 4건** — 스냅샷 `Content-Type`, 감지 응답의 `suppressedBy`(쿨다운/임계값 구분), 푸시 구독 origin 정리, 보호자 앱 오프라인 안내 기준 변경 | `fix/backlog` 브랜치 |
 | 08-31 | **테스트 보강** — `useGuardianData`(SSE 정체/폴백), `RobotFaceDisplay`(웨이크워드 게이트 배선). 백엔드 95→96 / 프론트 29→39 | `frontend/CLAUDE.md` |
 | 08-31 | 테스트가 `.env`의 `DB_DRIVER`를 따라가 실제 RDS를 지울 수 있던 결함 수정 / 이관 스크립트가 옛 SQLite에서 실패하던 문제 수정 | 아래 "살아남은 교훈" |

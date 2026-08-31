@@ -32,7 +32,25 @@ router.post('/vision', asyncHandler(async (req, res) => {
 
   const analysis = await gemini.analyzeImage(image);
 
+  // 표정은 카메라 주기(기본 15초)마다 들어온다. 매번 남기면 하루 수천 행이라
+  // **바뀔 때만** 한 줄 남긴다. 그 대가로 이 기록은 지속 시간이 아니라 변화 횟수를
+  // 센다 — "종일 슬픔"과 "잠깐 슬픔"이 똑같이 1이다. 지속 시간 가중이 필요해지면
+  // meta_json에 직전 상태의 지속 시간을 넣어 확장한다.
+  const previousExpression = (await statusRepo.get()).seniorExpression;
   await statusRepo.update({ seniorExpression: analysis.expression });
+
+  if (analysis.expression && analysis.expression !== previousExpression) {
+    await detectionsRepo.record({
+      source: 'vision_gemini',
+      type: detectionsRepo.EMOTION_TYPE,
+      confidence: analysis.confidence,
+      meta: {
+        expression: analysis.expression,
+        previous: previousExpression,
+        hasPerson: analysis.hasPerson,
+      },
+    });
+  }
 
   let alert = null;
   if (analysis.isEmergency) {
@@ -118,7 +136,10 @@ router.post('/detections', asyncHandler(async (req, res) => {
 }));
 
 router.get('/detections', asyncHandler(async (req, res) => {
-  res.json({ detections: await detectionsRepo.list({ limit: req.query.limit }) });
+  // type을 주지 않으면 감정 기록은 빠진다 — 기본 목록은 감지기 이벤트용이다.
+  res.json({
+    detections: await detectionsRepo.list({ limit: req.query.limit, type: req.query.type }),
+  });
 }));
 
 function describeDetection(type, confidence) {
