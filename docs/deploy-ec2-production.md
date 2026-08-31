@@ -60,10 +60,9 @@ journalctl -u cloudflared.service --no-pager -o cat | grep -oE 'https://[a-z0-9-
 
 ### 3. `ROBOT_API_KEY`는 진짜 인증이 아니다
 
-`VITE_ROBOT_API_KEY`로 프론트 번들에 평문으로 들어간다(`middleware/index.js` 주석 참고).
-인터넷에 노출된 지금은 **"터널 주소를 아는 사람만 쓴다"** 수준이다. 주소를 아는 사람은
-번들에서 키를 읽어 SOS·카메라·원격조종 API를 부를 수 있다. 시연·발표용으로 수용한 값이며,
-제대로 된 보호자 로그인은 TODO.md 백로그에 있다. 최소한 로컬 개발 키를 재사용하지 말고
+`VITE_ROBOT_API_KEY`로 클라이언트 번들에 들어가므로(`middleware/index.js` 주석 참고)
+비밀로 지켜지지 않는다. 시연·발표용으로 수용한 값이며, 제대로 된 보호자 로그인은
+TODO.md 백로그에 있다. 최소한 로컬 개발 키를 재사용하지 말고
 `openssl rand -hex 32`로 새로 뽑을 것.
 
 ---
