@@ -61,12 +61,21 @@ async function main() {
     return;
   }
 
+  // 원본이 대상 스키마보다 오래되어 테이블이 아예 없을 수 있다 — 복약 기능 추가(08-30)
+  // 이전에 만들어진 SQLite 파일에는 medications 가 없다. 옮길 데이터가 없다는 뜻이므로
+  // 실패가 아니라 건너뛰기로 다룬다.
+  const srcTables = new Set(
+    src.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name)
+  );
+
   const plan = TABLES.map(({ name }) => ({
     name,
-    rows: src.prepare(`SELECT COUNT(*) AS n FROM ${name}`).get().n,
+    rows: !srcTables.has(name) ? null : src.prepare(`SELECT COUNT(*) AS n FROM ${name}`).get().n,
   }));
   console.log('\n이관 대상:');
-  for (const { name, rows } of plan) console.log(`  ${name.padEnd(20)} ${rows}건`);
+  for (const { name, rows } of plan) {
+    console.log(`  ${name.padEnd(20)} ${rows === null ? '원본에 테이블 없음 — 건너뜀' : `${rows}건`}`);
+  }
 
   if (DRY_RUN) {
     console.log('\n--dry-run 이므로 실제로 쓰지 않았습니다.');
@@ -78,6 +87,10 @@ async function main() {
   // 대화 로그와 알림 이력이 어긋난 채 보호자에게 보인다.
   await transaction(async (tx) => {
     for (const { name, columns } of TABLES) {
+      if (!srcTables.has(name)) {
+        console.log(`  ${name} 건너뜀 (원본에 테이블 없음)`);
+        continue;
+      }
       const rows = src.prepare(`SELECT ${columns.join(', ')} FROM ${name}`).all();
       const placeholders = columns.map(() => '?').join(', ');
       for (const row of rows) {
