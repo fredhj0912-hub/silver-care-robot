@@ -114,6 +114,8 @@ VAPID_SUBJECT=mailto:<연락처>
 SNAPSHOT_STORAGE=s3
 AWS_REGION=us-west-2
 S3_BUCKET=project9-80-oregon-hyodol-snapshots
+DB_DRIVER=pg
+DATABASE_URL=postgres://<사용자>:<비밀번호>@<RDS 엔드포인트>:5432/silvercare
 EOF
 chmod 600 backend/.env frontend/.env
 
@@ -127,11 +129,33 @@ cd frontend && npm run build     # 반드시 .env 를 쓴 뒤에
 - `PUBLIC_DIR`이 설정되면 백엔드가 `/`(키오스크)와 `/guardian/*`(보호자 앱)을 직접 서빙한다.
   같은 오리진이라 `lib/api.js`의 `API_BASE`(상대 경로)와 CORS 설정을 건드릴 필요가 없다.
 
+### RDS PostgreSQL (2026-08-31 전환)
+
+`DB_DRIVER`를 빼면 로컬 파일 SQLite로 돌아간다 — 되돌리기는 그 두 줄을 지우고 재기동하면 끝이다.
+
+**보안 그룹은 공인 IP가 아니라 보안 그룹 참조로 열어야 한다.** EC2와 RDS가 같은 VPC 안에
+있으면 EC2는 RDS 엔드포인트를 **사설 IP로** 해석하고 소스도 사설 IP가 된다. 공인 IP를
+`/32`로 넣어도 이 경로에는 적용되지 않아 증상이 **연결 거부가 아니라 타임아웃**으로 나온다.
+
+```bash
+# RDS 보안 그룹에 EC2 보안 그룹을 소스로 추가 (CloudShell에서)
+aws ec2 authorize-security-group-ingress --group-id <RDS SG> \n  --protocol tcp --port 5432 --source-group <EC2 SG> --region us-west-2
+```
+
+개발 PC는 VPC 밖이라 공인 IP(`/32`)로 따로 열어야 하고, **공인 IP가 바뀌면 다시 막힌다.**
+
+`?sslmode=require`는 URL에 붙이지 않는다 — `db/drivers/pg.js`가 `DATABASE_SSL`(기본 on)로
+처리한다.
+
 **사전 점검** — 서비스로 올리기 전에 값싸게 확인한다:
 
 ```bash
 cd backend && npm run verify-s3     # ✅ s3://<버킷>/s3-... 가 나와야 한다
+cd backend && npm run verify-rds    # ✅ 7개 항목 (롤백·COUNT 타입 포함)
 ```
+
+기존 SQLite 데이터가 있으면 `npm run migrate-pg -- --dry-run` 뒤에 인자 없이 실행한다.
+대상에 이미 데이터가 있으면 중단하므로 여러 번 돌려도 안전하다.
 
 ## 3. systemd 등록
 
@@ -145,7 +169,7 @@ NODE_BIN=$(ls -d /home/ec2-user/.nvm/versions/node/*/bin/node | tail -1)
 
 ```ini
 [Unit]
-Description=Hyodol backend (Express + SQLite)
+Description=Hyodol backend (Express + RDS PostgreSQL)
 After=network-online.target
 Wants=network-online.target
 
