@@ -182,9 +182,17 @@ test('감지 이벤트: 임계값 미만은 기록만, 이상은 알림', async 
   const low = await post('/api/detections', { source: 'mock', type: 'fall', confidence: 0.3 });
   assert.strictEqual(low.b.alertRaised, false);
   assert.strictEqual(low.b.accepted, true);
+  assert.strictEqual(low.b.suppressedBy, 'threshold');
 
   const high = await post('/api/detections', { source: 'mock', type: 'fall', confidence: 0.95 });
   assert.strictEqual(high.b.alertRaised, true);
+  assert.strictEqual(high.b.suppressedBy, null);
+
+  // 임계값을 넘겼는데도 알림이 안 나는 두 번째 이유가 쿨다운이다. 이 둘을 구분해 주지
+  // 않으면 감지기 쪽에서 임계값 문제로 오해한다(실제로 그렇게 디버깅이 헛돌았다).
+  const again = await post('/api/detections', { source: 'mock', type: 'fall', confidence: 0.95 });
+  assert.strictEqual(again.b.alertRaised, false);
+  assert.strictEqual(again.b.suppressedBy, 'cooldown');
 
   assert.ok((await get('/api/detections')).b.detections.length >= 2, '감지 원본이 기록되지 않았다');
 });

@@ -69,6 +69,9 @@ const meta = {
   console.log(`감지 이벤트 전송: ${type} / 신뢰도 ${confidence} (임계값 ${body.threshold})`);
   if (body.alertRaised) {
     console.log(`🚨 알림 생성됨 — id ${body.alert.id}. 로봇 화면과 보호자 앱이 비상 모드로 전환됩니다.`);
+  } else if (body.suppressedBy === 'cooldown') {
+    console.log(`ℹ️  임계값은 넘었지만 쿨다운에 걸려 알림이 억제되었습니다 (기록은 남습니다).`);
+    console.log(`    같은 유형의 알림이 최근에 이미 올라갔습니다 — ALERT_COOLDOWN_MS 참고.`);
   } else {
     console.log('ℹ️  임계값 미만이라 알림 없이 기록만 되었습니다 (임계값 튜닝 근거로 남습니다).');
   }
