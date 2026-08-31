@@ -18,7 +18,11 @@ src/
     schema.pg.sql          같은 스키마의 PostgreSQL 판. **한쪽을 고치면 반드시 다른 쪽도 고칠 것**
     index.js               query()/queryOne()/exec()/transaction()/initDB()/nowISO().
                              DB_DRIVER=sqlite|pg 로 드라이버를 고른다. 헤더 주석의
-                             '두 드라이버 공통 SQL 규칙 5가지'를 반드시 읽고 새 쿼리를 쓸 것
+                             '두 드라이버 공통 SQL 규칙 5가지'를 반드시 읽고 새 쿼리를 쓸 것.
+                             **기존 테이블에 컬럼을 더할 때는 `ADDED_COLUMNS`에 ALTER 한 줄을
+                             추가한다** — 스키마 파일은 CREATE TABLE IF NOT EXISTS 뿐이라 이미
+                             있는 DB에는 새 컬럼이 안 붙고, SQLite는 ADD COLUMN IF NOT EXISTS를
+                             지원하지 않아 "이미 있음" 예외를 삼키는 방식이 유일하다
     drivers/sqlite.js      node:sqlite DatabaseSync (개발·테스트 기본값)
     drivers/pg.js          node-pg 풀. ?→$n 변환, int8→number 파서, 풀에서 빌린 단일
                              커넥션 트랜잭션
