@@ -6,6 +6,9 @@ const path = require('node:path');
 
 // messagesRepo.purgeOlderThan은 실제 대화 로그를 지우는 함수라, 반드시 임시 DB에서만 검증한다.
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'hyodol-retention-test-'));
+// .env에 DB_DRIVER=pg 가 설정돼 있어도 테스트가 실제 RDS를 치지 않게 고정한다
+// (SNAPSHOT_STORAGE='local' 과 같은 이유 — 통합 테스트는 임시 SQLite에서만 돈다).
+process.env.DB_DRIVER = 'sqlite';
 process.env.DB_PATH = path.join(TMP, 'test.sqlite');
 process.env.SNAPSHOT_DIR = path.join(TMP, 'snapshots');
 

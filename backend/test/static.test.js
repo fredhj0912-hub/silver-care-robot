@@ -13,6 +13,9 @@ fs.writeFileSync(path.join(DIST, 'index.html'), '<!doctype html><title>효돌이
 fs.writeFileSync(path.join(DIST, 'sw.js'), '// service worker');
 fs.writeFileSync(path.join(DIST, 'assets', 'index-abc123.js'), 'console.log(1)');
 
+// .env에 DB_DRIVER=pg 가 설정돼 있어도 테스트가 실제 RDS를 치지 않게 고정한다
+// (SNAPSHOT_STORAGE='local' 과 같은 이유 — 통합 테스트는 임시 SQLite에서만 돈다).
+process.env.DB_DRIVER = 'sqlite';
 process.env.DB_PATH = path.join(TMP, 'test.sqlite');
 process.env.SNAPSHOT_DIR = path.join(TMP, 'snapshots');
 process.env.PUBLIC_DIR = DIST;

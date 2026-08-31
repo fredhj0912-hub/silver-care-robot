@@ -6,6 +6,9 @@ const path = require('node:path');
 
 // config 는 require 시점에 환경변수를 읽는다.
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'hyodol-driver-test-'));
+// .env에 DB_DRIVER=pg 가 설정돼 있어도 테스트가 실제 RDS를 치지 않게 고정한다
+// (SNAPSHOT_STORAGE='local' 과 같은 이유 — 통합 테스트는 임시 SQLite에서만 돈다).
+process.env.DB_DRIVER = 'sqlite';
 process.env.DB_PATH = path.join(TMP, 'test.sqlite');
 process.env.SNAPSHOT_DIR = path.join(TMP, 'snapshots');
 process.env.GEMINI_API_KEY = '';
@@ -132,6 +135,6 @@ test('exec()는 파라미터 없는 raw DML을 실행한다', async () => {
   await exec("DELETE FROM messages WHERE ts = '2001-01-01T00:00:00.000Z'");
 });
 
-test('기본 드라이버는 sqlite다 (DB_DRIVER 미설정 시)', () => {
-  assert.strictEqual(driverName(), process.env.DB_DRIVER || 'sqlite');
+test('테스트는 .env와 무관하게 항상 sqlite 드라이버로 돈다', () => {
+  assert.strictEqual(driverName(), 'sqlite');
 });
