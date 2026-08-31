@@ -2,6 +2,9 @@
 
 로봇 얼굴 화면을 파이 7인치 디스플레이(800×480)에 상시 띄우는 절차다.
 
+> 📋 **현장에서 순서대로 따라갈 것은 이 문서가 아니라 [`pi-runbook.md`](./pi-runbook.md)다.**
+> 이 문서는 "왜 그렇게 하는가"와 한계·되돌리기를 담은 레퍼런스다.
+
 > **✋ 2026-08-31 기준 이 문서는 실측이 아니다.** 하드웨어를 아직 붙여 보지 않았다.
 > `docs/deploy-ec2-production.md`가 "아래는 전부 실측이다"로 시작하는 것과 정반대다.
 > **09-01에 실제로 실행하면서 이 문서를 실측값으로 고칠 것.** 틀린 것을 찾으면 그게 성과다.
@@ -72,9 +75,13 @@ EC2 배포 문서의 알려진 한계 1번과 같다. 키오스크는 원래 2.5
 
 파이 OS Bookworm(64-bit) + 데스크톱 세션이 뜬 상태에서 시작한다.
 
+> ⚠️ **`-b feat/pi-deployment`를 빠뜨리지 말 것.** `deploy/pi/` 스크립트는 이 브랜치에만
+> 있고 `main`에는 아직 없다. 그냥 `git clone`하면 폴더 자체가 없다.
+> (main에 머지한 뒤에는 `-b` 없이 받으면 된다.)
+
 ```bash
 sudo apt update && sudo apt install -y chromium-browser git curl alsa-utils
-git clone https://github.com/fredhj0912-hub/silver-care-robot.git
+git clone -b feat/pi-deployment https://github.com/fredhj0912-hub/silver-care-robot.git
 cd silver-care-robot/deploy/pi && chmod +x *.sh
 ```
 

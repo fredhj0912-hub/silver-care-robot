@@ -34,7 +34,9 @@ A 트랙은 그 뒤에 이어서 한다.
 
 ### 🔴 내일(09-01) 파이에서 확인할 것 — 순서대로
 
-절차는 `docs/deploy-raspberry-pi.md`. **오늘 만든 것은 전부 미검증이다.**
+**현장에서는 `docs/pi-runbook.md`를 위에서부터 그대로 따라간다** (어느 기기에서 치는
+명령인지까지 적혀 있다). 배경·한계·되돌리기는 `docs/deploy-raspberry-pi.md`.
+아래는 그 요약이다. **오늘 만든 것은 전부 미검증이다.**
 
 - [ ] **EC2에 오늘 변경분 배포** (선행 필수 — 안 하면 파이가 옛 번들을 받는다).
       `git pull` → `frontend/.env`에 `VITE_VISION_ENABLED=true` → `npm run build` →
