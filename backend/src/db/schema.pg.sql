@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   endpoint   TEXT NOT NULL UNIQUE,
   keys_json  TEXT NOT NULL,
   label      TEXT,
+  -- 구독을 만든 브라우저 주소. 터널 주소가 바뀌면 옛 origin의 구독이 남는데
+  -- FCM은 그것을 404/410으로 거부하지 않고 성공으로 응답하므로, origin 없이는
+  -- 죽은 구독과 살아 있는 구독을 구분할 방법이 없다. (레거시 행은 NULL)
+  origin     TEXT,
   created_at TEXT NOT NULL
 );
 

@@ -11,7 +11,15 @@ router.post('/push/subscribe', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'endpoint와 keys(p256dh, auth)가 필요합니다' });
   }
 
-  await subscriptionsRepo.save({ endpoint, keys, label });
+  // origin은 요청 헤더에서 읽는다 — 프론트가 보내는 값을 믿을 이유가 없다.
+  const origin = req.get('origin') || null;
+  await subscriptionsRepo.save({ endpoint, keys, label, origin });
+
+  const dropped = await subscriptionsRepo.removeOtherOrigins(origin);
+  if (dropped > 0) {
+    console.log(`[PUSH] 옛 주소의 구독 ${dropped}건 정리 (현재 origin: ${origin})`);
+  }
+
   res.json({ success: true });
 }));
 

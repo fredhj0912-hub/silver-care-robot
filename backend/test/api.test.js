@@ -293,3 +293,24 @@ test('SSE: 연결 시 현재 상태를 보내고 이후 이벤트를 실시간 �
   assert.ok(seen.includes('hello'), `hello 미수신 (수신: ${seen.join(', ')})`);
   assert.ok(seen.includes('command.issued'), `command.issued 미수신 (수신: ${seen.join(', ')})`);
 });
+
+test('푸시 구독: 새 origin으로 구독하면 옛 터널 주소의 구독은 정리된다', async () => {
+  const subscribe = (origin, endpoint) => fetch(BASE + '/api/push/subscribe', {
+    method: 'POST',
+    headers: { ...H, Origin: origin },
+    body: JSON.stringify({ endpoint, keys: { p256dh: 'p', auth: 'a' } }),
+  }).then((r) => r.json());
+
+  assert.deepStrictEqual(await subscribe('https://old.example', 'https://fcm.test/old'), { success: true });
+  await subscribe('https://new.example', 'https://fcm.test/new');
+
+  // 옛 origin의 구독을 FCM은 410으로 거부하지 않고 성공으로 응답한다 —
+  // notify.js의 자동 정리에 안 걸리므로 구독 시점에 여기서 걷어내야 한다.
+  const { rows } = await query('SELECT endpoint, origin FROM push_subscriptions', []);
+  assert.deepStrictEqual(
+    rows.map((r) => r.endpoint),
+    ['https://fcm.test/new'],
+    '사라진 터널 주소의 구독이 남아 있다'
+  );
+  assert.strictEqual(rows[0].origin, 'https://new.example');
+});

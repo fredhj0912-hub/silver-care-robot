@@ -25,10 +25,32 @@ const DRIVERS = {
 const name = DRIVERS[config.dbDriver] ? config.dbDriver : 'sqlite';
 const driver = DRIVERS[name]();
 
+/**
+ * 이미 만들어진 테이블에 덧붙일 컬럼. 스키마 파일은 `CREATE TABLE IF NOT EXISTS` 뿐이라
+ * 기존 DB에는 새 컬럼이 붙지 않는다. SQLite는 `ADD COLUMN IF NOT EXISTS`를 지원하지 않으므로
+ * "이미 있음" 예외만 삼키는 것이 두 드라이버에서 통하는 유일한 방법이다.
+ */
+const ADDED_COLUMNS = [
+  'ALTER TABLE push_subscriptions ADD COLUMN origin TEXT',
+];
+
+const ALREADY_EXISTS = /duplicate column|already exists/i;
+
+async function addMissingColumns() {
+  for (const sql of ADDED_COLUMNS) {
+    try {
+      await driver.exec(sql);
+    } catch (err) {
+      if (!ALREADY_EXISTS.test(err.message)) throw err;
+    }
+  }
+}
+
 /** 스키마를 적용한다. 부팅(server.js)과 테스트 준비에서 한 번 호출한다. */
 async function initDB() {
   if (driver.applySchema) await driver.applySchema();
   else await driver.exec('SELECT 1'); // sqlite는 첫 접속에서 스키마가 적용된다
+  await addMissingColumns();
 }
 
 const query = (sql, params) => driver.query(sql, params);

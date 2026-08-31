@@ -39,7 +39,7 @@ async function send(alert) {
   let sent = 0;
   const failures = [];
 
-  await Promise.all(subscriptions.map(async ({ endpoint, keys }) => {
+  await Promise.all(subscriptions.map(async ({ endpoint, keys, origin }) => {
     try {
       await webpush.sendNotification({ endpoint, keys }, payload);
       sent++;
@@ -47,13 +47,16 @@ async function send(alert) {
       if (err.statusCode === 404 || err.statusCode === 410) {
         await subscriptionsRepo.remove(endpoint);
       }
-      failures.push(err.message);
+      failures.push(`${origin || 'origin 미상'}: ${err.message}`);
     }
   }));
 
   // 응급 알림이 한 대도 못 갔는데 조용히 지나가면 안 된다.
+  // 어느 주소로 보냈는지 함께 남긴다 — "발송 완료"만 찍히고 정작 보호자에게는
+  // 사라진 터널 주소가 열리던 버그를 오래 숨긴 게 이 로그였다.
+  const origins = [...new Set(subscriptions.map((s) => s.origin || 'origin 미상'))].join(', ');
   if (sent === 0) console.error(`[PUSH] 전 기기 발송 실패 (${subscriptions.length}대):`, failures.join(' / '));
-  else console.log(`[PUSH] ${sent}/${subscriptions.length}대 발송 완료`);
+  else console.log(`[PUSH] ${sent}/${subscriptions.length}대 발송 완료 (${origins})`);
 
   return { skipped: false, sent, failures };
 }
