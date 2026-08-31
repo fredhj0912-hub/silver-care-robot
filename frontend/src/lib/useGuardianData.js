@@ -14,7 +14,11 @@ export function useGuardianData() {
   const [status, setStatus] = useState(null);
   const [openAlerts, setOpenAlerts] = useState([]);
   const [summary, setSummary] = useState(null);
-  const [connected, setConnected] = useState(false);
+  const [sseConnected, setSseConnected] = useState(false);
+  // 폴백 폴링이 성공하는 한 화면 데이터는 최신이다. 프록시가 SSE를 버퍼링하는 배포에서는
+  // SSE가 영영 조용하므로, "실시간 연결"만 보고 오프라인 안내를 띄우면 멀쩡히 갱신되는
+  // 화면 위에 경고만 60초마다 깜빡인다. 보호자가 알아야 할 건 데이터가 최신인지다.
+  const [dataFresh, setDataFresh] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
@@ -26,8 +30,10 @@ export function useGuardianData() {
       if (s) setStatus(s);
       if (a) setOpenAlerts(a.alerts);
       if (d) setSummary(d);
+      setDataFresh(Boolean(s));
     } catch {
-      // 네트워크가 끊긴 상태 — connected 플래그가 화면에 이미 반영된다
+      // 서버에 아예 닿지 못한 상태 — 이때만 화면에 연결 끊김을 알린다
+      setDataFresh(false);
     }
   }, []);
 
@@ -36,8 +42,8 @@ export function useGuardianData() {
   const refreshRef = useRef(refresh);
   useEffect(() => { refreshRef.current = refresh; }, [refresh]);
 
-  const connectedRef = useRef(connected);
-  useEffect(() => { connectedRef.current = connected; }, [connected]);
+  const connectedRef = useRef(sseConnected);
+  useEffect(() => { connectedRef.current = sseConnected; }, [sseConnected]);
 
   // 서버 하트비트(25초 간격) 포함, 어떤 이벤트든 받을 때마다 갱신된다. onerror 없이
   // 소켓만 조용히 죽는 경우(모바일 PWA 백그라운드 전환 등) 이 값이 오래된 채로 남아
@@ -62,7 +68,7 @@ export function useGuardianData() {
         const data = JSON.parse(e.data);
         setStatus(data.status);
         setOpenAlerts(data.unresolvedAlerts);
-        setConnected(true);
+        setSseConnected(true);
       };
 
       // 어떤 이벤트가 오든 서버가 진실의 원천이므로 전체를 다시 읽는다.
@@ -75,8 +81,8 @@ export function useGuardianData() {
       source.addEventListener('status.changed', onChange);
       source.addEventListener('message.added', onChange);
       source.addEventListener('heartbeat', touch);
-      source.onerror = () => setConnected(false);
-      source.onopen = () => { touch(); setConnected(true); };
+      source.onerror = () => setSseConnected(false);
+      source.onopen = () => { touch(); setSseConnected(true); };
     };
     connect();
 
@@ -88,7 +94,7 @@ export function useGuardianData() {
       if (!connectedRef.current || stale) {
         refreshRef.current();
         if (stale) {
-          setConnected(false);
+          setSseConnected(false);
           sourceRef.current?.close();
           connect();
         }
@@ -101,7 +107,8 @@ export function useGuardianData() {
     };
   }, []);
 
-  return { status, openAlerts, summary, connected, refresh };
+  // 화면이 쓰는 `connected`는 "SSE가 살아 있나"가 아니라 "화면이 최신인가"다.
+  return { status, openAlerts, summary, connected: sseConnected || dataFresh, refresh };
 }
 
 /** 커서 페이지네이션 목록 (대화 로그 / 알림 이력 공용) */
