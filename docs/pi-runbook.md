@@ -13,7 +13,8 @@
 | `[EC2]` | 개발 PC에서 SSH로 들어간 서버 |
 | `[콘솔]` | 브라우저로 연 AWS 콘솔 (CloudShell / Instance Connect) |
 
-> **✋ 이 문서는 아직 실측이 아니다.** 09-01에 실행하면서 틀린 것을 고칠 것.
+> **§0~§7은 2026-09-01에 파이 5에서 실제로 돌려 가며 고친 문서다.**
+> **§8(낙상)·§9(구동부)는 아직 실측이 아니다** — 그날 거기까지 가지 못했다.
 > 각 단계의 **"성공한 모습"** 을 보고 넘어가고, 안 되면 그 자리에서 §10을 본다.
 
 ---
@@ -40,12 +41,24 @@ curl.exe -s https://checkip.amazonaws.com
 그다음 **AWS 콘솔 → CloudShell**을 열고(이 계정은 액세스 키 발급이 불가능하므로
 로그인 세션을 그대로 쓰는 CloudShell이 유일한 CLI 경로다):
 
+보안 그룹 ID를 모르면 인스턴스로 찾는다(퍼블릭 IP도 같이 나온다):
+
 ```bash
-aws ec2 authorize-security-group-ingress \
-  --group-id <EC2 보안 그룹 ID> \
-  --protocol tcp --port 22 --cidr <위에서 확인한 IP>/32 \
-  --region us-west-2
+aws ec2 describe-instances --region us-west-2 --instance-ids <인스턴스 ID> \
+  --query 'Reservations[].Instances[].{IP:PublicIpAddress,SG:SecurityGroups[].GroupId}'
 ```
+
+그다음 22번을 연다:
+
+```bash
+aws ec2 authorize-security-group-ingress --region us-west-2 \
+  --group-id sg-XXXXXXXX \
+  --ip-permissions 'IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=<확인한 IP>/32,Description="dev-pc"}]'
+```
+
+> ⚠️ **`<`와 `>`는 자리표시자다 — 지우고 값만 넣는다.** 그대로 두면 셸이 리다이렉션으로
+> 읽어 `No such file or directory`가 난다(09-01에 실제로 겪었다).
+> 이미 열린 IP면 `InvalidPermission.Duplicate`가 나는데, **이미 됐다는 뜻**이니 넘어간다.
 
 > ⚠️ CloudShell 안에서 `checkip`을 부르면 **CloudShell의 IP**가 나온다. 반드시 개발 PC에서
 > 확인한 값을 넣을 것.
@@ -68,7 +81,39 @@ journalctl -u cloudflared.service --no-pager -o cat \
 
 ---
 
-## 0. 시작 전 — 서버가 살아 있는지 확인 `[개발 PC]`
+## 0-B. 🔴 EC2에 최신 코드를 올린다 `[EC2]`
+
+**이 단계를 건너뛰면 §3 이후의 검증이 전부 무효다.** 파이는 EC2가 서빙하는 번들을 받으므로,
+EC2가 옛 코드면 **파이에서 확인하는 것도 옛 화면**이다. 09-01에 이 단계가 문서에 없어서
+따로 챙겨야 했다.
+
+```bash
+cd ~/silver-care-robot
+git fetch origin && git checkout <배포할 브랜치> && git pull
+git log --oneline -1        # ← 이 확인이 핵심이다
+```
+
+> ⚠️ **브랜치부터 확인한다.** `git pull`만으로는 다른 브랜치의 변경이 오지 않는다.
+> 과거에 "EC2가 `main`보다 14커밋 뒤에 있어서 `.env` 두 줄인 줄 알았던 일이 재빌드였다"는
+> 사고가 있었다.
+
+`VITE_*` 값은 **빌드 시점에 번들에 박히므로** `.env`를 먼저 손대고 빌드한다:
+
+```bash
+grep VITE_VISION frontend/.env         # 카메라를 쓸 것이면 true 여야 한다
+cd frontend && npm run build
+sudo systemctl restart hyodol.service
+systemctl is-active hyodol.service cloudflared.service
+```
+
+**성공한 모습**: `active`가 **두 줄**.
+
+> `cloudflared`를 재시작하지 않으면 **터널 주소는 그대로다.** 주소가 유지되면 §8-3의
+> 푸시 재구독을 건너뛸 수 있으므로, 굳이 함께 재시작하지 않는다.
+
+---
+
+## 0. 서버 주소 확보 `[개발 PC]`
 
 파이는 EC2가 서빙하는 화면을 여는 브라우저일 뿐이다. **서버 주소부터 확보한다.**
 
@@ -106,7 +151,8 @@ npm run access -- <EC2 퍼블릭 IP>
 ssh <파이 사용자>@<파이 호스트명>.local     # 예: ssh pi@raspberrypi.local
 ```
 
-- 파이 OS 기본 호스트명은 보통 `raspberrypi`다. 파이에서 `hostname`으로 확인할 수 있다.
+- **호스트명을 짐작하지 말 것.** 파이 OS 기본값은 보통 `raspberrypi`지만, 09-01에 쓴 기기는
+  `pi`였다(따라서 `ssh pi@pi.local`). 파이에서 `hostname`으로 확인한다.
 - `.local`(mDNS)이 안 되면 파이 IP를 직접 쓴다 — 파이에서 `hostname -I`.
 - **파이에서 SSH가 켜져 있어야 한다**: `sudo raspi-config` → Interface Options → SSH.
   (파이 OS는 기본으로 꺼져 있는 경우가 많다. 이건 파이에 직접 키보드를 붙여 한 번만 하면 된다.)
@@ -136,17 +182,36 @@ hostname && uname -m
 
 파이가 인터넷에 연결된 상태에서 시작한다(clone을 해야 하므로).
 
+**한 줄씩 따로 실행한다.** 어디서 실패했는지 바로 보이고, 뒤 명령이 조용히 건너뛰어지지 않는다.
+
 ```bash
 sudo apt update
 sudo apt install -y chromium-browser git curl alsa-utils
-git clone -b feat/pi-deployment https://github.com/fredhj0912-hub/silver-care-robot.git
-cd silver-care-robot/deploy/pi && chmod +x *.sh
 ```
 
-> ⚠️ **`-b feat/pi-deployment`를 빠뜨리지 말 것.** 스크립트는 이 브랜치에만 있고
-> `main`에는 아직 없다. 그냥 `git clone`하면 `deploy/pi` 폴더 자체가 없어서
-> 다음 단계가 통째로 막힌다.
-> (이 브랜치를 main에 머지한 뒤에는 `-b` 없이 받으면 된다.)
+> 최신 파이 OS는 패키지 이름이 `chromium`이다. `chromium-browser`를 못 찾는다고 하면
+> `sudo apt install -y chromium git curl alsa-utils`.
+
+```bash
+git clone https://github.com/fredhj0912-hub/silver-care-robot.git
+```
+
+**이미 `silver-care-robot` 폴더가 있으면** (예전에 받아 둔 경우) clone은 실패한다.
+지우지 말고 최신으로 맞춘다:
+
+```bash
+cd ~/silver-care-robot
+git status --short          # 손댄 파일이 있으면 먼저 확인한다
+git fetch origin && git checkout main && git pull
+```
+
+그다음 **실행 권한을 따로 준다**:
+
+```bash
+cd ~/silver-care-robot/deploy/pi
+chmod +x *.sh
+ls -l *.sh                  # 앞에 x가 보여야 한다
+```
 
 **node도 npm도 설치하지 않는다.** 파이에서는 아무것도 빌드하지 않는다.
 
@@ -209,6 +274,20 @@ cd silver-care-robot/deploy/pi && chmod +x *.sh
 > 자동 수락하면서 **기본 장치**를 말없이 집는다. USB 마이크가 기본이 아니면
 > 소리를 못 듣는데도 화면에는 아무 오류가 안 뜬다.
 
+> 🔴 5번의 **기본 출력**도 함께 본다. 09-01에 USB 마이크 어레이(reSpeaker)가 **기본 출력을
+> 가로채** 로봇이 말을 해도 아무 소리가 안 났다. `speaker-test`는
+> `Playback open error: -524`만 뱉어서 원인을 알 수 없다. 고치는 법:
+>
+> ```bash
+> wpctl status            # Sinks 목록에서 진짜 스피커의 ID를 찾는다
+> wpctl set-default <스피커 ID>
+> wpctl set-volume <스피커 ID> 0.8
+> pw-play /usr/share/sounds/alsa/Front_Center.wav   # 여기서 소리가 나야 한다
+> ```
+>
+> 한 번 바꾸면 재부팅해도 유지된다(실측). 바꾼 뒤에는 **키오스크를 재시작**해야
+> Chromium이 새 출력을 잡는다 — `pkill -f 'chromium.*--kiosk'` (감시 루프가 3초 뒤 다시 띄운다).
+
 ---
 
 ## 5. 자동실행 확인 `[파이]`
@@ -237,6 +316,18 @@ SSH로 접속 중이었다면 **연결이 끊긴다 — 정상이다.** 다시 `
 **6-2. 소리** `[폰]` — 폰에서 `https://<터널 주소>/guardian/send` 를 열고 아무 말이나 보낸다.
 
 **성공한 모습**: 파이 스피커에서 그 말이 나오고, 화면에 `보호자님 메시지: …`가 뜬다.
+왕복은 **5초 안팎**이다(09-01 실측 — 폴링 대기 + 음성 생성 + 터널 전송이 합쳐진 값).
+
+> 🔴 **화면에 글은 뜨는데 소리만 안 나면**, 순서대로 좁힌다:
+>
+> 1. `pw-play /usr/share/sounds/alsa/Front_Center.wav` — **안 나면 출력 장치 문제다**(§4의 5번).
+> 2. 소리가 나는데 로봇만 조용하면 **TTS 엔진 문제다.** 기본값 `TTS_PROVIDER=browser`는
+>    리눅스에서 `speech-dispatcher`가 있어야 하고, 있어도 한국어 보이스가 없으면
+>    **아무 소리 없이 조용히 실패한다.** 09-01에 실제로 이 경우였다.
+> 3. 해결은 **서버측 TTS**다. EC2의 `backend/.env`에 `TTS_PROVIDER=gemini`를 넣고
+>    `sudo systemctl restart hyodol.service`. 브라우저 음성 엔진이 아예 필요 없어지고
+>    목소리 품질도 낫다. `npm run prewarm-tts`로 자주 쓰는 문장을 미리 캐싱해 둔다.
+>    (`.env`에 그 줄이 아예 없을 수 있다 — `grep TTS_PROVIDER .env`로 먼저 확인할 것.)
 
 **6-3. 음성 인식** `[파이]` — 파이 앞에서 **"효돌아"** 하고 부른다.
 
@@ -252,9 +343,20 @@ SSH로 접속 중이었다면 **연결이 끊긴다 — 정상이다.** 다시 `
 | `음성 인식 서버에 닿지 않아요` | **Chromium STT 실패** | §10 참고. 텍스트 입력으로 진행 가능 |
 | `아래에 글로 말씀해 주세요` | 브라우저가 음성 API 자체를 지원 안 함 | 위와 같음 |
 
-> 🔴 **`음성 인식 서버에 닿지 않아요`가 오늘 가장 가능성 높은 실패다.** 파이 OS 저장소의
-> Chromium이 구글 음성 키 없이 빌드돼 있을 수 있다. 그래도 **시연은 가능하다** —
-> 화면 아래 텍스트 입력으로 대화가 된다. 여기서 시간을 오래 쓰지 말고 넘어갈 것.
+> 🔴 **음성 인식은 09-01 실측에서 실패했다.** 화면에 `음성 인식 서버에 닿지 않아요`가 떴다 —
+> 파이 OS 저장소의 Chromium이 구글 음성 키 없이 빌드돼 있어서다. **여기서 시간을 쓰지 말 것.**
+> ARM64 리눅스용 정식 Chrome 빌드가 없어 쉬운 교체 경로가 없다.
+>
+> **대신 입력 경로를 미리 준비해 둔다:**
+>
+> | 입력 | 상태 |
+> |---|---|
+> | 음성 ("효돌아") | ❌ Chromium STT 실패 |
+> | 화면 텍스트 입력 | ⚠️ **파이에 가상 키보드가 없다** — 물리 키보드가 필요하다 |
+> | 폰 보호자 앱 `/guardian/send` | ✅ 동작 확인 |
+>
+> 시연 전까지 서버측 STT를 붙이는 것이 유일한 실사용 경로다(`TODO.md`). 그때까지는
+> **파이에 키보드를 하나 꽂아 두는 것**이 현실적인 대비책이다.
 
 ---
 
@@ -339,16 +441,20 @@ i2cdetect -y 1 2>/dev/null  # 모터 HAT이 I2C면 여기 주소가 뜬다
 
 | 증상 | 원인 | 조치 |
 |---|---|---|
-| `deploy/pi` 폴더가 없다 | `-b feat/pi-deployment` 없이 clone함 | `git checkout feat/pi-deployment` |
+| **화면이 3초 주기로 하얗게 깜빡인다** | **`kiosk.sh` 루프가 두 개** — 두 번째 Chromium이 첫 번째에 URL만 넘기고 코드 0으로 끝나는데(`Opening in existing browser session`) 감시 루프가 죽은 줄 알고 3초마다 다시 띄운다 | `pgrep -af kiosk.sh`로 **kiosk.sh 개수**를 센다(Chromium 개수가 아니다 — 그건 1로 나온다). 2 이상이면 `pkill -f kiosk.sh` 후 `sed -i '/kiosk\.sh/d' ~/.config/labwc/autostart` → 재부팅 |
+| `./install-autostart.sh`가 `Permission denied` | clone 직후 `chmod +x`를 안 했다 | `chmod +x *.sh` (또는 `bash install-autostart.sh`) |
 | **EC2 SSH가 타임아웃** | **와이파이가 바뀌어 공인 IP가 달라짐** | **§0-A** |
+| CloudShell에서 `No such file or directory` | `<...>` 자리표시자를 안 지웠다 — 셸이 `<`를 리다이렉션으로 읽는다 | 꺾쇠를 지우고 값만 넣는다 |
+| 파이 화면은 뜨는데 옛날 UI | **§0-B를 건너뜀** (또는 EC2가 다른 브랜치) | §0-B |
 | `set-url.sh`가 `→ 000` | 터널 주소가 낡음 / EC2 죽음 | §0으로 |
 | 부팅해도 키오스크가 안 뜸 | 컴포지터가 자동실행을 안 읽음 | `./preflight.sh` 2번에서 컴포지터 확인 → **파이 데스크톱의 터미널에서**(SSH 아님) `./kiosk.sh`를 직접 실행해 화면이 뜨는지 본다 |
-| Chromium이 두 개 뜸 | XDG와 labwc 양쪽에 등록됨 | `~/.config/labwc/autostart`에서 hyodol 줄을 지운다 |
-| 로봇이 말을 안 함 | 자동재생 차단 / 스피커 기본 장치 | `./preflight.sh` 5번, 그리고 화면을 한 번 터치해 본다 |
-| 음성 인식이 안 됨 | Chromium STT 실패 가능성 | 텍스트 입력으로 진행. 시간 쓰지 말 것 |
+| **로봇이 말을 안 한다 (글은 뜸)** | ① 기본 출력이 **마이크 어레이**로 잡힘 ② 브라우저 TTS에 한국어 보이스가 없음 | `pw-play`로 둘을 가른다 → §6-2 |
+| 카메라/마이크 **권한 대화상자**가 뜬다 | `--use-fake-ui-for-media-stream`이 항상 먹지는 않는다 | 지금은 눌러서 승인. **무인 시연 전에는 해결해야 한다**(`TODO.md`) |
+| 음성 인식이 안 됨 | Chromium STT 실패 (09-01 실측 확인) | 텍스트 입력·폰으로 진행. **시간 쓰지 말 것** |
+| **연타해도 이동 표시가 안 뜬다** | 의도된 동작 — 이전 요청 중 연타 무시(`ControlScreen.jsx`) + 2초 넘은 명령은 조회에서 제외 | 천천히 한 번씩 누른다 |
 | 원격조종이 안 먹음 (`423`) | **응급 상태로 잠김** | 폰에서 알림을 해제한다 (§8-5) |
 | 인터넷은 되는데 화면이 안 열림 | 캡티브 포털 | 폰 핫스팟을 켠다 |
-| 파이 IP를 몰라 SSH 못 함 | 네트워크마다 IP가 바뀜 | `ssh <사용자>@<호스트명>.local` (mDNS, 기본값 `raspberrypi`). 안 되면 파이에서 `hostname -I` |
+| 파이 IP를 몰라 SSH 못 함 | 네트워크마다 IP가 바뀜 | `ssh <사용자>@<호스트명>.local` (mDNS). **호스트명은 기기마다 다르다** — 파이에서 `hostname`, 안 되면 `hostname -I` |
 | SSH 접속 자체가 안 됨 | 파이에서 SSH가 꺼져 있음 | 파이에 키보드를 붙여 `sudo raspi-config` → Interface Options → SSH |
 
 되돌리기는 `docs/deploy-raspberry-pi.md` §7.
@@ -358,7 +464,14 @@ i2cdetect -y 1 2>/dev/null  # 모터 HAT이 I2C면 여기 주소가 뜬다
 ## 11. 끝나고 `[개발 PC]`
 
 - [ ] **이 문서와 `deploy-raspberry-pi.md`를 실측값으로 고친다.**
-      틀린 것을 찾았으면 그게 오늘의 성과다 — 특히 "✋ 실측이 아니다" 문구를 지울 수 있는지
+      틀린 것을 찾았으면 그게 그날의 성과다.
 - [ ] §7에서 잰 **원격조종 지연**을 `TODO.md`의 데드맨 정책 항목에 기록
-- [ ] `TODO.md`의 "내일 파이에서 확인할 것" 체크박스 정리
-- [ ] 검증이 끝났으면 `feat/pi-deployment` → PR → `main` 머지
+- [ ] `TODO.md`의 파이 체크박스 정리
+
+### 09-01에 남은 것 (다음 세션)
+
+- §8 낙상 알림 배관 — 손도 못 댔다
+- §9 구동부 실사 — 손도 못 댔다
+- **음성 입력 경로** — STT 실패가 확정됐으므로 서버측 STT가 필요하다. 어르신은 폰도
+  키보드도 쓰지 않으므로 **시연 전 최우선 과제**다
+- **미디어 권한 대화상자** — 무인 키오스크에서는 누를 사람이 없다

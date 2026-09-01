@@ -44,6 +44,15 @@ done
 PROFILE="$HOME/.config/hyodol/chromium"
 mkdir -p "$PROFILE"
 
+# 루프는 반드시 하나여야 한다. 자동실행이 두 곳에 걸리는 사고가 실제로 있었고(09-01),
+# 그때 증상이 "화면이 3초 주기로 깜빡임"이라 원인을 찾기 어려웠다. 등록이 어떻게
+# 꼬이든 여기서 막는다.
+exec 9>"$HOME/.config/hyodol/kiosk.lock"
+if command -v flock >/dev/null 2>&1 && ! flock -n 9; then
+  echo "[효돌이 키오스크] 이미 실행 중입니다 — 이 인스턴스는 종료합니다."
+  exit 0
+fi
+
 # 플래그 하나하나가 이유가 있다:
 #  --autoplay-policy: 키오스크에는 클릭할 사람이 없다. 이게 없으면 로봇이 말을 못 한다
 #                     (TTS 오디오 재생이 사용자 제스처 없이는 차단된다).
@@ -72,7 +81,20 @@ echo "[효돌이 키오스크] $CHROMIUM → $KIOSK_URL"
 
 # 감시 루프 — Chromium이 죽으면 3초 뒤 다시 띄운다(systemd Restart=always 대용).
 while true; do
+  started=$(date +%s)
   "$CHROMIUM" "${FLAGS[@]}" "$KIOSK_URL"
-  echo "[효돌이 키오스크] Chromium 종료 (코드 $?) — 3초 뒤 재시작"
+  code=$?
+  ran=$(( $(date +%s) - started ))
+
+  # 같은 프로필을 쓰는 Chromium이 이미 떠 있으면 새 프로세스는 URL만 넘기고 즉시
+  # 코드 0으로 끝난다("Opening in existing browser session"). 그대로 재시작하면
+  # 무한 루프가 되어 화면이 깜빡인다 — 재시작이 아니라 원인을 적고 멈추는 게 맞다.
+  if [ "$code" -eq 0 ] && [ "$ran" -lt 5 ]; then
+    echo "[효돌이 키오스크] Chromium이 ${ran}초 만에 코드 0으로 끝났습니다."
+    echo "[효돌이 키오스크] 같은 프로필의 인스턴스가 이미 떠 있는 것으로 보입니다 — 재시작하지 않습니다."
+    exit 0
+  fi
+
+  echo "[효돌이 키오스크] Chromium 종료 (코드 $code) — 3초 뒤 재시작"
   sleep 3
 done

@@ -84,6 +84,19 @@ echo "════ 5. 스피커 ════════════════
 if need aplay; then
   if aplay -l 2>/dev/null | grep -q '^card'; then
     ok "재생 장치: $(aplay -l 2>/dev/null | grep '^card' | head -2 | tr '\n' ' ')"
+    # 기본 출력이 어디로 잡혔는지 보여준다. USB 마이크 어레이가 기본 sink를 가로채는
+    # 일이 실제로 있었고(09-01 reSpeaker), 그러면 speaker-test가
+    # "Playback open error: -524"만 뱉어 원인을 알 수 없다.
+    if have wpctl; then
+      sink=$(wpctl status 2>/dev/null | sed -n "/Sinks:/,/^ *$/p" | grep "[*]" | sed "s/.*[*] *[0-9]*[.] *//")
+      if [ -n "$sink" ]; then
+        echo "   기본 출력: $sink"
+        case "$sink" in
+          *Mic*|*mic*|*Array*|*array*)
+            warn "기본 출력이 마이크 장치입니다 — 소리가 안 납니다. wpctl set-default <스피커 ID>로 바꾸세요" ;;
+        esac
+      fi
+    fi
     if have speaker-test; then
       echo "   440Hz 소리를 냅니다 — 들리는지 확인하세요."
       speaker-test -t sine -f 440 -l 1 >/dev/null 2>&1 || warn "speaker-test 실행 실패"

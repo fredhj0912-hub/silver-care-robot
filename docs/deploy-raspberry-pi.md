@@ -34,18 +34,33 @@ cloudflared quick tunnel의 성질이다. 개발 PC에서 `npm run access -- <EC
 ~/silver-care-robot/deploy/pi/set-url.sh https://<새 주소>.trycloudflare.com
 ```
 
-### 3. Chromium 음성 인식이 안 될 수 있다 — **미검증, 최대 위험**
+### 3. 🔴 Chromium 음성 인식은 **실제로 안 된다** (2026-09-01 실측 확정)
 
-파이 OS 저장소의 Chromium은 구글 음성 서비스 키 없이 빌드돼 있을 수 있다. 그러면
-`webkitSpeechRecognition` 객체는 있는데 매 세션이 `network` 오류로 끝난다.
-**음성 대화 기능 전체가 여기에 달려 있고, 실물 없이는 확인할 방법이 없었다.**
+파이 OS 저장소의 Chromium이 구글 음성 서비스 키 없이 빌드돼 있다. `webkitSpeechRecognition`
+객체는 있는데 매 세션이 `network` 오류로 끝난다. 화면에는 설계대로
+`음성 인식 서버에 닿지 않아요 · 아래에 글로 말씀해 주세요`가 뜬다 — **하드닝은 의도대로
+동작했고, 안 되는 것은 브라우저 쪽이다.**
 
-대비는 해 두었다: 연속 3회 실패하면 재시작 루프를 멈추고 화면에
-`음성 인식 서버에 닿지 않아요 · 아래에 글로 말씀해 주세요`를 띄운 뒤 **텍스트 입력**으로
-넘어간다. 시연은 그것으로 가능하다.
+**그런데 텍스트 폴백에도 구멍이 있다**: 파이에 **가상 키보드가 없어서** 화면 입력에는
+물리 키보드가 필요하다. 즉 지금 살아 있는 입력은 **폰 보호자 앱**뿐인데, 어르신은 폰을
+쓰지 않는다. **실사용 입력 경로가 없는 상태다.**
 
-안 되면 선택지는 둘이다 — 구글 크롬 정식 빌드 설치(arm64 공식 빌드가 없어 확인 필요),
-또는 서버 STT 전환(`lib/stt.js`의 `createRecognizer`만 바꾸면 되게 설계돼 있다).
+선택지는 사실상 하나다 — **서버측 STT**. 브라우저에서 오디오를 녹음해 백엔드로 보내고
+Gemini가 받아쓰게 한다. `lib/stt.js`의 `createRecognizer`만 바꾸면 되도록 설계해 두었다.
+(arm64용 구글 크롬 정식 빌드가 없어 브라우저 교체는 경로가 아니다.)
+
+### 3-2. 오디오 기본 장치를 USB 마이크가 가로챈다 (2026-09-01 실측)
+
+USB 마이크 어레이(reSpeaker XVF3800)를 꽂으면 **기본 출력(sink)까지 그쪽으로 잡힌다.**
+그러면 로봇이 말을 해도 아무 소리가 안 나고, `speaker-test`는
+`Playback open error: -524`만 뱉어 원인을 알 수 없다. `wpctl status`의 Sinks에서 `*`가
+어디 붙어 있는지 보고 `wpctl set-default <스피커 ID>`로 바꾼다. 한 번 바꾸면 재부팅해도
+유지된다. `preflight.sh` 5번이 이제 기본 출력을 출력하고 마이크면 경고한다.
+
+**브라우저 TTS(`TTS_PROVIDER=browser`)는 파이에서 쓰지 말 것.** 리눅스 Chromium은
+`speech-dispatcher`가 있어야 하고, 있어도 한국어 보이스가 없으면 **아무 소리 없이 조용히
+실패한다.** EC2에서 `TTS_PROVIDER=gemini`로 두면 브라우저 음성 엔진이 필요 없어지고
+품질도 낫다. 폰 발화 왕복은 그 구성에서 **5초 안팎**이었다.
 
 ### 4. `move` 명령을 소비(ack)하는 것은 구동부 프로세스 하나뿐이다
 
@@ -111,6 +126,19 @@ user 서비스는 SSH 로그인에서도 뜨고 컴포지터 환경변수(`WAYLA
 
 대신 `Restart=always`를 잃으므로 `kiosk.sh`가 감시 루프(`while true; … sleep 3`)로
 같은 복구력을 갖는다.
+
+**등록은 XDG 한 곳에만 한다** (2026-09-01 실측으로 확정). 예전에는 labwc가 XDG를 안 읽는
+경우에 대비해 `~/.config/labwc/autostart`에도 함께 걸었는데, 파이5(labwc)에서 **XDG만으로
+정상 동작**했고 양쪽 등록은 실제로 사고를 냈다: `kiosk.sh` 루프가 두 개 돌면서 두 번째
+Chromium이 첫 번째 인스턴스에 URL만 넘기고 코드 0으로 끝나고(`Opening in existing browser
+session`), 감시 루프가 그것을 죽은 것으로 보고 3초마다 다시 띄웠다. **증상이 "Chromium이 두
+개"가 아니라 "화면이 3초 주기로 하얗게 깜빡임"이라 원인을 찾기 어려웠다** — Chromium 프로세스
+개수를 세면 1이 나오기 때문이다(세야 하는 것은 `kiosk.sh` 개수다).
+
+지금은 두 겹으로 막는다:
+- `install-autostart.sh`가 XDG에만 등록하고, labwc autostart에 남은 `kiosk.sh` 줄은 지운다.
+- `kiosk.sh`가 `flock`으로 잠금을 잡아 **루프가 하나만** 돌게 하고, Chromium이 5초 안에
+  코드 0으로 끝나면 재시작하지 않고 원인을 적고 멈춘다.
 
 ## 4. 와이파이
 

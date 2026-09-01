@@ -40,20 +40,20 @@ X-GNOME-Autostart-enabled=true
 EOF
 echo "썼습니다: $AUTOSTART_DIR/hyodol-kiosk.desktop"
 
-# labwc는 이미지에 따라 XDG 자동실행을 읽지 않는 경우가 있다. 그때만 보조 경로를 건다.
-if pgrep -x labwc >/dev/null 2>&1; then
-  LABWC="$HOME/.config/labwc/autostart"
-  mkdir -p "$(dirname "$LABWC")"
-  if [ -f "$LABWC" ] && grep -q 'hyodol' "$LABWC"; then
-    echo "labwc autostart에 이미 등록돼 있습니다: $LABWC"
-  else
-    echo "$KIOSK_SH &" >> "$LABWC"
-    echo "labwc를 감지해 함께 등록했습니다: $LABWC"
-    echo "⚠️  둘 다 걸렸으므로 Chromium이 두 번 뜨면 한쪽을 지우세요."
-  fi
-else
-  echo "labwc가 아닙니다 — XDG 자동실행만 등록했습니다."
+# 등록은 **XDG 한 곳에만** 한다. 2026-09-01 파이5(labwc) 실측에서 XDG 자동실행만으로
+# 정상 동작하는 것을 확인했다. 예전에는 labwc가 XDG를 안 읽는 경우에 대비해 양쪽에
+# 걸었는데, 그러면 kiosk.sh 루프가 두 개 돌고 두 번째 Chromium이 첫 번째 인스턴스에
+# URL만 넘기고 즉시 종료한다("Opening in existing browser session"). 감시 루프는 그것을
+# 죽은 것으로 보고 3초마다 다시 띄운다 — 증상은 "Chromium이 두 개"가 아니라
+# **화면이 3초 주기로 하얗게 깜빡이는 것**이라 원인을 찾기 어렵다.
+LABWC="$HOME/.config/labwc/autostart"
+if [ -f "$LABWC" ] && grep -q 'kiosk\.sh' "$LABWC"; then
+  # 예전 버전이 남긴 줄을 지운다. 패턴은 경로 기준이어야 한다 — 그 줄에 'hyodol'이라는
+  # 문자열은 없다(레포 경로가 silver-care-robot이다).
+  sed -i '/kiosk\.sh/d' "$LABWC"
+  echo "labwc autostart에 남아 있던 중복 등록을 지웠습니다: $LABWC"
 fi
+echo "자동실행은 XDG 한 곳에만 등록했습니다."
 
 echo
 echo "── 3. 화면 꺼짐 끄기 ────────────────────────"
