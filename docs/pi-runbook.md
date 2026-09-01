@@ -443,6 +443,7 @@ i2cdetect -y 1 2>/dev/null  # 모터 HAT이 I2C면 여기 주소가 뜬다
 |---|---|---|
 | **화면이 3초 주기로 하얗게 깜빡인다** | **`kiosk.sh` 루프가 두 개** — 두 번째 Chromium이 첫 번째에 URL만 넘기고 코드 0으로 끝나는데(`Opening in existing browser session`) 감시 루프가 죽은 줄 알고 3초마다 다시 띄운다 | `pgrep -af kiosk.sh`로 **kiosk.sh 개수**를 센다(Chromium 개수가 아니다 — 그건 1로 나온다). 2 이상이면 `pkill -f kiosk.sh` 후 `sed -i '/kiosk\.sh/d' ~/.config/labwc/autostart` → 재부팅 |
 | `./install-autostart.sh`가 `Permission denied` | clone 직후 `chmod +x`를 안 했다 | `chmod +x *.sh` (또는 `bash install-autostart.sh`) |
+| **화면이 세로로 뜬다** | 출력 방향이 안 맞다. 키오스크는 800×480 **가로** 전제다 | `wlr-randr --output <이름> --transform 90` (90/180/270 중 맞는 값). **CSS로 돌리지 말 것** — 터치 좌표가 같이 안 돈다. 맞는 값을 찾으면 부팅 때마다 적용되게 고정한다 |
 | **EC2 SSH가 타임아웃** | **와이파이가 바뀌어 공인 IP가 달라짐** | **§0-A** |
 | CloudShell에서 `No such file or directory` | `<...>` 자리표시자를 안 지웠다 — 셸이 `<`를 리다이렉션으로 읽는다 | 꺾쇠를 지우고 값만 넣는다 |
 | 파이 화면은 뜨는데 옛날 UI | **§0-B를 건너뜀** (또는 EC2가 다른 브랜치) | §0-B |
