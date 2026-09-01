@@ -224,6 +224,28 @@ test('이동 명령은 화면에 보여주기만 하고 ack하지 않는다', as
   }
 });
 
+test('이동 표시는 부모가 리렌더돼도 1.5초 뒤에 사라진다', async () => {
+  // 09-01 파이 실측에서 "이동 중"이 화면에 박제됐다. 원인은 소멸 타이머가 명령 폴링
+  // 효과에 얹혀 있어서, 그 효과가 재실행될 때 정리 함수가 타이머를 지워 버린 것이다.
+  // App.jsx의 onStatusChange가 매 렌더 새 함수면 3초마다 그 일이 벌어진다.
+  pendingMove = { id: 11, kind: 'move', payload: { direction: 'left' } };
+
+  vi.useFakeTimers();
+  try {
+    const { rerender } = render(<RobotFaceDisplay status={STATUS} onStatusChange={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(screen.getByText(/이동 중/)).toBeInTheDocument();
+
+    // 새 함수 정체성으로 리렌더 — 폴링 효과가 통째로 재실행되는 상황을 그대로 재현한다
+    rerender(<RobotFaceDisplay status={STATUS} onStatusChange={() => {}} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+
+    expect(screen.queryByText(/이동 중/)).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test('SOS 버튼은 수동 알림을 올린다', async () => {
   renderKiosk();
 

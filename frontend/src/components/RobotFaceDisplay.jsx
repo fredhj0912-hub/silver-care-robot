@@ -81,9 +81,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // 일시적 오류(주로 'network')의 연속 횟수. onresult가 오면 0으로 되돌린다.
   const sttFailStreakRef = useRef(0);
 
-  // 보호자 원격조종 이동 인디케이터 — 방향을 잠깐 보여주고 사라진다
-  const [moveDirection, setMoveDirection] = useState(null);
-  const moveIndicatorTimerRef = useRef(null);
+  // 보호자 원격조종 이동 인디케이터 — 방향을 잠깐 보여주고 사라진다.
+  // id를 함께 담는 이유는 같은 방향을 연속으로 눌렀을 때도 상태가 바뀌어
+  // 아래 자동 소멸 효과가 다시 걸리게 하기 위해서다.
+  const [moveIndicator, setMoveIndicator] = useState(null);
   // 같은 move 명령을 폴링마다 다시 그리지 않도록 마지막으로 본 id를 기억한다
   const lastSeenMoveIdRef = useRef(null);
 
@@ -457,9 +458,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       if (!latest || latest.id === lastSeenMoveIdRef.current) return;
 
       lastSeenMoveIdRef.current = latest.id;
-      setMoveDirection(latest.payload.direction);
-      clearTimeout(moveIndicatorTimerRef.current);
-      moveIndicatorTimerRef.current = setTimeout(() => setMoveDirection(null), 1500);
+      setMoveIndicator({ id: latest.id, direction: latest.payload.direction });
     };
 
     const pollCommands = async () => {
@@ -472,11 +471,17 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     };
 
     const interval = setInterval(pollCommands, 2500);
-    return () => {
-      clearInterval(interval);
-      clearTimeout(moveIndicatorTimerRef.current);
-    };
+    return () => clearInterval(interval);
   }, [onStatusChange, speakText, openGate]);
+
+  // 인디케이터의 소멸은 **자기 상태에만** 묶는다. 명령 폴링 효과에 얹어 두면
+  // 그 효과가 재실행될 때 정리 함수가 타이머를 지워 표시가 화면에 박제된다
+  // (09-01 파이 실측에서 실제로 겪었다).
+  useEffect(() => {
+    if (!moveIndicator) return undefined;
+    const timer = setTimeout(() => setMoveIndicator(null), 1500);
+    return () => clearTimeout(timer);
+  }, [moveIndicator]);
 
   // ──────────────────────────────────────────────
   // 긴급 알람 사운드
@@ -738,9 +743,9 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       )}
 
       {/* 보호자 원격조종 이동 인디케이터 — 명령을 받았다는 시각 피드백 */}
-      {moveDirection && (
+      {moveIndicator && (
         <div className="move-indicator">
-          {MOVE_ARROWS[moveDirection]} 이동 중
+          {MOVE_ARROWS[moveIndicator.direction]} 이동 중
         </div>
       )}
 

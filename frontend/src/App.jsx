@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router';
 import RobotFaceDisplay from './components/RobotFaceDisplay';
 import GuardianApp from './guardian/GuardianApp';
@@ -19,20 +19,22 @@ function KioskApp() {
     isEmergency: false,
   });
 
-  const fetchStatus = async () => {
+  // useCallback이 아니면 렌더마다 새 함수가 된다. 아래 3초 폴링이 리렌더를 일으키므로
+  // 이 함수를 prop으로 받는 RobotFaceDisplay의 명령 폴링 효과가 3초마다 재실행돼 버린다.
+  const fetchStatus = useCallback(async () => {
     try {
       const res = await apiFetch('/api/status');
       if (res.ok) setStatus(await res.json());
     } catch (err) {
       console.error('로봇 상태를 불러오지 못했습니다.', err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchStatus]);
 
   return (
     <div className="kiosk-root">
