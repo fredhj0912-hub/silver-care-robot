@@ -97,18 +97,31 @@ if need aplay; then
     # 일이 실제로 있었고(09-01 reSpeaker), 그러면 speaker-test가
     # "Playback open error: -524"만 뱉어 원인을 알 수 없다.
     if have wpctl; then
-      sink=$(wpctl status 2>/dev/null | sed -n "/Sinks:/,/^ *$/p" | grep "[*]" | sed "s/.*[*] *[0-9]*[.] *//")
+      # 구획을 Sources: 에서 끊는다. 예전에는 빈 줄로 끊으려 했는데 wpctl 출력의
+      # 구획 사이는 빈 줄이 아니라 '│' 라서 끊기지 않았고, **마이크의 기본 장치까지
+      # 함께 집혀** 멀쩡한 스피커를 두고 "기본 출력이 마이크입니다" 오탐이 났다
+      # (2026-09-02 파이 실측). head -1 은 그래도 두 줄이 잡히는 경우의 안전판이다.
+      sink=$(wpctl status 2>/dev/null         | sed -n "/Sinks:/,/Sources:/p"         | grep "[*]" | head -1         | sed "s/.*[*] *[0-9]*[.] *//")
       if [ -n "$sink" ]; then
         echo "   기본 출력: $sink"
         case "$sink" in
           *Mic*|*mic*|*Array*|*array*)
             warn "기본 출력이 마이크 장치입니다 — 소리가 안 납니다. wpctl set-default <스피커 ID>로 바꾸세요" ;;
         esac
+      else
+        warn "기본 출력을 확인하지 못했습니다 — wpctl status 를 직접 보세요"
       fi
     fi
-    if have speaker-test; then
+    # 소리는 PipeWire 경로로 낸다. speaker-test 는 ALSA 'default' 를 직접 치는데
+    # 파이에서는 그게 HDMI(vc4hdmi)로 잡혀 있어 USB 스피커를 쓰면 -524 만 뱉는다
+    # — 실패해도 스피커가 고장난 것이 아니라 경로가 다른 것이다(2026-09-02 실측).
+    SOUND=/usr/share/sounds/alsa/Front_Center.wav
+    if have pw-play && [ -f "$SOUND" ]; then
+      echo "   소리를 냅니다 — 들리는지 **귀로** 확인하세요."
+      pw-play "$SOUND" >/dev/null 2>&1 || warn "pw-play 실패 — 기본 출력을 확인하세요 (wpctl status)"
+    elif have speaker-test; then
       echo "   440Hz 소리를 냅니다 — 들리는지 확인하세요."
-      speaker-test -t sine -f 440 -l 1 >/dev/null 2>&1 || warn "speaker-test 실행 실패"
+      speaker-test -t sine -f 440 -l 1 >/dev/null 2>&1         || warn "speaker-test 실행 실패 (ALSA default 경로 문제일 수 있습니다 — pw-play 로 확인하세요)"
     fi
   else
     bad "재생 장치가 없습니다 — 로봇이 말을 해도 들리지 않습니다"
