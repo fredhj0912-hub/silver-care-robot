@@ -29,7 +29,9 @@ src/
   repositories/           one file per table; the only files that touch db/index.js
     messages.js, alerts.js, commands.js, detections.js, status.js, subscriptions.js, medications.js
   services/               business logic + external API adapters — routes call these, never SDKs directly
-    gemini.js              chat()/analyzeImage(), retry + model-fallback chain, mock fallback
+    gemini.js              chat()/analyzeImage()/transcribeAudio(), retry + model-fallback chain,
+                             mock fallback. transcribeAudio() is server-side STT — the Pi's Chromium
+                             cannot do Web Speech API (see docs/deploy-raspberry-pi.md §3)
     tts.js                  synthesize()/prewarm(), 3-provider switch, disk cache (sha1 of provider|voice|text)
     emergency.js            classifyUtterance()/evaluateUtterance()/raise()/resolveAlert() — single funnel
                               for all alert creation; cooldown + severity logic lives here only
@@ -46,8 +48,8 @@ src/
     motion.js                  move()/stop()/getState() — remote-control virtual position + dead-man
                                  timer safety switch. No real actuator yet; simulates coordinates in memory
   routes/                 one file per resource, mounted under /api in app.js
-    status.js, chat.js, alerts.js, vision.js, commands.js, events.js, tts.js, push.js, control.js,
-    medications.js
+    status.js, chat.js, alerts.js, vision.js, commands.js, events.js, tts.js, stt.js, push.js,
+    control.js, medications.js
   middleware/index.js     securityHeaders, apiKeyAuth, asyncHandler, notFound, errorHandler
 scripts/
   migrate-json-to-sqlite.js   one-time database.json import — idempotent (no-ops if messages already exist)
@@ -85,6 +87,10 @@ test/
 ## Gotchas
 
 - `node:sqlite` requires Node ≥ 22.5 (repo assumes 24). No native build step, unlike `better-sqlite3`.
+- **`POST /api/stt`는 받아쓰기만 한다.** 웨이크워드 판정("효돌아")과 응급 우회는
+  프론트의 `lib/wakeword.js`에 그대로 둔다 — 서버로 옮기면 그 판정이 두 곳으로 갈라진다.
+- **받아쓰기를 못 하는 상태는 200이 아니라 503으로 알린다.** 빈 `text`로 조용히 성공시키면
+  프론트가 음성 경로를 접지 못해, 어르신은 로봇이 못 알아듣는다고만 느낀다.
 - **리포지토리는 전부 async다** (2026-08-29 전환 완료). `raise()`가 `notify.send()`를
   fire-and-forget으로 부르는 것은 푸시 지연이 알림 생성을 막지 않게 하기 위함이다.
 - **`emergency.raise()`/`resolveAlert()`는 트랜잭션 안에서 돈다.** 이벤트 발행·푸시·모터

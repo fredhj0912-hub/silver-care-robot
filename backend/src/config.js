@@ -9,6 +9,11 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;             // 디코딩된 원본 이�
 const MAX_JSON_BODY_BYTES = 12 * 1024 * 1024;        // base64는 원본보다 ~33% 크다
 const MAX_JSON_BODY = `${MAX_JSON_BODY_BYTES}b`;     // express.json 이 이해하는 형식
 
+// 서버측 STT로 올라오는 발화 오디오. 16kHz 모노 16bit WAV라 10초 발화가 약 320KB,
+// base64로 감싸도 ~430KB다. 10배 넘는 여유를 두되 MAX_JSON_BODY_BYTES 아래에 둔다 —
+// 마이크가 켜진 채 방치돼도 한 요청이 서버를 오래 붙들지 않게 하는 것이 목적이다.
+const MAX_AUDIO_BYTES = 6 * 1024 * 1024;             // base64 data URI 문자열 기준
+
 const config = {
   port: Number(process.env.PORT) || 3001,
 
@@ -71,6 +76,7 @@ const config = {
   ttsPitch: Number(process.env.TTS_PITCH) || 0,
 
   maxImageBytes: MAX_IMAGE_BYTES,
+  maxAudioBytes: MAX_AUDIO_BYTES,
   maxJsonBody: MAX_JSON_BODY,
   maxJsonBodyBytes: MAX_JSON_BODY_BYTES,
   maxChatChars: 1000,

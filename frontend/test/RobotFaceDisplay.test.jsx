@@ -41,6 +41,10 @@ function failWith(error) {
 
 let RobotFaceDisplay;
 beforeAll(async () => {
+  // 이 파일이 검증하는 것은 **화면의 배선**이지 STT 구현이 아니다. 배선은 두 모드에
+  // 공통이므로, 이벤트를 손으로 흘려보낼 수 있는 browser 모드로 고정해 테스트한다.
+  // 기본값(server)에서도 같은 배선이 도는 것은 RobotFaceDisplay.server-stt.test.jsx가 덮는다.
+  vi.stubEnv('VITE_STT_MODE', 'browser');
   window.SpeechRecognition = FakeRecognition;
   RobotFaceDisplay = (await import('../src/components/RobotFaceDisplay')).default;
 });

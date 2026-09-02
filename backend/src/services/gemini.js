@@ -199,4 +199,63 @@ async function analyzeImage(dataUri) {
   }
 }
 
-module.exports = { chat, analyzeImage, isAvailable, parseJSON, mockReply };
+/**
+ * 받아쓰기 결과를 다듬는다.
+ *
+ * 프롬프트로 "문장만 출력하라"고 못박아도 모델은 조용한 오디오에 대해
+ * "(음성 없음)" 같은 메타 주석이나 따옴표를 붙여 오는 일이 있다. 그것이 그대로
+ * 나가면 웨이크워드 게이트가 사람 말로 착각한다 — 여기서 걸러 빈 문자열로 만든다.
+ */
+function cleanTranscript(raw) {
+  let t = String(raw || '').trim();
+  // 통째로 따옴표에 싸여 온 경우
+  const quoted = /^["'“‘]([\s\S]*)["'”’]$/.exec(t);
+  if (quoted) t = quoted[1].trim();
+  // 통째로 괄호에 싸인 것은 받아쓴 말이 아니라 모델의 주석이다
+  if (/^[([{<][\s\S]*[)\]}>]$/.test(t)) return '';
+  return t;
+}
+
+/**
+ * 발화 오디오를 받아쓴다 (서버측 STT).
+ *
+ * 파이의 Chromium은 브라우저 음성 인식이 구조적으로 불가능하다 — 파이 OS 저장소의
+ * 배포판이 구글 음성 키 없이 빌드돼 있어 매번 network 오류로 끝난다(2026-09-01 실측).
+ * analyzeImage와 같은 inlineData 경로를 쓰므로 재시도·대체 모델(withRetry)이
+ * 그대로 적용된다.
+ *
+ * @param {string} dataUri  data:audio/...;base64,...
+ * @returns {{text: string, source: 'gemini'|'mock', error: string|null}}
+ */
+async function transcribeAudio(dataUri) {
+  const fallback = { text: '', source: 'mock', error: null };
+
+  const genAI = getClient();
+  if (!genAI) return { ...fallback, error: config.geminiApiKey ? 'sdk_unavailable' : 'no_api_key' };
+
+  const match = /^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(dataUri);
+  if (!match) return { ...fallback, error: 'bad_data_uri' };
+
+  try {
+    const { result } = await withRetry(async (modelId) => {
+      const model = genAI.getGenerativeModel({
+        model: modelId,
+        // JSON을 강제하지 않는다 — 받아쓰기 결과는 순수 텍스트다.
+        // temperature 0: 들린 말을 그대로 옮기는 일에 창의성은 해롭기만 하다.
+        generationConfig: { temperature: 0, maxOutputTokens: 256 },
+      });
+      const r = await model.generateContent([
+        prompts.STT_PROMPT,
+        { inlineData: { data: match[2], mimeType: match[1] } },
+      ]);
+      return r.response.text();
+    });
+
+    return { text: cleanTranscript(result), source: 'gemini', error: null };
+  } catch (err) {
+    console.error('Gemini STT 호출 실패:', err.message);
+    return { ...fallback, error: err.message };
+  }
+}
+
+module.exports = { chat, analyzeImage, transcribeAudio, isAvailable, parseJSON, mockReply, cleanTranscript };

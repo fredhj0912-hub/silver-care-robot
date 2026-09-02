@@ -40,7 +40,7 @@ See TODO.md's AWS section for what's actually feasible before estimating this wo
   instance restart; `ACCESS.html` is gitignored because this repo is public and the URL is
   effectively the access token.
 - `deploy/pi/` — 라즈베리파이 5 키오스크 배포 자산(셸 스크립트만). Chromium 실행기 +
-  XDG 자동실행 등록 + 터널 주소 교체 + 사전 점검 + 와이파이 등록. **파이에서는 아무것도
+  XDG 자동실행 등록 + 터널 주소 교체 + 화면 회전 고정 + 사전 점검 + 와이파이 등록. **파이에서는 아무것도
   빌드하지 않는다** — 앱은 EC2에서 서빙되고 파이는 그 주소를 여는 브라우저다.
   절차와 알려진 한계는 `docs/deploy-raspberry-pi.md`.
 - `docs/architecture.md` — system diagrams (components, emergency alert flow, command queue, wake-word gate) referenced from "Architecture notes" below.
@@ -79,7 +79,7 @@ Both packages have test suites, but **different runners**: backend is `node --te
 - `backend/.env`: `DB_DRIVER` (`sqlite`|`pg`, default `sqlite`), `DATABASE_URL` (required when
   `DB_DRIVER=pg`; `postgres://user:pass@host:5432/db`), `DATABASE_SSL` (`0` disables TLS — local
   PostgreSQL only, RDS requires it), `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-3.6-flash` — see gotcha below), `ROBOT_API_KEY` (LAN shared secret; when set, all routes require an `x-api-key` header), `PORT`, `TTS_PROVIDER` (`browser`|`gemini`|`cloud`, default `browser`), `DETECTION_THRESHOLD`, `ALERT_COOLDOWN_MS`, `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (Web Push; **all three required or push silently disables itself** — the startup banner warns when unset. Regenerate with `npx web-push generate-vapid-keys`).
-- `frontend/.env`: `VITE_ROBOT_API_KEY` (must match backend's `ROBOT_API_KEY` — ships in the client bundle, a LAN speed-bump, not real auth), `VITE_VISION_ENABLED` (default `false`, camera capture is opt-in), `VITE_VISION_INTERVAL_MS`, `VITE_VAPID_PUBLIC_KEY` (must match backend's `VAPID_PUBLIC_KEY`).
+- `frontend/.env`: `VITE_ROBOT_API_KEY` (must match backend's `ROBOT_API_KEY` — ships in the client bundle, a LAN speed-bump, not real auth), `VITE_VISION_ENABLED` (default `false`, camera capture is opt-in), `VITE_VISION_INTERVAL_MS`, `VITE_VAPID_PUBLIC_KEY` (must match backend's `VAPID_PUBLIC_KEY`), `VITE_STT_MODE` (`server`|`browser`, default `server` — the Pi's Chromium cannot do Web Speech API, so `browser` is for dev machines only).
 - **Gotcha**: `gemini-3.7-flash` frequently returns 503 ("high demand") as of 2026-08. `services/gemini.js` retries transient errors and falls back from `GEMINI_MODEL` to `GEMINI_FALLBACK_MODEL` (default `gemini-3.5-flash`) — don't bump the default model without checking it's actually stable under load.
 - **Gotcha (Windows)**: PowerShell's `Get-Content`/`ConvertFrom-Json` mangle this repo's Korean UTF-8 content into garbage. Read files / parse JSON with Node or the Read/Bash tools, not PowerShell cmdlets — reserve PowerShell for process management (starting/stopping servers, freeing ports).
 
