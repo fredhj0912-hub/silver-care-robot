@@ -212,12 +212,34 @@ test('withRetry: 일시적이지 않은 오류는 재시도하지 않고 바로 
 const QUOTA_ERR = '[429 Too Many Requests] You exceeded your current quota, please check your plan and billing details.';
 const RATE_ERR = '[429 Too Many Requests] Resource has been exhausted.';
 
-test('할당량 소진은 재시도하지 않는다 — 재시도가 남은 할당량을 더 태운다', async () => {
-  let calls = 0;
+test('할당량 소진은 같은 모델을 재시도하지 않는다 — 재시도가 남은 할당량을 더 태운다', async () => {
+  const perModel = new Map();
   await assert.rejects(
-    gemini.withRetry(async () => { calls += 1; throw new Error(QUOTA_ERR); }, { retries: 3 }),
+    gemini.withRetry(async (modelId) => {
+      perModel.set(modelId, (perModel.get(modelId) || 0) + 1);
+      throw new Error(QUOTA_ERR);
+    }, { retries: 3 }),
   );
-  assert.strictEqual(calls, 1, `할당량이 바닥났는데 ${calls}번 불렀다`);
+  for (const [modelId, calls] of perModel) {
+    assert.strictEqual(calls, 1, `${modelId} 할당량이 바닥났는데 ${calls}번 불렀다`);
+  }
+});
+
+// 2026-09-02 실측: 무료 등급의 할당량은 **모델별로 따로**다
+// (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`, 모델당 하루 20건).
+// 같은 시각에 3.6-flash는 429였고 3.5-flash는 200이었다. 그런데 예전 코드는
+// 할당량 소진에 throw로 체인 전체를 빠져나가 **대체 모델을 시도조차 하지 않았다.**
+test('할당량이 바닥나면 대체 모델로 넘어간다 — 통은 모델별로 따로다', async () => {
+  const seen = [];
+  const result = await gemini.withRetry(async (modelId) => {
+    seen.push(modelId);
+    if (modelId === config.geminiModel) throw new Error(QUOTA_ERR);
+    return 'ok';
+  }, { retries: 3 });
+
+  assert.strictEqual(result.result, 'ok');
+  assert.strictEqual(result.modelUsed, config.geminiFallbackModel);
+  assert.deepStrictEqual(seen, [config.geminiModel, config.geminiFallbackModel]);
 });
 
 test('분당 한도(429)는 재시도한다 — 이건 잠시 후 풀린다', async () => {

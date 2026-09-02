@@ -29,11 +29,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 2026-09-02에 파이에서 한 시간에 100건을 이렇게 날렸다.
 const QUOTA_EXHAUSTED = /exceeded your current quota|billing details/i;
 
+/** 이 모델의 할당량이 바닥났는가 (오늘 안에는 안 풀린다) */
+function isQuotaExhausted(err) {
+  return QUOTA_EXHAUSTED.test(String(err && err.message));
+}
+
 /** 잠시 후 다시 시도하면 풀릴 수 있는 오류인가 (모델 과부하, 분당 한도, 게이트웨이) */
 function isTransient(err) {
-  const message = String(err && err.message);
-  if (QUOTA_EXHAUSTED.test(message)) return false;
-  return /\[(429|500|502|503|504)\s/.test(message);
+  if (isQuotaExhausted(err)) return false;
+  return /\[(429|500|502|503|504)\s/.test(String(err && err.message));
 }
 
 /**
@@ -54,6 +58,7 @@ async function withRetry(call, { retries = config.geminiRetries, deadline = null
 
   let lastErr;
   for (const modelId of chain) {
+    let quotaGone = false;
     for (let attempt = 0; attempt <= retries; attempt++) {
       // 시한이 있으면 **다음 시도를 시작하기 전에** 확인한다.
       // 이미 늦었는데 한 번 더 부르면 그만큼 더 기다리게 된다.
@@ -62,13 +67,19 @@ async function withRetry(call, { retries = config.geminiRetries, deadline = null
         return { result: await call(modelId), modelUsed: modelId };
       } catch (err) {
         lastErr = err;
+        // 할당량은 **모델별로** 따로 잡힌다(2026-09-02 실측 — 같은 시각에 3.6-flash는
+        // 429, 3.5-flash는 200이었다). 같은 모델을 다시 부르는 것은 남은 할당량만
+        // 태우지만, **다음 모델에는 아직 통이 남아 있다** — 재시도는 접고 모델은 넘긴다.
+        if (isQuotaExhausted(err)) { quotaGone = true; break; }
         if (!isTransient(err)) throw err;           // 잘못된 키/요청은 재시도해도 소용없다
         if (attempt < retries) {
           await sleep(config.geminiRetryDelayMs * (attempt + 1));
         }
       }
     }
-    console.warn(`${modelId} 일시 오류가 계속됩니다 — 다음 모델로 전환합니다`);
+    console.warn(quotaGone
+      ? `${modelId} 할당량이 바닥났습니다 — 다음 모델로 전환합니다`
+      : `${modelId} 일시 오류가 계속됩니다 — 다음 모델로 전환합니다`);
   }
   throw lastErr;
 }
