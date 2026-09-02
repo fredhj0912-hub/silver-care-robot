@@ -140,7 +140,7 @@ EC2 배포 문서의 알려진 한계 1번과 같다. 키오스크는 원래 2.5
 ```bash
 sudo apt update && sudo apt install -y chromium-browser git curl alsa-utils wlr-randr
 git clone -b feat/pi-deployment https://github.com/fredhj0912-hub/silver-care-robot.git
-cd silver-care-robot/deploy/pi && chmod +x *.sh
+cd silver-care-robot/deploy/pi && ls -l *.sh   # 실행 권한은 git에 들어 있다
 ```
 
 `npm`도 `node`도 필요 없다 — 파이는 브라우저만 띄운다.

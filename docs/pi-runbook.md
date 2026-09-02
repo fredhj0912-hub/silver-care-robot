@@ -209,16 +209,37 @@ git clone https://github.com/fredhj0912-hub/silver-care-robot.git
 ```bash
 cd ~/silver-care-robot
 git status --short          # 손댄 파일이 있으면 먼저 확인한다
-git fetch origin && git checkout main && git pull
+git fetch origin
+git checkout feat/pi-deployment
+git pull
+git log --oneline -1        # 개발 PC에서 푸시한 커밋과 같은지 눈으로 확인한다
 ```
 
-그다음 **실행 권한을 따로 준다**:
+> 🔴 **`main`이 아니라 `feat/pi-deployment`다.** `deploy/pi/`는 이 브랜치에만 있다.
+> `main`으로 옮기면 스크립트 폴더가 통째로 사라진다. (09-02에 이 문서가 시킨 대로
+> 했다가 실제로 겪었다 — 이전 판에는 `git checkout main`이라고 적혀 있었다.)
+
+> 🔴 **`git pull`이 조용히 실패할 수 있다.** 파일을 손댄 적이 있으면
+> `error: Your local changes ... would be overwritten` 로 **중단**되는데, 그다음 명령을
+> 그대로 이어 치면 **옛 버전으로 작업하게 된다.** `git log --oneline -1`을 꼭 볼 것.
+>
+> 막히면 먼저 무엇이 바뀌었는지 본다 — `git diff deploy/pi/`.
+> `old mode`/`new mode` 뿐이면 `chmod +x` 흔적이라 버려도 된다:
+>
+> ```bash
+> git checkout -- deploy/pi/ && git pull
+> ```
+>
+> 실제 코드가 바뀌어 있으면 버리지 말고 `git stash` → `git pull` → `git stash pop`.
 
 ```bash
 cd ~/silver-care-robot/deploy/pi
-chmod +x *.sh
 ls -l *.sh                  # 앞에 x가 보여야 한다
 ```
+
+> 09-02부터 실행 권한이 git에 들어 있어 `chmod +x`는 필요 없다. 예전에는 파이에서
+> `chmod`를 하면 그게 로컬 수정으로 남아 **다음 `git pull`을 막았다** — 실제로 겪었다.
+> 혹시 x가 안 보이면 `chmod +x *.sh` 후 `git update-index --chmod=+x` 로 레포에도 반영할 것.
 
 **node도 npm도 설치하지 않는다.** 파이에서는 아무것도 빌드하지 않는다.
 
@@ -493,6 +514,8 @@ i2cdetect -y 1 2>/dev/null  # 모터 HAT이 I2C면 여기 주소가 뜬다
 | **EC2 SSH가 타임아웃** | **와이파이가 바뀌어 공인 IP가 달라짐** | **§0-A** |
 | CloudShell에서 `No such file or directory` | `<...>` 자리표시자를 안 지웠다 — 셸이 `<`를 리다이렉션으로 읽는다 | 꺾쇠를 지우고 값만 넣는다 |
 | 파이 화면은 뜨는데 옛날 UI | **§0-B를 건너뜀** (또는 EC2가 다른 브랜치) | §0-B |
+| **파이에서 `git pull`이 Aborting** | 파이에서 `chmod`한 것이 로컬 수정으로 남았다 | `git diff deploy/pi/` 가 `old mode`/`new mode` 뿐이면 `git checkout -- deploy/pi/ && git pull` |
+| **스크립트가 없다고 나온다** | `main` 브랜치에 있다 — `deploy/pi/`는 `feat/pi-deployment`에만 있다 | `git checkout feat/pi-deployment && git pull` |
 | `set-url.sh`가 `→ 000` | 터널 주소가 낡음 / EC2 죽음 | §0으로 |
 | 부팅해도 키오스크가 안 뜸 | 컴포지터가 자동실행을 안 읽음 | `./preflight.sh` 2번에서 컴포지터 확인 → **파이 데스크톱의 터미널에서**(SSH 아님) `./kiosk.sh`를 직접 실행해 화면이 뜨는지 본다 |
 | **로봇이 말을 안 한다 (글은 뜸)** | ① 기본 출력이 **마이크 어레이**로 잡힘 ② 브라우저 TTS에 한국어 보이스가 없음 | `pw-play`로 둘을 가른다 → §6-2 |

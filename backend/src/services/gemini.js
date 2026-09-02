@@ -39,7 +39,7 @@ function isTransient(err) {
  * @param {(modelId: string) => Promise<any>} call
  * @returns {Promise<{result: any, modelUsed: string}>}
  */
-async function withRetry(call) {
+async function withRetry(call, { retries = config.geminiRetries, deadline = null } = {}) {
   const chain = [config.geminiModel];
   if (config.geminiFallbackModel && config.geminiFallbackModel !== config.geminiModel) {
     chain.push(config.geminiFallbackModel);
@@ -47,13 +47,16 @@ async function withRetry(call) {
 
   let lastErr;
   for (const modelId of chain) {
-    for (let attempt = 0; attempt <= config.geminiRetries; attempt++) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      // 시한이 있으면 **다음 시도를 시작하기 전에** 확인한다.
+      // 이미 늦었는데 한 번 더 부르면 그만큼 더 기다리게 된다.
+      if (deadline && Date.now() >= deadline) throw lastErr || new Error('시간 초과');
       try {
         return { result: await call(modelId), modelUsed: modelId };
       } catch (err) {
         lastErr = err;
         if (!isTransient(err)) throw err;           // 잘못된 키/요청은 재시도해도 소용없다
-        if (attempt < config.geminiRetries) {
+        if (attempt < retries) {
           await sleep(config.geminiRetryDelayMs * (attempt + 1));
         }
       }
@@ -236,6 +239,10 @@ async function transcribeAudio(dataUri) {
   const match = /^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(dataUri);
   if (!match) return { ...fallback, error: 'bad_data_uri' };
 
+  // 대화(chat)와 달리 **늦게 온 받아쓰기는 쓸모가 없다** — 어르신은 이미 돌아섰고,
+  // 그 사이에 한 다른 말과 뒤섞인다. 그래서 시한을 두고 넘기면 실패로 처리한다.
+  const deadline = Date.now() + config.sttTimeoutMs;
+
   try {
     const { result } = await withRetry(async (modelId) => {
       const model = genAI.getGenerativeModel({
@@ -249,13 +256,19 @@ async function transcribeAudio(dataUri) {
         { inlineData: { data: match[2], mimeType: match[1] } },
       ]);
       return r.response.text();
-    });
+      // 같은 모델을 재시도하지 않는다(retries: 0). 다음 발화에서 자연스럽게 다시
+      // 시도되므로 여기서 기다릴 이유가 없다. 대체 모델로 넘어가는 것은 남겨 둔다 —
+      // 한쪽만 붐비는 경우가 있다. 2026-09-02 실측: 체인을 다 돌면 50초까지 갔다.
+    }, { retries: 0, deadline });
 
     return { text: cleanTranscript(result), source: 'gemini', error: null };
   } catch (err) {
-    console.error('Gemini STT 호출 실패:', err.message);
-    return { ...fallback, error: err.message };
+    const reason = Date.now() >= deadline ? `시간 초과 (${config.sttTimeoutMs}ms)` : err.message;
+    console.error('Gemini STT 호출 실패:', reason);
+    // **빈 문자열로 조용히 성공시키지 않는다.** 화면에서 '침묵'과 구분되지 않아
+    // 어르신이 말을 걸었는데 아무 일도 안 일어난 것처럼 보인다(2026-09-02 실측).
+    return { ...fallback, error: reason };
   }
 }
 
-module.exports = { chat, analyzeImage, transcribeAudio, isAvailable, parseJSON, mockReply, cleanTranscript };
+module.exports = { chat, analyzeImage, transcribeAudio, isAvailable, parseJSON, mockReply, cleanTranscript, withRetry };

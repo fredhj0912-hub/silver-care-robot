@@ -32,14 +32,19 @@ router.post('/stt', asyncHandler(async (req, res) => {
 
   const result = await gemini.transcribeAudio(audio);
 
-  // Gemini를 못 쓰는 상태(키 없음/SDK 없음)는 200에 빈 text로 감추지 않는다.
-  // 프론트가 이것을 보고 음성 경로를 접고 텍스트 입력 폴백을 안내해야 하는데,
-  // 조용한 성공으로 돌려주면 어르신은 로봇이 못 알아듣는다고만 느낀다.
+  // **실패를 200 + 빈 text로 감추지 않는다.** 프론트에서 '침묵'과 구분되지 않아,
+  // 어르신이 말을 걸었는데 아무 일도 안 일어난 것처럼 보인다(2026-09-02 실측).
+  //
+  // 되돌릴 수 없는 것(503)과 일시적인 것(502)을 나눠 주는 것이 중요하다 —
+  // 프론트는 503이면 즉시 텍스트 입력을 안내하고, 502면 연속 실패 횟수를 센다.
   if (result.error === 'no_api_key' || result.error === 'sdk_unavailable') {
     return res.status(503).json({ error: '받아쓰기를 쓸 수 없습니다', reason: result.error });
   }
+  if (result.error) {
+    return res.status(502).json({ error: '받아쓰기에 실패했습니다', reason: result.error });
+  }
 
-  res.json({ text: result.text, source: result.source, error: result.error });
+  res.json({ text: result.text, source: result.source, error: null });
 }));
 
 module.exports = router;

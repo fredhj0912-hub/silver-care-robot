@@ -30,6 +30,12 @@ const config = {
   geminiRetries: Number(process.env.GEMINI_RETRIES) || 1,
   geminiRetryDelayMs: Number(process.env.GEMINI_RETRY_DELAY_MS) || 400,
 
+  // 받아쓰기 마감시한. 대화(chat)와 달리 **늦게 온 받아쓰기는 쓸모가 없다** —
+  // 어르신은 이미 돌아섰고, 그 사이에 한 다른 말과 뒤섞인다.
+  // 2026-09-02 실측: 잘 되면 3초, 503 재시도 체인에 걸리면 20~52초까지 갔다.
+  // 시한을 넘기면 실패로 처리해 화면에 드러낸다 — 조용히 기다리는 것이 제일 나쁘다.
+  sttTimeoutMs: Number(process.env.STT_TIMEOUT_MS) || 12000,
+
   // AWS 공용 리전 (지금은 S3 스냅샷 저장소만 사용).
   awsRegion: process.env.AWS_REGION || 'us-west-2',
 

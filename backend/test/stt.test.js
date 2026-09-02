@@ -18,6 +18,8 @@ const { initDB, closeDB } = require('../src/db');
 const { config } = require('../src/config');
 const gemini = require('../src/services/gemini');
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 let server;
 let BASE;
 
@@ -126,6 +128,86 @@ test('POST /api/stt: 받아쓰기를 쓸 수 없으면 200이 아니라 503으�
   const r = await post('/api/stt', { audio: WAV_URI });
   assert.strictEqual(r.s, 503);
   assert.strictEqual(r.b.reason, 'no_api_key');
+});
+
+test('POST /api/stt: 받아쓰기 실패는 200이 아니라 502로 알린다', async () => {
+  // 200 + 빈 text 로 돌려주면 프론트에서 **침묵과 구분되지 않는다** — 어르신이 말을
+  // 걸었는데 아무 일도 안 일어난 것처럼 보이고 화면에 진단도 안 뜬다(2026-09-02 실측).
+  // 503(되돌릴 수 없음)과 502(일시적)를 나누는 것도 중요하다: 프론트는 503이면 즉시
+  // 텍스트 입력을 안내하고, 502면 연속 실패 횟수를 센 뒤 포기한다.
+  const original = gemini.transcribeAudio;
+  gemini.transcribeAudio = async () => ({ text: '', source: 'mock', error: 'Gemini 503' });
+  try {
+    const r = await post('/api/stt', { audio: WAV_URI });
+    assert.strictEqual(r.s, 502);
+    assert.strictEqual(r.b.reason, 'Gemini 503');
+  } finally {
+    gemini.transcribeAudio = original;
+  }
+});
+
+test('POST /api/stt: 조용한 오디오는 성공(200)에 빈 text다', async () => {
+  // 실패와 달리 이건 정상이다 — 프론트가 no-speech 처럼 조용히 넘어간다.
+  const original = gemini.transcribeAudio;
+  gemini.transcribeAudio = async () => ({ text: '', source: 'gemini', error: null });
+  try {
+    const r = await post('/api/stt', { audio: WAV_URI });
+    assert.strictEqual(r.s, 200);
+    assert.strictEqual(r.b.text, '');
+  } finally {
+    gemini.transcribeAudio = original;
+  }
+});
+
+// ── withRetry 의 재시도·시한 정책 ──────────────────────────
+//
+// ⚠️ **여기서 못 덮는 것 하나**: transcribeAudio 가 withRetry 에 실제로
+//    { retries: 0, deadline } 을 넘기는지. withRetry 를 주입할 방법이 없어
+//    그 한 줄을 지워도 이 파일은 통과한다(변이 테스트로 확인). 고칠 때 눈으로 볼 것.
+// 2026-09-02 실측: Gemini가 503을 뱉을 때 체인을 다 돌면 50초가 걸렸다.
+// 어르신은 20초면 로봇이 고장난 줄 안다. 시한이 이 정책의 전부다.
+
+const transient503 = () => new Error('[503 Service Unavailable] high demand');
+
+test('withRetry: 시한이 지나면 다음 시도를 시작하지 않는다', async () => {
+  let calls = 0;
+  const started = Date.now();
+  await assert.rejects(
+    gemini.withRetry(async () => { calls += 1; await sleep(60); throw transient503(); },
+      { retries: 5, deadline: Date.now() + 100 }),
+  );
+  // 시한이 없었다면 (모델 2개 × 6회) 12번 불렸을 것이다
+  assert.ok(calls < 12, `시한을 무시하고 ${calls}번 호출했다`);
+  assert.ok(Date.now() - started < 2000, '시한을 한참 넘겨서 돌아왔다');
+});
+
+test('withRetry: 시한 안이면 정상적으로 성공한다', async () => {
+  const { result } = await gemini.withRetry(async () => '받아쓴 문장',
+    { retries: 0, deadline: Date.now() + 5000 });
+  assert.strictEqual(result, '받아쓴 문장');
+});
+
+test('withRetry: retries=0 이면 같은 모델을 다시 부르지 않는다', async () => {
+  // STT가 쓰는 정책이다. 늦게 온 받아쓰기는 쓸모가 없으니 기다리지 않는다.
+  const seen = [];
+  await assert.rejects(
+    gemini.withRetry(async (modelId) => { seen.push(modelId); throw transient503(); }, { retries: 0 }),
+  );
+  assert.deepStrictEqual(seen, [...new Set(seen)], '같은 모델을 두 번 불렀다');
+});
+
+test('withRetry: 일시적이지 않은 오류는 재시도하지 않고 바로 던진다', async () => {
+  let calls = 0;
+  await assert.rejects(
+    gemini.withRetry(async () => { calls += 1; throw new Error('[400 Bad Request] 잘못된 키'); },
+      { retries: 3 }),
+  );
+  assert.strictEqual(calls, 1);
+});
+
+test('설정: 받아쓰기 시한은 어르신이 기다릴 수 있는 범위여야 한다', () => {
+  assert.ok(config.sttTimeoutMs > 0, 'sttTimeoutMs 가 설정돼 있어야 한다');
+  assert.ok(config.sttTimeoutMs <= 20000, `${config.sttTimeoutMs}ms 는 너무 길다`);
 });
 
 test('POST /api/stt: API 키가 없어도 인증은 그대로 걸린다', async () => {
