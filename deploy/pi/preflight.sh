@@ -45,6 +45,15 @@ if pgrep -x labwc >/dev/null 2>&1; then ok "컴포지터: labwc"
 elif pgrep -x wayfire >/dev/null 2>&1; then ok "컴포지터: wayfire"
 elif [ "${XDG_SESSION_TYPE:-}" = "x11" ]; then ok "컴포지터: X11"
 else warn "컴포지터를 확인하지 못했습니다 — 자동실행이 안 뜨면 여기부터 보세요"; fi
+# 화면 방향 — 09-01에 세로로 떠서 레이아웃이 통째로 어긋났다. 키오스크는 800×480
+# 가로 전제다. 여기서 현재 transform 을 눈으로 확인하고, 틀리면 ./set-rotation.sh 로 고친다.
+if command -v wlr-randr >/dev/null 2>&1; then
+  echo "   ── 출력/방향 ──"
+  wlr-randr 2>/dev/null | sed "s/^/   /" || warn "wlr-randr 실행 실패 (그래픽 세션에서 실행해야 합니다)"
+  echo "   가로(예: 800x480 + transform normal)가 아니면: ./set-rotation.sh 90"
+else
+  warn "wlr-randr 가 없어 화면 방향을 확인하지 못했습니다 (sudo apt install -y wlr-randr)"
+fi
 
 echo
 echo "════ 3. 네트워크 ════════════════════════════"

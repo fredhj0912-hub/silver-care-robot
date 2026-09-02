@@ -77,6 +77,33 @@ FLAGS=(
   --disable-features=Translate
 )
 
+# ── 화면 방향 ────────────────────────────────────────────────────────────────
+# 09-01에 파이 화면이 세로로 떴다. 키오스크는 800×480 **가로**를 전제로 만들었다
+# (index.css의 .kiosk-root, 얼굴 배치). CSS로 돌리면 안 된다 — 터치 좌표는 같이
+# 돌지 않아서 엉뚱한 곳이 눌린다. OS 출력 레벨에서 돌린다.
+#
+# KIOSK_ROTATE 가 비어 있으면 아무것도 건드리지 않는다(기존 동작 그대로).
+# 값은 wlr-randr 의 transform: normal | 90 | 180 | 270 | flipped-90 ...
+# 맞는 값은 파이에서 `wlr-randr` 로 출력 이름을 보고 하나씩 시험해 찾는다.
+if [ -n "${KIOSK_ROTATE:-}" ]; then
+  if ! command -v wlr-randr >/dev/null 2>&1; then
+    echo "[효돌이 키오스크] ⚠️  KIOSK_ROTATE=$KIOSK_ROTATE 인데 wlr-randr 가 없습니다 (sudo apt install wlr-randr) — 회전을 건너뜁니다."
+  else
+    # 출력 이름을 지정하지 않았으면 첫 번째 출력을 쓴다. 파이 7인치 디스플레이는
+    # 보통 출력이 하나뿐이라 이름을 외우게 하는 것보다 이쪽이 덜 틀린다.
+    ROTATE_OUTPUT="${KIOSK_ROTATE_OUTPUT:-$(wlr-randr 2>/dev/null | awk 'NR==1 {print $1}')}"
+    if [ -z "$ROTATE_OUTPUT" ]; then
+      echo "[효돌이 키오스크] ⚠️  wlr-randr 가 출력을 찾지 못했습니다 — 회전을 건너뜁니다."
+    elif wlr-randr --output "$ROTATE_OUTPUT" --transform "$KIOSK_ROTATE" 2>&1; then
+      echo "[효돌이 키오스크] 화면 회전: $ROTATE_OUTPUT → $KIOSK_ROTATE"
+    else
+      # 회전 실패로 키오스크를 안 띄우면 화면에 아무것도 없어 원인을 알 수 없다.
+      # 세로로라도 뜨는 편이 낫다.
+      echo "[효돌이 키오스크] ⚠️  회전 실패 ($ROTATE_OUTPUT → $KIOSK_ROTATE) — 그대로 진행합니다."
+    fi
+  fi
+fi
+
 echo "[효돌이 키오스크] $CHROMIUM → $KIOSK_URL"
 
 # 감시 루프 — Chromium이 죽으면 3초 뒤 다시 띄운다(systemd Restart=always 대용).
