@@ -24,9 +24,16 @@ const ALLOWED_EXPRESSIONS = ['happy', 'sad', 'neutral', 'pain', 'sleeping', 'unk
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** 잠시 후 다시 시도하면 풀릴 수 있는 오류인가 (모델 과부하, 쿼터, 게이트웨이) */
+// 429는 두 가지다. 분당 한도(잠시 후 풀린다)와 **할당량 소진**(오늘은 안 풀린다).
+// 후자를 재시도하면 시간만 버리는 게 아니라 **남은 할당량을 더 태운다** —
+// 2026-09-02에 파이에서 한 시간에 100건을 이렇게 날렸다.
+const QUOTA_EXHAUSTED = /exceeded your current quota|billing details/i;
+
+/** 잠시 후 다시 시도하면 풀릴 수 있는 오류인가 (모델 과부하, 분당 한도, 게이트웨이) */
 function isTransient(err) {
-  return /\[(429|500|502|503|504)\s/.test(String(err && err.message));
+  const message = String(err && err.message);
+  if (QUOTA_EXHAUSTED.test(message)) return false;
+  return /\[(429|500|502|503|504)\s/.test(message);
 }
 
 /**

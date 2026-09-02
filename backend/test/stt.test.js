@@ -205,6 +205,38 @@ test('withRetry: 일시적이지 않은 오류는 재시도하지 않고 바로 
   assert.strictEqual(calls, 1);
 });
 
+// ── 할당량 소진(429)은 재시도하지 않는다 ──────────────────
+// 2026-09-02 파이 실측: 할당량이 바닥난 뒤에도 재시도 체인이 계속 돌아
+// 한 시간에 100건을 더 날렸다. 429는 두 가지이고 둘을 구분해야 한다.
+
+const QUOTA_ERR = '[429 Too Many Requests] You exceeded your current quota, please check your plan and billing details.';
+const RATE_ERR = '[429 Too Many Requests] Resource has been exhausted.';
+
+test('할당량 소진은 재시도하지 않는다 — 재시도가 남은 할당량을 더 태운다', async () => {
+  let calls = 0;
+  await assert.rejects(
+    gemini.withRetry(async () => { calls += 1; throw new Error(QUOTA_ERR); }, { retries: 3 }),
+  );
+  assert.strictEqual(calls, 1, `할당량이 바닥났는데 ${calls}번 불렀다`);
+});
+
+test('분당 한도(429)는 재시도한다 — 이건 잠시 후 풀린다', async () => {
+  let calls = 0;
+  await assert.rejects(
+    gemini.withRetry(async () => { calls += 1; throw new Error(RATE_ERR); }, { retries: 1 }),
+  );
+  assert.ok(calls > 1, '분당 한도는 재시도해야 한다');
+});
+
+test('503(수요 폭주)은 그대로 재시도한다', async () => {
+  let calls = 0;
+  await assert.rejects(
+    gemini.withRetry(async () => { calls += 1; throw new Error('[503 Service Unavailable] high demand'); },
+      { retries: 1 }),
+  );
+  assert.ok(calls > 1);
+});
+
 test('설정: 받아쓰기 시한은 어르신이 기다릴 수 있는 범위여야 한다', () => {
   assert.ok(config.sttTimeoutMs > 0, 'sttTimeoutMs 가 설정돼 있어야 한다');
   assert.ok(config.sttTimeoutMs <= 20000, `${config.sttTimeoutMs}ms 는 너무 길다`);

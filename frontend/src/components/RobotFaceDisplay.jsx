@@ -367,6 +367,11 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     /** 음성 인식을 포기하고 텍스트 입력으로 안내한다 (재시작 루프도 멈춘다) */
     const disableStt = (reason) => {
       shouldListenRef.current = false;
+      // **인식기를 실제로 멈춘다.** 브라우저 STT는 오류가 나면 세션이 스스로 끝나서
+      // shouldListenRef 만으로 충분했지만, 서버 STT의 세션은 스스로 끝나지 않는다.
+      // 이걸 빠뜨려서 포기한 뒤에도 마이크가 계속 돌며 발화마다 업로드했고,
+      // 한 시간에 100건을 올려 Gemini 할당량을 태웠다(2026-09-02 파이 실측).
+      recognitionRef.current?.stop();
       setSttUnavailable(true);
       setSttReason(reason);
       setVoiceState('idle');

@@ -174,6 +174,30 @@ test('백엔드가 받아쓰기를 못 하면(503) 텍스트 입력으로 안내
   await waitFor(() => expect(screen.getByText(/글로 말씀해 주세요/)).toBeInTheDocument());
 });
 
+test('포기하면 마이크를 실제로 멈춘다 — 요청이 계속 나가면 안 된다', async () => {
+  // 2026-09-02 파이 실측에서 놓쳤던 것. 브라우저 STT는 오류가 나면 세션이 스스로
+  // 끝나서 '재시작 안 함' 플래그만으로 충분했지만, 서버 STT의 세션은 스스로 끝나지
+  // 않는다. 그래서 포기한 뒤에도 마이크가 계속 돌며 발화마다 업로드했고,
+  // 한 시간에 100건을 올려 Gemini 할당량을 통째로 태웠다.
+  await mountAndListen();
+  sttStatus = 502;                       // 일시적 실패 (Gemini 503/429 등)
+
+  // 연속 실패 한도(3)까지 채운다
+  for (let i = 0; i < 3; i++) {
+    transcript = '효돌아';
+    utter();
+    await waitFor(() => expect(sttCalls().length).toBe(i + 1));
+  }
+  await waitFor(() => expect(screen.getByText(/글로 말씀해 주세요/)).toBeInTheDocument());
+
+  // 포기한 뒤에는 아무리 말해도 더 이상 올리지 않아야 한다
+  const after = sttCalls().length;
+  utter();
+  utter();
+  await new Promise((r) => setTimeout(r, 50));
+  expect(sttCalls()).toHaveLength(after);
+});
+
 test('마이크 권한이 거부되면 즉시 포기하고 텍스트 입력으로 안내한다', async () => {
   vi.stubGlobal('navigator', {
     ...navigator,
