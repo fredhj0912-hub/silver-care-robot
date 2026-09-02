@@ -34,20 +34,43 @@ cloudflared quick tunnel의 성질이다. 개발 PC에서 `npm run access -- <EC
 ~/silver-care-robot/deploy/pi/set-url.sh https://<새 주소>.trycloudflare.com
 ```
 
-### 3. 🔴 Chromium 음성 인식은 **실제로 안 된다** (2026-09-01 실측 확정)
+### 3. 🔴 Chromium 음성 인식은 안 된다 → **서버측 STT로 우회했다** (2026-09-02)
 
-파이 OS 저장소의 Chromium이 구글 음성 서비스 키 없이 빌드돼 있다. `webkitSpeechRecognition`
-객체는 있는데 매 세션이 `network` 오류로 끝난다. 화면에는 설계대로
-`음성 인식 서버에 닿지 않아요 · 아래에 글로 말씀해 주세요`가 뜬다 — **하드닝은 의도대로
-동작했고, 안 되는 것은 브라우저 쪽이다.**
+**증상 (2026-09-01 실측 확정)**: 파이 OS 저장소의 Chromium이 구글 음성 서비스 키 없이
+빌드돼 있다. `webkitSpeechRecognition` 객체는 있는데 매 세션이 `network` 오류로 끝난다.
+화면에는 설계대로 `음성 인식 서버에 닿지 않아요 · 아래에 글로 말씀해 주세요`가 떴다 —
+**하드닝은 의도대로 동작했고, 안 되는 것은 브라우저 쪽이었다.**
 
-**그런데 텍스트 폴백에도 구멍이 있다**: 파이에 **가상 키보드가 없어서** 화면 입력에는
-물리 키보드가 필요하다. 즉 지금 살아 있는 입력은 **폰 보호자 앱**뿐인데, 어르신은 폰을
-쓰지 않는다. **실사용 입력 경로가 없는 상태다.**
+텍스트 폴백에도 구멍이 있었다: 파이에 **가상 키보드가 없어서** 화면 입력에는 물리 키보드가
+필요하다. 즉 살아 있는 입력이 **폰 보호자 앱**뿐이었는데, 어르신은 폰을 쓰지 않는다.
 
-선택지는 사실상 하나다 — **서버측 STT**. 브라우저에서 오디오를 녹음해 백엔드로 보내고
-Gemini가 받아쓰게 한다. `lib/stt.js`의 `createRecognizer`만 바꾸면 되도록 설계해 두었다.
-(arm64용 구글 크롬 정식 빌드가 없어 브라우저 교체는 경로가 아니다.)
+**해결 (2026-09-02)**: 브라우저를 거치지 않고 **파이가 직접 마이크를 녹음해 백엔드로 보낸다.**
+`POST /api/stt` → Gemini가 받아쓴다. arm64용 정식 크롬 빌드가 없어 브라우저 교체는
+경로가 아니었으므로, 실사용 경로는 이것뿐이다.
+
+| | |
+|---|---|
+| 전환 스위치 | `frontend/.env`의 `VITE_STT_MODE` = `server`(기본) | `browser` |
+| 프론트 | `lib/server-recognizer.js` — Web Audio로 raw PCM 캡처 → `lib/vad.js`가 발화 경계 판정 → `lib/wav.js`로 WAV 인코딩 → 업로드 |
+| 백엔드 | `routes/stt.js` → `services/gemini.js`의 `transcribeAudio()` (`analyzeImage`와 같은 `inlineData` 경로) |
+| 인터페이스 | `lib/stt.js`의 `createRecognizer` 계약을 그대로 지킨다 — 호출부(`RobotFaceDisplay.jsx`)와 웨이크워드 게이트는 바뀌지 않았다 |
+
+**왜 MediaRecorder가 아니라 raw PCM인가**: Chromium의 MediaRecorder는
+`audio/webm;codecs=opus`를 내놓는데 **Gemini의 지원 오디오 목록에 webm이 없다**
+(wav/mp3/aiff/aac/ogg/flac). 서버에서 ffmpeg로 변환하면 EC2 의존성이 늘고, 그런 종류의
+실패는 파이 앞에서만 드러난다. WAV로 직접 감싸면 컨테이너 협상 자체가 사라진다.
+
+**감수한 것 두 가지** (선택이 아니라 사실로 적어 둔다):
+
+- **방 안의 모든 발화가 Gemini로 올라간다.** 웨이크워드 판정이 받아쓰기 *뒤에* 일어나므로
+  게이트가 닫혀 있어도 호출은 발생한다. 로컬 웨이크워드 감지 없이는 구조적으로 못 피한다.
+  에너지 임계값 + 최소 발화 길이(0.4초) + 최대 길이(12초)로 잡음·정적만 걸러 낸다.
+- **왕복 지연이 늘어난다.** 침묵 감지(0.9초) → 업로드 → 받아쓰기 → 대답 → 음성 합성.
+  **실측은 아직 없다** — 파이에서 재야 한다.
+
+**아직 실측 전이다.** 로컬(윈도우 Chrome) 테스트와 자동 테스트는 통과했지만, 파이의
+reSpeaker 마이크에서 VAD 임계값(`lib/vad.js`의 `startThreshold`)이 맞는지는
+거기서만 알 수 있다. 절차는 `docs/pi-runbook.md` §6-3.
 
 ### 3-2. 오디오 기본 장치를 USB 마이크가 가로챈다 (2026-09-01 실측)
 
@@ -61,6 +84,26 @@ USB 마이크 어레이(reSpeaker XVF3800)를 꽂으면 **기본 출력(sink)까
 `speech-dispatcher`가 있어야 하고, 있어도 한국어 보이스가 없으면 **아무 소리 없이 조용히
 실패한다.** EC2에서 `TTS_PROVIDER=gemini`로 두면 브라우저 음성 엔진이 필요 없어지고
 품질도 낫다. 폰 발화 왕복은 그 구성에서 **5초 안팎**이었다.
+
+### 3-3. 화면이 세로로 뜬다 (2026-09-01 실측) — OS 레벨에서 돌린다
+
+키오스크는 800×480 **가로**를 전제로 만들었다(`index.css`의 `.kiosk-root`, 얼굴 배치).
+09-01에 파이 화면이 세로로 떠서 레이아웃이 통째로 어긋났다.
+
+**CSS로 돌리면 안 된다.** `transform: rotate()`는 그림만 돌리고 **터치 좌표는 그대로**
+두기 때문에, 화면은 멀쩡해 보이는데 엉뚱한 곳이 눌린다. 어르신이 쓰는 화면에서 이것은
+고장보다 나쁘다 — 눌리기는 눌리는데 다른 게 눌린다.
+
+`kiosk.env`의 **`KIOSK_ROTATE`** 에 값을 넣으면 `kiosk.sh`가 감시 루프에 들어가기 전
+`wlr-randr`로 한 번 적용한다. 비어 있으면 아무것도 건드리지 않는다(기존 동작).
+값 찾기와 저장은 `deploy/pi/set-rotation.sh`가 한다.
+
+XDG 자동실행이 아니라 `kiosk.sh` 안에서 돌리는 이유: 자동실행 등록은 **한 곳(XDG)에만**
+둔다는 09-01의 교훈을 지키기 위해서다(두 곳에 걸려 화면이 3초마다 깜빡인 사고가 있었다).
+`kiosk.sh`는 그래픽 세션의 자식이라 `WAYLAND_DISPLAY`가 이미 잡혀 있다.
+
+**미검증 항목**: 화면을 돌렸을 때 **터치 좌표도 함께 도는지**. Wayland 컴포지터는 보통
+같이 돌리지만 확인 전까지는 믿지 않는다 — 화면만 돌고 터치는 안 도는 것이 흔한 함정이다.
 
 ### 4. `move` 명령을 소비(ack)하는 것은 구동부 프로세스 하나뿐이다
 
@@ -95,7 +138,7 @@ EC2 배포 문서의 알려진 한계 1번과 같다. 키오스크는 원래 2.5
 > (main에 머지한 뒤에는 `-b` 없이 받으면 된다.)
 
 ```bash
-sudo apt update && sudo apt install -y chromium-browser git curl alsa-utils
+sudo apt update && sudo apt install -y chromium-browser git curl alsa-utils wlr-randr
 git clone -b feat/pi-deployment https://github.com/fredhj0912-hub/silver-care-robot.git
 cd silver-care-robot/deploy/pi && chmod +x *.sh
 ```
