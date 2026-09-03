@@ -66,6 +66,16 @@ _fd = None
 # (2026-09-03 실물). 손으로 'F'를 **한 번** 보냈을 때는 잘 돌았다 — 펌웨어가 명령을
 # 받을 때마다 내부 상태를 다시 잡는 것으로 보인다. 그래서 **의도가 바뀔 때만** 보낸다.
 _last_sent = None
+_last_sent_at = 0.0
+
+# 같은 방향이라도 이만큼 지나면 한 번 더 보낸다. **자가 복구용이다.**
+# 바퀴가 뭔가에 걸려 우노가 스스로 멈추면(스톨 감지·드라이버 보호·자체 시한),
+# "이미 F를 보냈다"고 조용히 있는 동안 보호자는 계속 누르고 있는데 로봇은 서 있게 된다
+# (2026-09-03 실물에서 그랬다).
+#
+# 200ms(폴링마다)는 너무 잦았고 — 그때는 바퀴가 아예 안 돌았다 — 아예 안 보내면 위처럼
+# 복구가 안 된다. 1초는 그 사이다. 걸렸다가 풀리면 1초 안에 다시 출발한다.
+REFRESH_MS = 1000
 
 # 정지는 반대로 다룬다. 'S'는 몇 번 받아도 로봇이 움직이지 않으므로 여러 번 보내
 # 한 글자가 유실돼도 서게 한다. 위험한 쪽으로 기울여 두는 것이 맞다.
@@ -133,7 +143,7 @@ def drive(direction, speed):
 
     쓰기에 실패하면 _last_sent 를 갱신하지 않으므로 다음 폴링에서 자동으로 다시 보낸다.
     """
-    global _last_sent
+    global _last_sent, _last_sent_at
     payload = COMMANDS.get(direction)
     if payload is None:
         # 모르는 방향을 아두이노에 보내느니 멈춘다. drivetrain.py가 거르지만,
@@ -141,11 +151,16 @@ def drive(direction, speed):
         _log(f"모르는 방향: {direction} — 정지한다")
         stop()
         return
-    if payload == _last_sent:
+    now_ms = time.monotonic() * 1000
+    changed = payload != _last_sent
+    if not changed and (now_ms - _last_sent_at) < REFRESH_MS:
         return
     if _write(payload):
         _last_sent = payload
-        _log(f"→ {payload.decode()}")
+        _last_sent_at = now_ms
+        # 갱신은 초당 한 줄이라 로그를 채운다. 방향이 바뀔 때만 남긴다.
+        if changed:
+            _log(f"→ {payload.decode()}")
 
 
 def stop():
@@ -155,11 +170,12 @@ def stop():
     않지만, 한 번 보낸 'S'가 유실되면 로봇이 계속 간다. 위험이 한쪽으로만 있으므로
     그쪽으로 기울인다.
     """
-    global _last_sent
+    global _last_sent, _last_sent_at
     try:
         for _ in range(STOP_REPEATS):
             _write(STOP)
         _last_sent = STOP
+        _last_sent_at = time.monotonic() * 1000
     except Exception as err:
         # _write가 이미 삼키지만, 정지 경로에서는 어떤 예외도 밖으로 내보내지 않는다.
         _log(f"정지 중 예외 무시 ({err})")
