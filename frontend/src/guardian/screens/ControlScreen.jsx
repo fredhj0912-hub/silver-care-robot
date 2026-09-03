@@ -21,6 +21,11 @@ const SPEED = 40;
 const PLAN_SIZE = 220;
 const PLAN_SCALE = 0.8;
 
+// ?debug=1 일 때만 심박 상태를 화면에 띄운다. 폰 안에서 심박이 도는지는 밖에서 볼 수가
+// 없어서, 파이 로그만으로는 "누르고 있는데 왜 한 번만 갔나"를 가릴 수 없었다(09-03).
+// 보호자에게 보일 정보가 아니므로 평소에는 없다. (키오스크의 ?vad=1 과 같은 방식)
+const DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1';
+
 /**
  * 원격조종 — 꾹 누르는 D-패드 + 가상 평면도.
  *
@@ -36,6 +41,8 @@ function ControlScreen({ isEmergency }) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [error, setError] = useState(null);
   const [held, setHeld] = useState(null);
+  // 보낸 심박 수. 손을 뗀 뒤에도 남겨 둔다 — 몇 번 나갔는지가 진단의 핵심이다.
+  const [beats, setBeats] = useState(0);
 
   const heartbeatRef = useRef(null);
 
@@ -99,7 +106,11 @@ function ControlScreen({ isEmergency }) {
     if (heartbeatRef.current) clearInterval(heartbeatRef.current);
     setHeld(direction);
     sendMove(direction);
-    heartbeatRef.current = setInterval(() => sendMove(direction), HEARTBEAT_MS);
+    setBeats(1);
+    heartbeatRef.current = setInterval(() => {
+      setBeats((n) => n + 1);
+      sendMove(direction);
+    }, HEARTBEAT_MS);
   }, [isEmergency, sendMove]);
 
   // 손을 떼는 것을 놓치는 경로를 전부 막는다. 폰을 잠그거나 앱을 전환하면
@@ -211,6 +222,12 @@ function ControlScreen({ isEmergency }) {
         {padButton('down', '⬇️', { gridColumn: 2 })}
         <div />
       </div>
+
+      {DEBUG && (
+        <p className="g-note-inline" style={{ marginTop: 12, fontFamily: 'monospace' }}>
+          {held ? `누르는 중: ${held}` : '떼어 놓음'} · 심박 {beats}회
+        </p>
+      )}
 
       {isEmergency && (
         <p className="g-note-inline" style={{ marginTop: 16 }}>
