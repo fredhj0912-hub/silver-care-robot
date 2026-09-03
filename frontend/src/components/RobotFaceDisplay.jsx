@@ -32,7 +32,8 @@ const STT_UNAVAILABLE_TEXT = {
 const MOVE_MAX_AGE_MS = 2000;
 
 /**
- * RobotFaceDisplay — 라즈베리파이 7인치 디스플레이(800×480) 전용 전체 화면 로봇 얼굴 컴포넌트.
+ * RobotFaceDisplay — 라즈베리파이 DSI 디스플레이 전용 전체 화면 로봇 얼굴 컴포넌트.
+ * (실물은 720×1280 세로. 09-03 실측 — 그 전에는 800×480 가로로 잘못 알고 있었다)
  * 
  * 핵심 기능:
  *  - 감정 기반 SVG 얼굴 표현 (neutral/happy/sad/concerned/thinking/sleeping)

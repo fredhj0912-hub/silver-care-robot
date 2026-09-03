@@ -4,7 +4,7 @@ Guidance specific to the Vite/React kiosk app. See root `CLAUDE.md` for project-
 
 ## Layout
 
-Two apps ship from this one package: the **kiosk** at `/` (dark, fixed 800×480, for the robot's Pi display) and the **guardian PWA** at `/guardian/*` (light, phone-sized, for the adult child checking on their parent). Routing lives in `App.jsx`.
+Two apps ship from this one package: the **kiosk** at `/` (dark, for the robot's Pi display — **720×1280 세로**로 실측됐다, 09-03) and the **guardian PWA** at `/guardian/*` (light, phone-sized, for the adult child checking on their parent). Routing lives in `App.jsx`.
 
 ```
 src/
@@ -107,11 +107,17 @@ uses Vitest while the backend stays on `node --test`.
 ## Gotchas
 
 - Kiosk-only globals in `index.css` (`user-select:none`, page-scroll lock via `body:has(.kiosk-root)`, hidden scrollbars) are scoped to `.kiosk-root`. Moving them back onto `*` or bare `body` breaks guardian-app scrolling.
-- **800×480에는 남는 높이가 없다.** `.robot-face`는 `height` + `max-height: 100%` +
-  `aspect-ratio: 1`로 **남는 자리에 맞춰 줄어든다** — 뷰포트 기준 고정값으로 되돌리면
-  얼굴이 말풍선을 덮어 어르신이 읽어야 할 글을 가린다(09-02에 실제로 그랬다).
+- **얼굴은 화면 크기를 전제하지 않는다.** 09-03에 실물 패널이 800×480 가로가 아니라
+  **720×1280 세로**인 것을 확인했고, 그때까지 얼굴에 걸려 있던 `vh`/픽셀 상한 때문에
+  화면이 큰데도 얼굴이 340px에 묶여 있었다. 지금은 `.robot-face`가 **남는 자리를 채운다** —
+  세로는 `.face-area`의 높이, 가로는 화면 너비가 한계다(정사각형이라 둘 중 작은 쪽).
+  고정값으로 되돌리지 말 것: 화면이 바뀌면 다시 어긋난다.
+  말풍선이 뜨면 `.face-area`가 줄고 얼굴도 따라 줄어든다 — 우선순위는 **읽어야 할 글 > 얼굴**이고,
+  이 성질이 없으면 얼굴이 글을 덮는다(09-02에 실제로 그랬다).
   `.face-area`의 `padding-top`은 안테나가 잘리지 않게 비워 둔 자리다.
-  말풍선이 떠 있는 동안에는 `:has()`로 여백을 조여 얼굴 자리를 지킨다.
+- **이목구비는 SVG 안에서 한 겹으로 묶여 있다**(`<g transform="… scale(1.3) …">`). 얼굴 상자가
+  커져도 `viewBox 300` 기준 좌표라 비율이 그대로여서, 09-03에 배율을 한 곳에서 키웠다.
+  감정 7종의 눈·눈썹·입 좌표를 개별로 고치면 표정 사이 균형이 깨진다 — 배율만 바꿀 것.
 - The service worker never caches `/api/*` — a stale "평온해요" is worse than no answer. Keep it that way.
 - **`main.jsx` registers `sw.js` in PROD builds only**, so `npm run dev` has no service worker and therefore no push at all. Testing push means `npm run build && npm run preview` (port 4173) — not the dev server. Web Push also requires HTTPS, so a phone test needs a tunnel; `vite.config.js` allows `.trycloudflare.com` in both `server` and `preview` for that.
 - `VITE_*` env vars are inlined into the client bundle at build time — `VITE_ROBOT_API_KEY` is visible in devtools. LAN speed-bump only, not real auth.

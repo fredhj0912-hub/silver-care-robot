@@ -9,7 +9,7 @@ matter when writing new code; this doc is the "why/how it fits together" referen
 ```mermaid
 graph TB
     subgraph Frontend["frontend/ (Vite + React 19, one build)"]
-        Kiosk["Kiosk app (/)<br/>RobotFaceDisplay.jsx<br/>dark, fixed 800x480"]
+        Kiosk["Kiosk app (/)<br/>RobotFaceDisplay.jsx<br/>dark, Pi DSI panel (720x1280 portrait)"]
         Guardian["Guardian PWA (/guardian/*)<br/>light, phone"]
         WakeGate["lib/wakeword.js<br/>decideAction()"]
         Camera["lib/useCameraMonitor.js<br/>off by default"]

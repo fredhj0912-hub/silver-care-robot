@@ -45,12 +45,13 @@ if pgrep -x labwc >/dev/null 2>&1; then ok "컴포지터: labwc"
 elif pgrep -x wayfire >/dev/null 2>&1; then ok "컴포지터: wayfire"
 elif [ "${XDG_SESSION_TYPE:-}" = "x11" ]; then ok "컴포지터: X11"
 else warn "컴포지터를 확인하지 못했습니다 — 자동실행이 안 뜨면 여기부터 보세요"; fi
-# 화면 방향 — 09-01에 세로로 떠서 레이아웃이 통째로 어긋났다. 키오스크는 800×480
-# 가로 전제다. 여기서 현재 transform 을 눈으로 확인하고, 틀리면 ./set-rotation.sh 로 고친다.
+# 화면 방향 — 이 기기의 패널은 **720×1280 세로**(DSI)다. 09-03 실측으로 확인했다.
+# 09-01에 "세로로 떠서 어긋난다"고 적었던 것은 화면이 아니라 레이아웃 쪽 문제였고,
+# 지금은 얼굴이 자리에 맞춰 늘어나므로 세로에서도 정상이다. transform 은 눈으로만 확인한다.
 if command -v wlr-randr >/dev/null 2>&1; then
   echo "   ── 출력/방향 ──"
   wlr-randr 2>/dev/null | sed "s/^/   /" || warn "wlr-randr 실행 실패 (그래픽 세션에서 실행해야 합니다)"
-  echo "   가로(예: 800x480 + transform normal)가 아니면: ./set-rotation.sh 90"
+  echo "   이 기기 기준값: 720x1280 + transform 180 (09-03 실측). 화면이 뒤집혀 보이면 ./set-rotation.sh"
 else
   warn "wlr-randr 가 없어 화면 방향을 확인하지 못했습니다 (sudo apt install -y wlr-randr)"
 fi

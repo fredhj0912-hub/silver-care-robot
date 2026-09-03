@@ -90,7 +90,7 @@ function ControlScreen({ isEmergency }) {
       } else {
         setError('이동 명령을 보내지 못했어요.');
       }
-    } catch (err) {
+    } catch {
       if (DEBUG) {
         setBeats((b) => ({ ...b, fail: b.fail + 1, last: `throw ${Date.now() - started}ms` }));
       }

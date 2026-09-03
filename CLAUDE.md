@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-**효돌이 (Hyodol-i)** — a local software prototype for a multimodal LLM-powered "silver care" companion robot for elderly users living alone. It's a kiosk-style web app meant to run full-screen on a Raspberry Pi 7" display (800×480): a robot face reacts with emotions, listens via voice (Web Speech API, gated by a wake word), talks back via TTS (browser SpeechSynthesis or server-side Gemini/Cloud TTS), reminds the senior to take their medication out loud and confirms it by voice, and can trigger emergency/SOS alerts to a guardian. Google Gemini powers conversation and vision analysis; both fall back to Korean-language mock logic when no API key is present or a call fails.
+**효돌이 (Hyodol-i)** — a local software prototype for a multimodal LLM-powered "silver care" companion robot for elderly users living alone. It's a kiosk-style web app meant to run full-screen on the Pi's DSI touch display (the unit on hand measures **720×1280 portrait**, confirmed 2026-09-03 — earlier docs said 800×480 landscape and were wrong; the layout no longer assumes any fixed size): a robot face reacts with emotions, listens via voice (Web Speech API, gated by a wake word), talks back via TTS (browser SpeechSynthesis or server-side Gemini/Cloud TTS), reminds the senior to take their medication out loud and confirms it by voice, and can trigger emergency/SOS alerts to a guardian. Google Gemini powers conversation and vision analysis; both fall back to Korean-language mock logic when no API key is present or a call fails.
 
 The codebase (comments, prompts, UI copy) is primarily in Korean, since the product targets Korean-speaking senior users and guardians.
 
@@ -33,7 +33,7 @@ See TODO.md's AWS section for what's actually feasible before estimating this wo
 ## Repo layout
 
 - `backend/` — Express API server. `server.js` is now just the entry point (~40 lines); real logic lives under `src/`. SQLite (`node:sqlite`, no native build) replaced the old flat-file `database.json`. See `backend/CLAUDE.md`.
-- `frontend/` — Vite + React 19 app serving **two apps from one build**: `/` is the robot kiosk (dark, fixed 800×480), `/guardian/*` is the guardian PWA (light, phone, installable, receives Web Push for critical alerts). See `frontend/CLAUDE.md`.
+- `frontend/` — Vite + React 19 app serving **two apps from one build**: `/` is the robot kiosk (dark, sized to whatever the Pi panel is — 720×1280 portrait on the current unit), `/guardian/*` is the guardian PWA (light, phone, installable, receives Web Push for critical alerts). See `frontend/CLAUDE.md`.
 - `start-all.js` — root orchestrator, spawns backend (3001) + frontend (5173) for local dev.
 - `refresh-access.js` — SSHes into the EC2 box, reads the current cloudflared tunnel URL, and
   regenerates `ACCESS.html` (Pi link + phone link + QR codes). The tunnel URL changes on every
