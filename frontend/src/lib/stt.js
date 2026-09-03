@@ -135,11 +135,15 @@ function createBrowserRecognizer({ onResult, onStart, onEnd, onError, lang }) {
  * @param {() => void} [opts.onEnd]
  * @param {(err: string) => void} [opts.onError]  무시해도 되는 오류는 전달하지 않는다
  * @param {string} [opts.lang='ko-KR']  browser 모드에서만 쓰인다
+ * @param {object} [opts.vadOptions]  server 모드 전용 — VAD 임계값 덮어쓰기
+ * @param {(info: object) => void} [opts.onVad]  server 모드 전용 — 프레임마다 VAD 관측값
+ * @param {boolean} [opts.dryRun]  server 모드 전용 — 발화를 잡되 업로드하지 않는다
  * @returns {{start: () => void, stop: () => void, abort: () => void, isSupported: boolean}}
  */
-export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko-KR' }) {
+export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko-KR', vadOptions, onVad, dryRun }) {
   if (STT_MODE === 'browser') {
+    // browser 모드에는 우리 VAD가 없다 — 경계를 Web Speech API가 잡는다.
     return createBrowserRecognizer({ onResult, onStart, onEnd, onError, lang });
   }
-  return createServerRecognizer({ onResult, onStart, onEnd, onError });
+  return createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, dryRun });
 }

@@ -31,7 +31,7 @@ const SAMPLE_RATE = 16000;
 // 2의 거듭제곱이어야 한다. 4096 @ 16kHz = 256ms — VAD 판정에 충분히 촘촘하다.
 const FRAME_SIZE = 4096;
 
-export function createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions }) {
+export function createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, dryRun }) {
   let stream = null;
   let audioContext = null;
   let processor = null;
@@ -97,20 +97,42 @@ export function createServerRecognizer({ onResult, onStart, onEnd, onError, vadO
     if (!capturing || destroyed) return;
     const input = event.inputBuffer.getChannelData(0);
     const frameMs = (input.length / SAMPLE_RATE) * 1000;
-    const verdict = feedEnergy(vad, rms(input), frameMs);
+    const energy = rms(input);
+    const verdict = feedEnergy(vad, energy, frameMs);
+
+    if (verdict !== 'idle') {
+      // 'started'/'speaking'/'ended'/'discarded' 모두 이 프레임까지가 발화의 일부다.
+      // 복사해서 담는다 — inputBuffer는 다음 프레임에서 재사용된다.
+      buffered.push(new Float32Array(input));
+      bufferedLength += input.length;
+    }
+
+    // 관측은 idle 프레임까지 흘려보낸다 — 임계값을 맞추려면 "말하지 않을 때
+    // 바닥이 얼마인가"가 "말할 때 얼마인가"만큼 중요하다.
+    // 길이는 vad.speechMs가 아니라 모아 둔 오디오에서 잰다 — 발화가 끝나는 프레임에서
+    // feedEnergy가 이미 상태를 초기화해 speechMs가 0이기 때문이다.
+    onVad?.({
+      rms: energy,
+      verdict,
+      speechMs: (bufferedLength / SAMPLE_RATE) * 1000,
+      startThreshold: vad.startThreshold,
+      endThreshold: vad.endThreshold,
+      uploads: !dryRun,
+    });
 
     if (verdict === 'idle') return;
 
-    // 'started'/'speaking'/'ended'/'discarded' 모두 이 프레임까지가 발화의 일부다.
-    // 복사해서 담는다 — inputBuffer는 다음 프레임에서 재사용된다.
-    buffered.push(new Float32Array(input));
-    bufferedLength += input.length;
-
     // 너무 짧아 버리는 경우. onEnd를 부르지 않는다 — 세션은 계속 살아 있다.
     if (verdict === 'discarded') { dropBuffer(); return; }
+    if (verdict !== 'ended') return;
+
+    // 관측 모드에서는 발화 경계만 보여 주고 업로드하지 않는다. 임계값을 맞추는
+    // 일에 Gemini 할당량이 들지 않게 하는 것이 이 스위치의 존재 이유다.
+    if (dryRun) { dropBuffer(); return; }
+
     // 발화가 끝났다. 업로드하는 동안에도 캡처는 계속 돈다 —
     // 어르신이 이어서 말하면 그것도 다음 발화로 잡아야 한다.
-    if (verdict === 'ended') transcribe();
+    transcribe();
   }
 
   async function open() {

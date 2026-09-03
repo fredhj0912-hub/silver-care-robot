@@ -3,6 +3,11 @@ import { apiFetch } from '../lib/api';
 import { createRecognizer, isSupported as isSTTSupported, classifySttError } from '../lib/stt';
 import { decideAction, pickAcknowledgeReply, ACTIVE_WINDOW_MS } from '../lib/wakeword';
 import { useCameraMonitor } from '../lib/useCameraMonitor';
+import { readVadDebug } from '../lib/vad-debug';
+
+// VAD 관측 스위치(?vad=1). 모듈 로드 시점에 한 번만 읽는다 — stt.js가 VITE_STT_MODE를
+// 잡는 것과 같은 관례다. 켜면 화면에 오버레이가 뜨고 **받아쓰기 업로드가 멈춘다**.
+const VAD_DEBUG = readVadDebug(typeof window !== 'undefined' ? window.location.search : '');
 
 // 카메라 모니터링은 기본 비활성 — 켜는 것 자체가 사용자 동의와 비용이 따르는 결정이라
 // 명시적 옵트인으로 둔다. 켜려면 frontend/.env 에 VITE_VISION_ENABLED=true.
@@ -85,6 +90,8 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // id를 함께 담는 이유는 같은 방향을 연속으로 눌렀을 때도 상태가 바뀌어
   // 아래 자동 소멸 효과가 다시 걸리게 하기 위해서다.
   const [moveIndicator, setMoveIndicator] = useState(null);
+  // ?vad=1 일 때만 채워진다. 꺼져 있으면 콜백 자체를 안 넘기므로 이 상태는 null로 남는다.
+  const [vadInfo, setVadInfo] = useState(null);
   // 같은 move 명령을 폴링마다 다시 그리지 않도록 마지막으로 본 id를 기억한다
   const lastSeenMoveIdRef = useRef(null);
 
@@ -378,6 +385,19 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     };
 
     const recognizer = createRecognizer({
+      vadOptions: VAD_DEBUG.vadOptions,
+      // 관측 모드에서는 발화 경계만 화면에 보여 주고 Gemini로 올리지 않는다.
+      dryRun: VAD_DEBUG.enabled,
+      onVad: VAD_DEBUG.enabled
+        ? (info) => setVadInfo((prev) => ({
+            ...info,
+            // 직전 발화의 판정은 다음 발화가 끝날 때까지 남겨 둔다 — 안 그러면
+            // ended가 한 프레임 만에 지나가 눈으로 볼 수가 없다.
+            last: info.verdict === 'ended' || info.verdict === 'discarded'
+              ? { verdict: info.verdict, ms: Math.round(info.speechMs) }
+              : prev?.last,
+          }))
+        : undefined,
       onStart: () => {
         if (!isSpeakingRef.current) setVoiceState('listening');
       },
@@ -757,6 +777,34 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       {/* 카메라를 못 잡았을 때 — 대화는 정상이라는 것까지 알려준다 */}
       {cameraError && (
         <div className="camera-error-chip">📷 카메라 없음 · 대화는 정상</div>
+      )}
+
+      {/* VAD 관측 오버레이 (?vad=1). 파이 앞에서 임계값을 할당량 0건으로 맞추기 위한 것이라
+          어르신에게 보일 화면이 아니다 — 파라미터를 떼면 통째로 사라진다. */}
+      {VAD_DEBUG.enabled && (
+        <div className="vad-debug">
+          <div className="vad-debug-bar">
+            {/* 임계값은 0.02 근처의 작은 값이라 막대를 0~0.1로 잡아야 눈에 보인다 */}
+            <span className="vad-debug-fill" style={{ width: `${Math.min(100, (vadInfo?.rms ?? 0) * 1000)}%` }} />
+            <span
+              className="vad-debug-mark"
+              style={{ left: `${Math.min(100, (vadInfo?.startThreshold ?? 0) * 1000)}%` }}
+            />
+          </div>
+          <div className="vad-debug-row">
+            <b>RMS {(vadInfo?.rms ?? 0).toFixed(4)}</b>
+            <span>start {vadInfo?.startThreshold ?? '—'} / end {vadInfo?.endThreshold ?? '—'}</span>
+          </div>
+          <div className="vad-debug-row">
+            <span className={`vad-debug-verdict is-${vadInfo?.verdict ?? 'idle'}`}>
+              {vadInfo?.verdict ?? 'idle'} {Math.round(vadInfo?.speechMs ?? 0)}ms
+            </span>
+            <span>
+              직전: {vadInfo?.last ? `${vadInfo.last.verdict} ${vadInfo.last.ms}ms` : '—'}
+            </span>
+            <span className="vad-debug-badge">업로드 안 함</span>
+          </div>
+        </div>
       )}
 
       {/* 효돌이 답변 말풍선 자막 */}

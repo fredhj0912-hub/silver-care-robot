@@ -218,3 +218,41 @@ test('언마운트하면 마이크를 놓아준다', async () => {
   unmount();
   expect(stoppedTracks.length).toBeGreaterThan(0);
 });
+
+/**
+ * 관측 모드(?vad=1) — 이 스위치의 존재 이유가 "임계값을 맞추는 데 할당량을 안 쓴다"이므로,
+ * **발화를 해도 /api/stt가 안 나가는지**를 화면 층에서 한 번 더 못 박는다.
+ * 인식기 층(server-recognizer.test.js)이 dryRun을 덮지만, RobotFaceDisplay가 그 플래그를
+ * 넘기지 않으면 조용히 예산을 태우게 된다 — 그 배선이 여기서만 보인다.
+ *
+ * VAD_DEBUG는 모듈 로드 시점에 location.search를 읽으므로(stt.js가 VITE_STT_MODE를
+ * 잡는 것과 같은 관례) 주소를 바꾼 뒤 모듈을 새로 불러야 한다.
+ */
+test('?vad=1 이면 오버레이가 뜨고 받아쓰기를 올리지 않는다', async () => {
+  window.history.replaceState({}, '', '/?vad=1&vadstart=0.005');
+  vi.resetModules();
+  const Debug = (await import('../src/components/RobotFaceDisplay')).default;
+
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  render(<Debug status={STATUS} onStatusChange={() => {}} />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
+  vi.useRealTimers();
+  await waitFor(() => expect(frameHandler).not.toBeNull());
+
+  // 조용한 프레임 하나로도 오버레이에 숫자가 찬다 — 바닥값을 보려면 그래야 한다.
+  frame(0.001);
+  // URL로 넘긴 임계값이 실제로 쓰인다 (오버레이에 그대로 보여야 현장에서 확인이 된다)
+  expect(document.body.textContent).toContain('start 0.005');
+  expect(document.body.textContent).toContain('업로드 안 함');
+
+  transcript = '효돌아 오늘 날씨 어때';
+  utter();
+  await waitFor(() => expect(document.body.textContent).toContain('직전: ended'));
+
+  // 발화로 잡혔는데도 Gemini에는 한 건도 안 나갔다 — 이것이 이 모드의 전부다.
+  expect(sttCalls()).toHaveLength(0);
+  expect(chatCalls()).toHaveLength(0);
+
+  window.history.replaceState({}, '', '/');
+  vi.resetModules();
+});

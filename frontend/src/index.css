@@ -101,6 +101,63 @@
   border: 1px solid var(--accent-amber);
   pointer-events: none;
 }
+/* VAD 관측 오버레이 (?vad=1) — 파이 앞에서 발화 감지 임계값을 맞추기 위한 개발용 표시.
+   할당량을 태우지 않고 눈으로 보려는 것이 목적이라 화면 위에 겹쳐 띄운다.
+   레이아웃을 밀면 안 된다 — 800×480에는 남는 높이가 없어 얼굴이 말풍선을 덮는다.
+   좌상단인 이유: 아래는 SOS 버튼 자리라 가리면 안 되고, 우상단은 진단 배지가 쓴다. */
+.vad-debug {
+  position: fixed;
+  left: 0.5rem;
+  top: 0.5rem;
+  width: 20rem;
+  z-index: 200;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.vad-debug-bar {
+  position: relative;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  margin-bottom: 0.35rem;
+}
+.vad-debug-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent-emerald);
+}
+/* 시작 임계값 눈금 — 막대가 이 선을 넘는 순간이 'started'다 */
+.vad-debug-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent-crimson);
+}
+.vad-debug-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.vad-debug-verdict.is-started,
+.vad-debug-verdict.is-speaking { color: var(--accent-emerald); }
+.vad-debug-verdict.is-ended { color: var(--primary); }
+.vad-debug-verdict.is-discarded { color: var(--accent-amber); }
+.vad-debug-badge {
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  color: var(--accent-amber);
+  border: 1px solid var(--accent-amber);
+}
+
 
 html, body, #root {
   width: 100%;

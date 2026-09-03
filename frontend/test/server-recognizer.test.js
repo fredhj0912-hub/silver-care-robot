@@ -232,3 +232,77 @@ test('마이크 장치가 없으면 audio-capture로 옮긴다', async () => {
   createServerRecognizer(cbs).start();
   await vi.waitFor(() => expect(cbs.onError).toHaveBeenCalledWith('audio-capture'));
 });
+
+/**
+ * 관측 모드(?vad=1) — 임계값을 맞추는 일에 Gemini 할당량이 들지 않아야 한다.
+ * 발화 한 번이 받아쓰기 1건 + 대화 1건이라, 이 스위치가 없으면 임계값 탐색
+ * 20번으로 하루치가 사라진다(2026-09-02 확인).
+ */
+test('dryRun이면 발화를 잡되 서버로 보내지 않는다', async () => {
+  const onVad = vi.fn();
+  const cbs = { onResult: vi.fn(), onStart: vi.fn(), onEnd: vi.fn(), onError: vi.fn() };
+  const r = createServerRecognizer({ ...cbs, onVad, dryRun: true });
+  r.start();
+  await vi.waitFor(() => expect(cbs.onStart).toHaveBeenCalled());
+
+  utter();
+
+  // 발화 경계는 그대로 관측된다 — 화면에서 "잡혔다"가 보여야 조정을 할 수 있다.
+  await vi.waitFor(() => expect(onVad.mock.calls.some(([i]) => i.verdict === 'ended')).toBe(true));
+  expect(fetch).not.toHaveBeenCalled();
+  expect(cbs.onResult).not.toHaveBeenCalled();
+});
+
+test('dryRun 발화는 다음 발화에 섞이지 않는다', async () => {
+  // 보내지 않는다고 버퍼를 안 비우면, 관측 모드를 끄고 처음 말하는 순간
+  // 그동안 쌓인 소리가 전부 한 요청으로 올라간다.
+  const first = await open();
+  utter(3);
+  await vi.waitFor(() => expect(first.cbs.onResult).toHaveBeenCalled());
+  const baseline = sentFrames()[0];
+
+  frameHandler = null;
+  fetch.mockClear();
+  const dry = createServerRecognizer({
+    onResult: vi.fn(), onStart: vi.fn(), onEnd: vi.fn(), onError: vi.fn(),
+    onVad: vi.fn(), dryRun: true,
+  });
+  dry.start();
+  await vi.waitFor(() => expect(frameHandler).not.toBeNull());
+  utter(3);
+  utter(3);
+  expect(fetch).not.toHaveBeenCalled();
+
+  // 같은 인식기에서 dryRun을 끈 상태와 비교할 수는 없으므로(모듈 생성 시 고정),
+  // 새 인식기로 같은 발화를 보내 대조군과 길이가 같은지 본다.
+  frameHandler = null;
+  const wet = await open();
+  utter(3);
+  await vi.waitFor(() => expect(wet.cbs.onResult).toHaveBeenCalled());
+  expect(sentFrames()).toEqual([baseline]);
+});
+
+test('onVad는 조용한 프레임(idle)도 흘려보낸다', async () => {
+  // 임계값을 맞추려면 "말하지 않을 때 바닥이 얼마인가"를 봐야 한다.
+  const onVad = vi.fn();
+  const cbs = { onResult: vi.fn(), onStart: vi.fn(), onEnd: vi.fn(), onError: vi.fn() };
+  createServerRecognizer({ ...cbs, onVad, dryRun: true }).start();
+  await vi.waitFor(() => expect(cbs.onStart).toHaveBeenCalled());
+
+  frame(0.001);
+  expect(onVad).toHaveBeenCalledTimes(1);
+  expect(onVad.mock.calls[0][0]).toMatchObject({ verdict: 'idle', startThreshold: 0.02 });
+  expect(onVad.mock.calls[0][0].rms).toBeCloseTo(0.001, 5);
+});
+
+test('vadOptions로 넘긴 임계값이 실제 판정에 쓰인다', async () => {
+  // URL 파라미터(?vadstart=…)가 여기까지 닿지 않으면 현장에서 값을 바꿀 방법이
+  // EC2 재빌드뿐이 된다.
+  const onVad = vi.fn();
+  const cbs = { onResult: vi.fn(), onStart: vi.fn(), onEnd: vi.fn(), onError: vi.fn() };
+  createServerRecognizer({ ...cbs, onVad, dryRun: true, vadOptions: { startThreshold: 0.005 } }).start();
+  await vi.waitFor(() => expect(cbs.onStart).toHaveBeenCalled());
+
+  frame(0.01);   // 기본값(0.02) 아래, 넘긴 값(0.005) 위
+  expect(onVad.mock.calls[0][0]).toMatchObject({ verdict: 'started', startThreshold: 0.005 });
+});
