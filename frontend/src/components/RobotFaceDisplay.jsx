@@ -726,16 +726,23 @@ function RobotFaceDisplay({ status, onStatusChange }) {
         }}></div>
 
         <svg width="100%" height="100%" viewBox="0 0 300 300" preserveAspectRatio="xMidYMid meet">
-          {eyebrows}
-          {eyeLeftPath}
-          {eyeRightPath}
-          {robotEmotion === 'happy' && (
-            <>
-              <circle cx="75" cy="145" r="14" fill="#10b981" opacity="0.2" />
-              <circle cx="225" cy="145" r="14" fill="#10b981" opacity="0.2" />
-            </>
-          )}
-          {mouthPath}
+          {/* 이목구비만 얼굴 중심 기준으로 키운다. 좌표를 하나씩 고치면 감정 7종 ×
+              눈·눈썹·입을 전부 손봐야 하고 그 과정에서 표정 사이 균형이 깨진다.
+              한 곳에서 배율만 바꾸면 모든 표정이 같은 비율로 따라온다.
+              (선 굵기도 함께 커지므로 멀리서 보는 어르신에게 유리하다)
+              물결(아래 원)은 얼굴 상자에 꽉 차 있어 여기서 제외한다 — 같이 키우면 잘린다. */}
+          <g transform="translate(150 145) scale(1.3) translate(-150 -145)">
+            {eyebrows}
+            {eyeLeftPath}
+            {eyeRightPath}
+            {robotEmotion === 'happy' && (
+              <>
+                <circle cx="75" cy="145" r="14" fill="#10b981" opacity="0.2" />
+                <circle cx="225" cy="145" r="14" fill="#10b981" opacity="0.2" />
+              </>
+            )}
+            {mouthPath}
+          </g>
           {voiceState === 'listening' && isGateActive && (
             <circle cx="150" cy="150" r="140" stroke="var(--accent-emerald)" strokeWidth="2" fill="none" opacity="0.3" className="ripple-animation" />
           )}
