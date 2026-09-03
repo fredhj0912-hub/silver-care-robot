@@ -44,8 +44,14 @@ import motors
 # 서버가 "이동 중"이라고 답하는 한 계속 돈다. 이 주기가 곧 정지 지연의 일부다.
 POLL_MS = 200
 
-# 마지막으로 "이동 중"을 확인한 지 이만큼 지나면 조회 성공 여부와 무관하게 멈춘다.
-# 우리 시계로만 재므로 파이와 EC2의 시계가 어긋나도 상관없다.
+# **조회에 실패했을 때만** 쓰는 창이다. 서버가 "안 움직인다"고 명확히 답하면 기다리지
+# 않고 즉시 멈춘다 — 답을 받았는데 더 기다릴 이유가 없다.
+#
+# 2026-09-03 실측 전에는 둘을 똑같이 취급해서, 서버 만료(500ms)에 이 700ms가 그대로
+# 얹혀 손을 뗀 뒤 **1.2~1.4초**를 더 갔다. 지금은 서버 만료 + 폴링 1회(0.7초 안팎)다.
+#
+# 값의 근거: 왕복이 206~227ms(09-03 실측, 편차 21ms)라 700ms면 연속 3회 실패까지
+# 버틴다. 우리 시계로만 재므로 파이와 EC2의 시계가 어긋나도 상관없다.
 STALE_MS = 700
 
 HTTP_TIMEOUT_S = 1.0
@@ -99,16 +105,23 @@ def run(api, key, dry_run):
                 motors.drive(direction, speed)
             driving, last_direction = True, direction
 
-        elif driving and (now_ms - last_fresh_ms) >= STALE_MS:
-            # 신선한 의도가 끊겼다. 조회가 실패했든 서버가 "안 움직임"이라 했든 같다.
-            if dry_run:
-                # 뗀 순간부터가 아니라 **마지막 신선한 의도부터** 잰다. 사람이 시계를
-                # 보고 재는 것보다 정확하고, 이 값이 곧 데드맨 판정에 걸린 시간이다
-                # (실제 정지까지는 여기에 심박 간격 이내의 시간이 더해진다).
-                _log(f"[dry-run] stop() — 마지막 신선한 의도로부터 {now_ms - last_fresh_ms:.0f}ms")
-            else:
-                motors.stop()
-            driving, last_direction = False, None
+        elif driving:
+            # 이동 의도가 끊겼다. **왜 끊겼는지에 따라 기다리는 시간이 다르다.**
+            #
+            #  · 조회는 됐는데 "안 움직임"이다 → 서버가 명확히 답했다. 즉시 멈춘다.
+            #  · 조회 자체가 실패했다        → 못 믿는 상태다. STALE_MS 만큼만 버틴다
+            #    (한 번의 네트워크 딸꾹질로 바퀴가 끊겼다 이어지지 않도록).
+            #
+            # 둘을 같이 취급하면 서버 만료 위에 이 창이 통째로 얹혀 정지가 두 배로 늦는다.
+            answered = state is not None
+            waited = now_ms - last_fresh_ms
+            if answered or waited >= STALE_MS:
+                if dry_run:
+                    why = "서버가 정지" if answered else f"조회 실패 {waited:.0f}ms"
+                    _log(f"[dry-run] stop() — {why} (마지막 신선한 의도로부터 {waited:.0f}ms)")
+                else:
+                    motors.stop()
+                driving, last_direction = False, None
 
         elapsed = time.monotonic() - started
         time.sleep(max(0.0, POLL_MS / 1000 - elapsed))

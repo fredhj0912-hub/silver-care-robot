@@ -9,8 +9,11 @@ const STATE_POLL_MS = 1000;
 const HEARTBEAT_MS = 250;
 const MOVE_TTL_MS = 700;
 
-// 정지 지연이 1초 안팎이라(TTL + 구동부 폴링 + 왕복) 빠르게 몰면 안 된다.
-// TODO.md 2순위의 왕복 지연 실측 뒤에 올린다.
+// 2026-09-03 파이 실측: 손을 뗀 뒤 정지까지 **0.9초 안팎**이다
+// (서버 TTL 700ms + 구동부 폴링 1회, 파이↔EC2 왕복은 206~227ms).
+// 남은 지연의 대부분이 위 MOVE_TTL_MS라 그것을 줄이는 것이 다음 지렛대인데,
+// **폰↔EC2 구간은 아직 안 쟀다** — 심박이 그 구간을 지나므로 그것을 재기 전에는
+// 못 줄인다. 그래서 속도는 그대로 둔다. 모터도 아직 스텁이라 올릴 근거가 없다.
 const SPEED = 40;
 
 // 화면에 그릴 가상 평면도 — motion.js의 좌표 단위를 픽셀로 대충 맞춘 스케일일 뿐,
@@ -128,12 +131,24 @@ function ControlScreen({ isEmergency }) {
   const padButton = (direction, label, style) => (
     <button
       className="g-btn"
-      style={{ ...style, touchAction: 'none' }}
+      style={{
+        ...style,
+        touchAction: 'none',
+        // 꾹 누르는 것이 이 화면의 조작 방식인데, 폰은 그것을 **글자 선택**으로 읽는다.
+        // 09-03 실측에서 화살표를 누르고 있으면 복사·공유 메뉴가 떠서 조종이 끊겼다.
+        // 이모지도 텍스트라 선택 대상이 된다 — 아래 셋이 각각 다른 브라우저를 막는다.
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
+      }}
       type="button"
       aria-label={label}
       aria-pressed={held === direction}
       disabled={isEmergency}
-      onPointerDown={() => press(direction)}
+      // 길게 누르면 뜨는 컨텍스트 메뉴를 막는다. 메뉴가 뜨는 순간 pointerup을 놓쳐
+      // **손을 뗐는데 심박이 계속 나가는** 상태가 될 수 있어, 보기 문제가 아니라 안전 문제다.
+      onContextMenu={(e) => e.preventDefault()}
+      onPointerDown={(e) => { e.preventDefault(); press(direction); }}
       onPointerUp={releaseAll}
       onPointerLeave={releaseAll}
       onPointerCancel={releaseAll}
