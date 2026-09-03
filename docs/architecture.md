@@ -9,7 +9,7 @@ matter when writing new code; this doc is the "why/how it fits together" referen
 ```mermaid
 graph TB
     subgraph Frontend["frontend/ (Vite + React 19, one build)"]
-        Kiosk["Kiosk app (/)<br/>RobotFaceDisplay.jsx<br/>dark, fixed 800x480"]
+        Kiosk["Kiosk app (/)<br/>RobotFaceDisplay.jsx<br/>dark, Pi DSI panel (720x1280 portrait)"]
         Guardian["Guardian PWA (/guardian/*)<br/>light, phone"]
         WakeGate["lib/wakeword.js<br/>decideAction()"]
         Camera["lib/useCameraMonitor.js<br/>off by default"]
@@ -30,6 +30,7 @@ graph TB
     end
     ExtGemini["Google Gemini API"]
     ExtDetector["future: Python fall-detector<br/>(not yet implemented)"]
+    Drivetrain["drivetrain.py (Pi)<br/>sole move consumer — motors stubbed"]
 
     Kiosk --> WakeGate --> Routes
     Kiosk --> Camera --> Routes
@@ -37,6 +38,7 @@ graph TB
     Routes --> Services --> Repos --> DB
     Gemini --> ExtGemini
     ExtDetector -.->|POST /api/detections| Routes
+    Drivetrain -.->|GET /api/control/state 200ms| Routes
     Events -.->|"alert.created, status.changed,<br/>command.issued, message.added"| Kiosk
     Events -.->|SSE| Guardian
 ```
@@ -78,7 +80,8 @@ sequenceDiagram
 
 ## Command queue (pull-then-ack)
 
-Not a destructive GET — a command stays pending until the kiosk explicitly acknowledges it.
+Not a destructive GET — a command stays pending until its consumer explicitly acknowledges it.
+Used for commands that **must not be lost**: a `speak` that arrives late is still worth saying.
 
 ```mermaid
 sequenceDiagram
@@ -89,16 +92,53 @@ sequenceDiagram
 
     G->>API: POST /api/commands (queue a command)
     API->>DB: insert, status=pending
-    K->>API: GET /api/commands/pending (poll or SSE-triggered)
+    K->>API: GET /api/commands/pending?kind=speak (2.5s poll)
     API->>DB: read pending
     API-->>K: command list
-    K->>K: execute
+    K->>K: speak it
     K->>API: POST /api/commands/:id/ack
     API->>DB: mark acked
 ```
 
-The legacy `GET /api/remote-message/poll` still shifts its queue destructively on GET, kept only
-for the pre-rewrite frontend path — don't build new call sites against it.
+**The kiosk acks `speak` only.** Since 2026-08-31 it *observes* `move` (to draw the `⬅️ 이동 중`
+indicator) without acking, because the drivetrain process must be the sole consumer — if the
+browser acked first, the motors would never see the command.
+
+## Remote control (hold-to-drive)
+
+Movement is the **opposite** of the queue's contract: a stale move must be *dropped*, not
+delivered. So the pressed direction is not a queued command — it is current intent held in
+`services/motion.js` with an expiry, and the drivetrain reads it directly.
+
+```mermaid
+sequenceDiagram
+    participant G as Guardian PWA
+    participant API as /api/control
+    participant M as motion.js
+    participant D as drivetrain.py (Pi)
+
+    loop every 250ms while the arrow is held
+        G->>API: POST /api/control/move
+        API->>M: move() — refresh expiry
+    end
+    loop every 200ms
+        D->>API: GET /api/control/state
+        API->>M: getState() — moving only if not expired
+        API-->>D: {direction, speed, moving}
+        D->>D: drive() while fresh, else stop()
+    end
+    G->>API: POST /api/control/stop (on release)
+```
+
+**Stopping is what happens when intent stops arriving**, not when a stop signal arrives — so a
+locked phone, a dropped Wi-Fi link, or a dead EC2 all halt the robot. `POST /api/control/stop`
+only makes that faster; it is not the safety mechanism. A queue row is written **once per
+direction change** (not per heartbeat) so the audit trail and the kiosk indicator survive.
+
+During an emergency all four layers engage: `dropPending('move')` clears the queue in-transaction,
+`motion.stop()` halts intent, `/api/control/move` returns `423`, and the guardian's buttons
+disable. `/api/control/stop` is deliberately **not** locked — the one thing that must never
+become unavailable is stopping.
 
 ## Wake-word gate
 

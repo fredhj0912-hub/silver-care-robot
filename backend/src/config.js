@@ -9,6 +9,11 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;             // 디코딩된 원본 이�
 const MAX_JSON_BODY_BYTES = 12 * 1024 * 1024;        // base64는 원본보다 ~33% 크다
 const MAX_JSON_BODY = `${MAX_JSON_BODY_BYTES}b`;     // express.json 이 이해하는 형식
 
+// 서버측 STT로 올라오는 발화 오디오. 16kHz 모노 16bit WAV라 10초 발화가 약 320KB,
+// base64로 감싸도 ~430KB다. 10배 넘는 여유를 두되 MAX_JSON_BODY_BYTES 아래에 둔다 —
+// 마이크가 켜진 채 방치돼도 한 요청이 서버를 오래 붙들지 않게 하는 것이 목적이다.
+const MAX_AUDIO_BYTES = 6 * 1024 * 1024;             // base64 data URI 문자열 기준
+
 const config = {
   port: Number(process.env.PORT) || 3001,
 
@@ -24,6 +29,12 @@ const config = {
   // 일시적 오류(429/503) 재시도. 대화 지연이 길어지면 어르신이 로봇이 고장난 줄 안다.
   geminiRetries: Number(process.env.GEMINI_RETRIES) || 1,
   geminiRetryDelayMs: Number(process.env.GEMINI_RETRY_DELAY_MS) || 400,
+
+  // 받아쓰기 마감시한. 대화(chat)와 달리 **늦게 온 받아쓰기는 쓸모가 없다** —
+  // 어르신은 이미 돌아섰고, 그 사이에 한 다른 말과 뒤섞인다.
+  // 2026-09-02 실측: 잘 되면 3초, 503 재시도 체인에 걸리면 20~52초까지 갔다.
+  // 시한을 넘기면 실패로 처리해 화면에 드러낸다 — 조용히 기다리는 것이 제일 나쁘다.
+  sttTimeoutMs: Number(process.env.STT_TIMEOUT_MS) || 12000,
 
   // AWS 공용 리전 (지금은 S3 스냅샷 저장소만 사용).
   awsRegion: process.env.AWS_REGION || 'us-west-2',
@@ -69,8 +80,16 @@ const config = {
   ttsVoice: process.env.TTS_VOICE || (process.env.TTS_PROVIDER === 'cloud' ? 'ko-KR-Chirp3-HD-Leda' : 'Leda'),
   ttsSpeakingRate: Number(process.env.TTS_SPEAKING_RATE) || 1.0,
   ttsPitch: Number(process.env.TTS_PITCH) || 0,
+  // 일시 오류(503 등)를 몇 번 더 시도할지. **기본값을 1로 잡은 이유**: TTS도 하루 20건이고,
+  // 503 재시도가 그 카운트에 잡히는지 확인된 바 없다. 할당량 소진은 아예 재시도하지 않는다.
+  // `|| 1`이 아니라 이 형태인 이유: TTS_RETRIES=0("재시도하지 마라")이 살아남아야 한다.
+  ttsRetries: Number.isFinite(Number(process.env.TTS_RETRIES)) && process.env.TTS_RETRIES !== ''
+    ? Number(process.env.TTS_RETRIES)
+    : 1,
+  ttsRetryDelayMs: Number(process.env.TTS_RETRY_DELAY_MS) || 600,
 
   maxImageBytes: MAX_IMAGE_BYTES,
+  maxAudioBytes: MAX_AUDIO_BYTES,
   maxJsonBody: MAX_JSON_BODY,
   maxJsonBodyBytes: MAX_JSON_BODY_BYTES,
   maxChatChars: 1000,

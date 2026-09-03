@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router';
 import RobotFaceDisplay from './components/RobotFaceDisplay';
 import GuardianApp from './guardian/GuardianApp';
@@ -6,7 +6,7 @@ import { apiFetch } from './lib/api';
 
 /**
  * 한 빌드에 두 개의 앱이 들어 있다.
- *   /          로봇 키오스크 (라즈베리파이 7인치, 다크, 800×480 고정)
+ *   /          로봇 키오스크 (라즈베리파이 DSI 화면, 다크. 실물은 720×1280 세로)
  *   /guardian  보호자 앱 (휴대폰, 밝은 화면, PWA)
  *
  * 백엔드와 API 클라이언트를 공유하므로 별도 프로젝트로 나누지 않았다.
@@ -19,20 +19,22 @@ function KioskApp() {
     isEmergency: false,
   });
 
-  const fetchStatus = async () => {
+  // useCallback이 아니면 렌더마다 새 함수가 된다. 아래 3초 폴링이 리렌더를 일으키므로
+  // 이 함수를 prop으로 받는 RobotFaceDisplay의 명령 폴링 효과가 3초마다 재실행돼 버린다.
+  const fetchStatus = useCallback(async () => {
     try {
       const res = await apiFetch('/api/status');
       if (res.ok) setStatus(await res.json());
     } catch (err) {
       console.error('로봇 상태를 불러오지 못했습니다.', err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchStatus]);
 
   return (
     <div className="kiosk-root">

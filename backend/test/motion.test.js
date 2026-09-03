@@ -56,6 +56,26 @@ test('과도한 speed/durationMs는 최대 이동 거리 이상으로 이동시�
   assert.strictEqual(overMax.x - before2.x, maxDistance, '속도/시간이 과도해도 최대 이동 거리를 넘으면 안 된다');
 });
 
+// ── 만료 판정은 타이머가 아니라 시계로 한다 ────────────────
+// 실물 구동부가 getState().moving 을 믿고 바퀴를 돌린다. 이벤트 루프가 밀리거나
+// 프로세스가 멈췄다 깨어나면 타이머는 늦게 도는데, 그 사이 낡은 상태가 "이동 중"으로
+// 읽히면 로봇이 명령 없이 계속 간다.
+
+test('만료 시각이 지나면 데드맨 타이머가 아직 안 돌았어도 moving은 거짓이다', async (t) => {
+  const realSetTimeout = global.setTimeout;
+  // 타이머를 통째로 무력화한다 — 데드맨이 영영 돌지 않는 상황을 만든다
+  t.mock.method(global, 'setTimeout', () => 0);
+
+  motion.move({ direction: 'up', speed: 50, durationMs: 100 });
+  assert.strictEqual(motion.getState().moving, true, '갓 내린 명령은 이동 중이어야 한다');
+
+  await new Promise((r) => realSetTimeout(r, motion.DEADMAN_MS + 50));
+
+  const state = motion.getState();
+  assert.strictEqual(state.moving, false, '타이머가 안 돌아도 시계로 만료를 판정해야 한다');
+  assert.strictEqual(state.direction, null, '만료된 상태가 방향을 들고 있으면 안 된다');
+});
+
 test('음수 speed/durationMs는 0으로 클램핑되어 위치가 바뀌지 않는다', () => {
   motion.stop();
   const before = motion.getState();

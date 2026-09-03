@@ -1,5 +1,6 @@
 /* =============================================
-   실버 케어 로봇 — 라즈베리파이 7인치 (800×480) 키오스크 전용 CSS
+   실버 케어 로봇 — 라즈베리파이 DSI 디스플레이 키오스크 전용 CSS
+   (실물은 720×1280 **세로**, 09-03 실측. 레이아웃은 특정 크기를 전제하지 않는다)
    ============================================= */
 
 /* Google Fonts */
@@ -86,13 +87,86 @@
   pointer-events: none;
 }
 
+/* 카메라를 잡지 못했을 때의 안내 칩. 콘솔에만 찍으면 화면 앞에 선 사람에게는
+   "앱이 통째로 고장난 것"으로 보인다 — 낙상 감지를 확인하려면 이게 보여야 한다. */
+.camera-error-chip {
+  position: fixed;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 100;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: var(--accent-amber);
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid var(--accent-amber);
+  pointer-events: none;
+}
+/* VAD 관측 오버레이 (?vad=1) — 파이 앞에서 발화 감지 임계값을 맞추기 위한 개발용 표시.
+   할당량을 태우지 않고 눈으로 보려는 것이 목적이라 화면 위에 겹쳐 띄운다.
+   레이아웃을 밀면 안 된다 — 800×480에는 남는 높이가 없어 얼굴이 말풍선을 덮는다.
+   좌상단인 이유: 아래는 SOS 버튼 자리라 가리면 안 되고, 우상단은 진단 배지가 쓴다. */
+.vad-debug {
+  position: fixed;
+  left: 0.5rem;
+  top: 0.5rem;
+  width: 20rem;
+  z-index: 200;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.vad-debug-bar {
+  position: relative;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  margin-bottom: 0.35rem;
+}
+.vad-debug-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent-emerald);
+}
+/* 시작 임계값 눈금 — 막대가 이 선을 넘는 순간이 'started'다 */
+.vad-debug-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent-crimson);
+}
+.vad-debug-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.vad-debug-verdict.is-started,
+.vad-debug-verdict.is-speaking { color: var(--accent-emerald); }
+.vad-debug-verdict.is-ended { color: var(--primary); }
+.vad-debug-verdict.is-discarded { color: var(--accent-amber); }
+.vad-debug-badge {
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  color: var(--accent-amber);
+  border: 1px solid var(--accent-amber);
+}
+
+
 html, body, #root {
   width: 100%;
   min-height: 100%;
 }
 
 /* ─────────────────────────────────────────────
-   키오스크 루트 레이아웃 (800×480 최적화)
+   키오스크 루트 레이아웃 (세로 화면 기준. 크기는 전제하지 않는다)
    ───────────────────────────────────────────── */
 
 /* 키오스크가 떠 있을 때만 페이지 스크롤을 잠근다.
@@ -112,6 +186,9 @@ body:has(.kiosk-root) {
     radial-gradient(at 50% 50%, rgba(40, 40, 50, 0.5) 0px, transparent 80%);
   background-attachment: fixed;
   color: var(--text-primary);
+  /* 터치스크린에는 포인터가 필요 없다. Wayland에는 unclutter 대응물이 없어서
+     OS가 아니라 CSS로 숨긴다 (키오스크 스코프 — 보호자 앱에는 영향 없다). */
+  cursor: none;
 }
 
 /* 스크롤바 숨기기 — 키오스크에만 적용 */
@@ -126,8 +203,10 @@ body:has(.kiosk-root) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  padding: 1rem 2rem;
+  /* 800×480에서 이 값들은 곧 얼굴 크기다. 간격 3개 × 1rem = 48px, 위아래 여백 32px —
+     합치면 80px이고 그만큼 얼굴이 작아진다. 가로는 넉넉하므로 세로만 조인다. */
+  gap: 0.5rem;
+  padding: 0.5rem 2rem;
 }
 
 /* ─────────────────────────────────────────────
@@ -139,12 +218,28 @@ body:has(.kiosk-root) {
   align-items: center;
   justify-content: center;
   min-height: 0;
+  /* 안테나(.antenna-tip)가 얼굴 상자보다 위로 나온다. 자리를 안 비워 두면 얼굴이
+     위로 붙었을 때 안테나가 잘린다 — 아래 max-height가 이 안쪽 높이를 본다.
+     28px은 09-03에 얼굴을 키우며 줄인 값이다. 더 줄이면 안테나 끝이 잘린다. */
+  padding-top: 28px;
 }
 
+/* 얼굴은 **남는 자리를 채운다.** 픽셀이나 vh로 된 고정 상한을 두지 않는다.
+   09-03에 실물 화면이 800×480 가로가 아니라 **720×1280 세로**(DSI, transform 180)인 것을
+   확인했는데, 그때 얼굴이 min(70vh, 340px)의 340px에 묶여 세로로 크게 남아 있었다.
+   화면이 어떤 크기든 자리에 맞추는 것이 맞다.
+
+   두 방향 모두에서 한계를 받는다:
+     세로 — .face-area에 남는 높이(100%)
+     가로 — 화면 너비. 정사각형이라 너비를 넘으면 좌우가 잘린다
+   줄어들 때 우선순위는 여전히 '읽어야 할 글 > 얼굴'이다 — 말풍선이 자리를 차지하면
+   face-area가 줄고 얼굴이 따라 줄어든다(2026-09-02에 얼굴이 글을 덮었던 일의 재발 방지). */
 .robot-face {
-  width: min(55vh, 300px);
-  height: min(55vh, 300px);
-  border-radius: 60px;
+  height: min(100%, calc(100vw - 4rem));
+  width: auto;
+  aspect-ratio: 1;
+  max-height: 100%;
+  border-radius: 20%;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -180,7 +275,7 @@ body:has(.kiosk-root) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.4rem 1rem;
+  padding: 0.15rem 1rem;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-glass);
   border-radius: 20px;
@@ -333,25 +428,34 @@ body:has(.kiosk-root) {
   outline-offset: 3px;
 }
 
-/* ─────────────────────────────────────────────
-   반응형 — 데스크톱 브라우저에서 테스트 시 
-   ───────────────────────────────────────────── */
-@media (min-width: 801px) {
-  .robot-face {
-    width: min(50vh, 340px);
-    height: min(50vh, 340px);
-  }
+/* 800×480에는 여유가 없다. 말풍선이 떠 있는 동안에만 여백을 조여 얼굴 자리를
+   지켜 준다 — 여백을 안 줄이면 얼굴이 60px대로 쪼그라든다(2026-09-02 실측).
+   얼굴 자체는 위 max-height가 알아서 맞춰 준다. (:has()는 위 body 규칙에서도 쓴다) */
+.kiosk-container:has(.speech-bubble-container) {
+  gap: 0.4rem;
+  padding: 0.4rem 1.5rem;
+}
+
+/* 보호자가 긴 메시지를 보내면 말풍선이 화면을 다 먹고 얼굴이 사라진다.
+   어르신은 스크롤을 못 하므로 넘치는 줄은 잘라 낸다 — 이 화면은 읽는 곳이지
+   보관하는 곳이 아니고, 같은 내용을 로봇이 소리로도 읽어 준다. */
+.speech-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kiosk-container:has(.speech-bubble-container) .sos-btn {
+  min-height: 62px;
+  padding: 0.7rem 1.5rem;
+  font-size: 1.3rem;
 }
 
 @media (max-height: 400px) {
   .kiosk-container {
     gap: 0.5rem;
     padding: 0.5rem 1rem;
-  }
-  .robot-face {
-    width: min(45vh, 220px);
-    height: min(45vh, 220px);
-    border-radius: 40px;
   }
   .sos-btn {
     padding: 0.6rem 1rem;
@@ -362,42 +466,55 @@ body:has(.kiosk-root) {
 /* ─────────────────────────────────────────────
    텍스트 채팅 & 말풍선 스타일
    ───────────────────────────────────────────── */
+/* 말풍선은 어르신이 **1~2m 떨어져 7인치 화면에서 읽는** 글이다.
+   폰에서 보낸 메시지가 여기 뜨는데 1rem으로는 안 읽힌다(2026-09-02 실측 지적).
+   float 애니메이션도 뺐다 — 얼굴은 계속 움직이므로 생동감은 그대로이고,
+   읽어야 할 글자가 흔들리는 것은 노안에 더 나쁘기만 하다. */
 .speech-bubble-container {
   margin-bottom: 0.5rem;
-  max-width: 90%;
-  animation: float 4s ease-in-out infinite;
+  max-width: 92%;
 }
 
 .speech-bubble {
-  background: rgba(30, 41, 59, 0.9);
+  background: rgba(30, 41, 59, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 16px;
-  padding: 0.75rem 1.25rem;
+  border-radius: 20px;
+  padding: 0.9rem 1.6rem;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
   text-align: center;
 }
 
 .speech-sender {
-  font-size: 0.8rem;
+  font-size: 1rem;
   font-weight: bold;
   color: var(--primary);
   display: block;
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.3rem;
 }
 
 .speech-text {
-  font-size: 1rem;
+  font-size: 1.55rem;
+  font-weight: 600;
   color: #f8fafc;
-  line-height: 1.4;
+  line-height: 1.35;
   margin: 0;
+}
+
+/* 소리가 안 났을 때만 뜬다. 말풍선 글자보다 작게 — 어르신이 읽어야 할 것은 답변이지
+   이 경고가 아니다. 다만 앞에 선 사람에게는 이게 유일한 단서다. */
+.speech-voiceless {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f59e0b;
+  margin: 0.45rem 0 0;
 }
 
 .text-chat-form {
   display: flex;
   gap: 0.5rem;
   width: min(90%, 500px);
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
+  margin-top: 0.15rem;
+  margin-bottom: 0.15rem;
 }
 
 .text-chat-input {

@@ -22,6 +22,10 @@ tools/
 # 현재 보안 모델이 깨진다. npm run access 로 각자 로컬에서 생성한다.
 ACCESS.html
 
+# 파이 키오스크 설정. 정상 위치는 파이의 ~/.config/hyodol/kiosk.env 지만, 레포 안에서
+# 편집하다 실수로 커밋하는 것을 막는다 — 여기에도 터널 주소가 들어간다.
+deploy/pi/kiosk.env
+
 # 환경변수 변형 — RDS 접속 정보(호스트/사용자/비밀번호)가 여기 들어간다.
 # .env 만 막혀 있어서 .env.production 같은 변형이 그대로 올라갈 수 있었다.
 # .env.example 은 값이 비어 있는 순수 템플릿이라 추적을 유지한다.

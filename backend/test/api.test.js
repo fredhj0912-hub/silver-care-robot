@@ -128,6 +128,25 @@ test('명령 큐: 조회해도 큐가 비지 않고, ack 해야 사라진다 (�
   assert.ok(!after.some((c) => c.id === id), 'ack 후에도 명령이 남아 있다');
 });
 
+test('명령 큐: maxAgeMs를 주면 오래된 명령은 빼고 준다', async () => {
+  // 이동 명령은 지나면 의미가 없다 — 네트워크가 30초 끊겼다 돌아온 구동부가 낡은 "앞으로"를
+  // 실행하면 안 된다. 반대로 보호자 speak 메시지는 늦더라도 반드시 전달돼야 하므로
+  // 제한을 주지 않았을 때의 동작(무제한)은 그대로여야 한다.
+  const fresh = (await post('/api/commands', { kind: 'move', payload: { direction: 'left' } })).b.command.id;
+  const stale = (await post('/api/commands', { kind: 'move', payload: { direction: 'right' } })).b.command.id;
+  await query(
+    'UPDATE outbound_commands SET ts = ? WHERE id = ?',
+    [new Date(Date.now() - 60000).toISOString(), stale]
+  );
+
+  const limited = (await get('/api/commands/pending?kind=move&maxAgeMs=2000')).b.commands.map((c) => c.id);
+  assert.ok(limited.includes(fresh), '방금 내린 명령이 빠졌다');
+  assert.ok(!limited.includes(stale), '오래된 명령이 그대로 나왔다');
+
+  const unlimited = (await get('/api/commands/pending?kind=move')).b.commands.map((c) => c.id);
+  assert.ok(unlimited.includes(stale), '제한이 없는데도 오래된 명령이 사라졌다');
+});
+
 test('보호자 메시지는 대화 로그에도 기록된다', async () => {
   const r = await get('/api/messages?sender=guardian&limit=10');
   assert.ok(r.b.messages.some((m) => m.text === '약 드실 시간이에요'));
@@ -316,4 +335,49 @@ test('푸시 구독: 새 origin으로 구독하면 옛 터널 주소의 구독�
     '사라진 터널 주소의 구독이 남아 있다'
   );
   assert.strictEqual(rows[0].origin, 'https://new.example');
+});
+
+// ── 감정 이력 (detections type='emotion') ────────────────────────────────────
+// mock Gemini(GEMINI_API_KEY='')는 항상 expression:'neutral'을 준다. 그래서 직전 표정을
+// 다른 값으로 만들어 두는 방식으로 "변화"를 만든다.
+
+test('감정 이력: 표정이 바뀔 때만 detections에 남는다', async () => {
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+  await post('/api/status', { seniorExpression: 'sad' });
+  const before = (await get('/api/detections?type=emotion')).b.detections.length;
+
+  await post('/api/vision', { image: tinyPng });
+  const after = (await get('/api/detections?type=emotion')).b.detections;
+
+  assert.strictEqual(after.length, before + 1, '표정이 바뀌었는데 기록되지 않았다');
+  assert.strictEqual(after[0].meta.expression, 'neutral');
+  assert.strictEqual(after[0].meta.previous, 'sad', '직전 표정이 meta에 없으면 추이를 못 읽는다');
+
+  // 같은 표정이 다시 들어오면 남지 않는다 — 이 설계의 핵심.
+  await post('/api/vision', { image: tinyPng });
+  assert.strictEqual(
+    (await get('/api/detections?type=emotion')).b.detections.length,
+    after.length,
+    '표정이 그대로인데 행이 늘었다 (카메라 주기가 15초라 하루 수천 행이 된다)'
+  );
+});
+
+test('감정 이력: 임계값 튜닝용 기본 목록에는 섞이지 않는다', async () => {
+  const list = (await get('/api/detections')).b.detections;
+  assert.ok(list.length > 0, '감지 이벤트가 없어 이 검증이 의미를 갖지 못한다');
+  assert.ok(
+    !list.some((d) => d.type === 'emotion'),
+    '감정 행이 감지 목록을 밀어내고 있다 (LIMIT 100 안에서 낙상 기록이 사라진다)'
+  );
+});
+
+test('일일 요약: seniorEmotionCounts는 어르신 표정을 센다 (로봇 발화와 별개)', async () => {
+  const summary = (await get('/api/summary/daily')).b;
+  assert.ok(
+    summary.seniorEmotionCounts.neutral >= 1,
+    '카메라가 남긴 표정이 하루 요약에 집계되지 않았다'
+  );
+  // 로봇 발화 집계는 지우지 않고 그대로 둔다 — 다른 의미의 지표다.
+  assert.strictEqual(typeof summary.emotionCounts, 'object');
 });

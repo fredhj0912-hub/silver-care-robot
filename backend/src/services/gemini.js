@@ -24,8 +24,19 @@ const ALLOWED_EXPRESSIONS = ['happy', 'sad', 'neutral', 'pain', 'sleeping', 'unk
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** 잠시 후 다시 시도하면 풀릴 수 있는 오류인가 (모델 과부하, 쿼터, 게이트웨이) */
+// 429는 두 가지다. 분당 한도(잠시 후 풀린다)와 **할당량 소진**(오늘은 안 풀린다).
+// 후자를 재시도하면 시간만 버리는 게 아니라 **남은 할당량을 더 태운다** —
+// 2026-09-02에 파이에서 한 시간에 100건을 이렇게 날렸다.
+const QUOTA_EXHAUSTED = /exceeded your current quota|billing details/i;
+
+/** 이 모델의 할당량이 바닥났는가 (오늘 안에는 안 풀린다) */
+function isQuotaExhausted(err) {
+  return QUOTA_EXHAUSTED.test(String(err && err.message));
+}
+
+/** 잠시 후 다시 시도하면 풀릴 수 있는 오류인가 (모델 과부하, 분당 한도, 게이트웨이) */
 function isTransient(err) {
+  if (isQuotaExhausted(err)) return false;
   return /\[(429|500|502|503|504)\s/.test(String(err && err.message));
 }
 
@@ -39,7 +50,7 @@ function isTransient(err) {
  * @param {(modelId: string) => Promise<any>} call
  * @returns {Promise<{result: any, modelUsed: string}>}
  */
-async function withRetry(call) {
+async function withRetry(call, { retries = config.geminiRetries, deadline = null } = {}) {
   const chain = [config.geminiModel];
   if (config.geminiFallbackModel && config.geminiFallbackModel !== config.geminiModel) {
     chain.push(config.geminiFallbackModel);
@@ -47,18 +58,28 @@ async function withRetry(call) {
 
   let lastErr;
   for (const modelId of chain) {
-    for (let attempt = 0; attempt <= config.geminiRetries; attempt++) {
+    let quotaGone = false;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      // 시한이 있으면 **다음 시도를 시작하기 전에** 확인한다.
+      // 이미 늦었는데 한 번 더 부르면 그만큼 더 기다리게 된다.
+      if (deadline && Date.now() >= deadline) throw lastErr || new Error('시간 초과');
       try {
         return { result: await call(modelId), modelUsed: modelId };
       } catch (err) {
         lastErr = err;
+        // 할당량은 **모델별로** 따로 잡힌다(2026-09-02 실측 — 같은 시각에 3.6-flash는
+        // 429, 3.5-flash는 200이었다). 같은 모델을 다시 부르는 것은 남은 할당량만
+        // 태우지만, **다음 모델에는 아직 통이 남아 있다** — 재시도는 접고 모델은 넘긴다.
+        if (isQuotaExhausted(err)) { quotaGone = true; break; }
         if (!isTransient(err)) throw err;           // 잘못된 키/요청은 재시도해도 소용없다
-        if (attempt < config.geminiRetries) {
+        if (attempt < retries) {
           await sleep(config.geminiRetryDelayMs * (attempt + 1));
         }
       }
     }
-    console.warn(`${modelId} 일시 오류가 계속됩니다 — 다음 모델로 전환합니다`);
+    console.warn(quotaGone
+      ? `${modelId} 할당량이 바닥났습니다 — 다음 모델로 전환합니다`
+      : `${modelId} 일시 오류가 계속됩니다 — 다음 모델로 전환합니다`);
   }
   throw lastErr;
 }
@@ -199,4 +220,75 @@ async function analyzeImage(dataUri) {
   }
 }
 
-module.exports = { chat, analyzeImage, isAvailable, parseJSON, mockReply };
+/**
+ * 받아쓰기 결과를 다듬는다.
+ *
+ * 프롬프트로 "문장만 출력하라"고 못박아도 모델은 조용한 오디오에 대해
+ * "(음성 없음)" 같은 메타 주석이나 따옴표를 붙여 오는 일이 있다. 그것이 그대로
+ * 나가면 웨이크워드 게이트가 사람 말로 착각한다 — 여기서 걸러 빈 문자열로 만든다.
+ */
+function cleanTranscript(raw) {
+  let t = String(raw || '').trim();
+  // 통째로 따옴표에 싸여 온 경우
+  const quoted = /^["'“‘]([\s\S]*)["'”’]$/.exec(t);
+  if (quoted) t = quoted[1].trim();
+  // 통째로 괄호에 싸인 것은 받아쓴 말이 아니라 모델의 주석이다
+  if (/^[([{<][\s\S]*[)\]}>]$/.test(t)) return '';
+  return t;
+}
+
+/**
+ * 발화 오디오를 받아쓴다 (서버측 STT).
+ *
+ * 파이의 Chromium은 브라우저 음성 인식이 구조적으로 불가능하다 — 파이 OS 저장소의
+ * 배포판이 구글 음성 키 없이 빌드돼 있어 매번 network 오류로 끝난다(2026-09-01 실측).
+ * analyzeImage와 같은 inlineData 경로를 쓰므로 재시도·대체 모델(withRetry)이
+ * 그대로 적용된다.
+ *
+ * @param {string} dataUri  data:audio/...;base64,...
+ * @returns {{text: string, source: 'gemini'|'mock', error: string|null}}
+ */
+async function transcribeAudio(dataUri) {
+  const fallback = { text: '', source: 'mock', error: null };
+
+  const genAI = getClient();
+  if (!genAI) return { ...fallback, error: config.geminiApiKey ? 'sdk_unavailable' : 'no_api_key' };
+
+  const match = /^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(dataUri);
+  if (!match) return { ...fallback, error: 'bad_data_uri' };
+
+  // 대화(chat)와 달리 **늦게 온 받아쓰기는 쓸모가 없다** — 어르신은 이미 돌아섰고,
+  // 그 사이에 한 다른 말과 뒤섞인다. 그래서 시한을 두고 넘기면 실패로 처리한다.
+  const deadline = Date.now() + config.sttTimeoutMs;
+
+  try {
+    const { result } = await withRetry(async (modelId) => {
+      const model = genAI.getGenerativeModel({
+        model: modelId,
+        // JSON을 강제하지 않는다 — 받아쓰기 결과는 순수 텍스트다.
+        // temperature 0: 들린 말을 그대로 옮기는 일에 창의성은 해롭기만 하다.
+        generationConfig: { temperature: 0, maxOutputTokens: 256 },
+      });
+      const r = await model.generateContent([
+        prompts.STT_PROMPT,
+        { inlineData: { data: match[2], mimeType: match[1] } },
+      ]);
+      return r.response.text();
+      // 같은 모델을 재시도하지 않는다(retries: 0). 다음 발화에서 자연스럽게 다시
+      // 시도되므로 여기서 기다릴 이유가 없다. 대체 모델로 넘어가는 것은 남겨 둔다 —
+      // 한쪽만 붐비는 경우가 있다. 2026-09-02 실측: 체인을 다 돌면 50초까지 갔다.
+    }, { retries: 0, deadline });
+
+    return { text: cleanTranscript(result), source: 'gemini', error: null };
+  } catch (err) {
+    const reason = Date.now() >= deadline ? `시간 초과 (${config.sttTimeoutMs}ms)` : err.message;
+    console.error('Gemini STT 호출 실패:', reason);
+    // **빈 문자열로 조용히 성공시키지 않는다.** 화면에서 '침묵'과 구분되지 않아
+    // 어르신이 말을 걸었는데 아무 일도 안 일어난 것처럼 보인다(2026-09-02 실측).
+    return { ...fallback, error: reason };
+  }
+}
+
+// isQuotaExhausted는 tts.js도 쓴다 — "오늘은 안 풀린다"의 판정이 두 곳으로 갈라지면
+// 한쪽만 고쳐 놓고 다른 쪽이 남은 할당량을 계속 태우게 된다.
+module.exports = { chat, analyzeImage, transcribeAudio, isAvailable, parseJSON, mockReply, cleanTranscript, withRetry, isQuotaExhausted };

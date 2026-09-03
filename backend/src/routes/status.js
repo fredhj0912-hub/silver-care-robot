@@ -3,6 +3,7 @@ const { asyncHandler } = require('../middleware');
 const statusRepo = require('../repositories/status');
 const messagesRepo = require('../repositories/messages');
 const alertsRepo = require('../repositories/alerts');
+const detectionsRepo = require('../repositories/detections');
 const gemini = require('../services/gemini');
 const { config } = require('../config');
 const { emit, EVENTS } = require('../services/events');
@@ -70,15 +71,31 @@ router.get('/summary/daily', asyncHandler(async (req, res) => {
 
   const inRange = await messagesRepo.listInRange(startIso, endIso);
 
+  // 주의: 이것은 **로봇이 어떤 표정으로 말했는지**를 센다. 어르신의 표정이 아니다.
+  // 어휘도 다르다 (로봇: happy|neutral|sad|concerned|thinking).
   const emotionCounts = inRange
     .filter((m) => m.sender === 'robot')
     .reduce((acc, m) => ({ ...acc, [m.emotion]: (acc[m.emotion] || 0) + 1 }), {});
+
+  // 어르신의 실제 표정. 카메라(POST /api/vision)가 남긴 기록이라
+  // VITE_VISION_ENABLED가 꺼져 있으면 비어 있다 — 그 경우 보호자 화면은
+  // 기분을 단정하지 않는다(guardian/format.js).
+  // 어휘: happy|sad|neutral|pain|sleeping|unknown
+  const emotionRows = await detectionsRepo.listInRange(
+    detectionsRepo.EMOTION_TYPE, startIso, endIso
+  );
+  const seniorEmotionCounts = emotionRows.reduce((acc, row) => {
+    const expression = row.meta && row.meta.expression;
+    if (!expression) return acc;
+    return { ...acc, [expression]: (acc[expression] || 0) + 1 };
+  }, {});
 
   res.json({
     date: dateStr,
     conversationTurns: inRange.filter((m) => m.sender === 'senior').length,
     guardianMessages: inRange.filter((m) => m.sender === 'guardian').length,
     emotionCounts,
+    seniorEmotionCounts,
     alertCount: await alertsRepo.countSince(startIso, { to: endIso }),
     unresolvedAlerts: await alertsRepo.unresolvedCount(),
     lastActive: (await statusRepo.get()).lastActive,

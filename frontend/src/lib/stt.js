@@ -1,37 +1,73 @@
 /**
- * 음성 인식 어댑터.
+ * 음성 인식 어댑터 — 두 가지 구현을 같은 인터페이스 뒤에 감춘다.
  *
- * 지금은 브라우저 Web Speech API 하나뿐이지만, 이 인터페이스 뒤로 감춰둔다.
- * 실사용에서 어르신 발음 인식률이 부족하면 서버 STT(Cloud STT)로 교체할 수 있게 하기 위함이다.
+ * | 모드      | 구현                        | 쓰는 곳                          |
+ * |-----------|-----------------------------|----------------------------------|
+ * | 'server'  | lib/server-recognizer.js    | **라즈베리파이(기본값)**         |
+ * | 'browser' | 이 파일의 Web Speech API    | 개발 PC (윈도우 Chrome)          |
  *
- * 브라우저 STT의 실제 한계 (2026-08 기준):
- *  - Chrome은 오디오를 구글 서버로 보내 인식하므로 정확도 자체는 Cloud STT와 같은 계열이다.
- *  - 다만 speechContexts(어휘 힌트)를 줄 수 없다. "효돌아", 약 이름, 손주 이름 같은
+ * 왜 둘 다 남기는가: 파이 OS 저장소의 Chromium은 구글 음성 키 없이 빌드돼 있어
+ * Web Speech API가 **매번 network 오류로 끝난다**(2026-09-01 파이 5 실측).
+ * 반대로 개발 PC의 Chrome에서는 브라우저 STT가 잘 돌아서 로컬 개발이 편하다.
+ * 최종 실행 환경이 파이이므로 **기본값은 'server'** 다.
+ * (backend의 TTS_PROVIDER와 같은 패턴이다.)
+ *
+ * 브라우저 STT의 다른 한계 (2026-08 기준):
+ *  - speechContexts(어휘 힌트)를 줄 수 없다. "효돌아", 약 이름, 손주 이름 같은
  *    고유명사를 미리 알려줄 방법이 없어서 노인 발음 대응에 불리하다.
  *  - 신뢰도 점수가 불안정하고, 장시간 세션에서 조용히 끊긴다.
- *
- * 교체 시점에는 createRecognizer 만 다른 구현으로 바꾸면 된다.
  */
+
+import { createServerRecognizer } from './server-recognizer';
+
+/** 'server' | 'browser'. 기본값은 파이 기준인 'server'. */
+export const STT_MODE = import.meta.env.VITE_STT_MODE || 'server';
 
 const SpeechRecognitionImpl =
   typeof window !== 'undefined'
     ? window.SpeechRecognition || window.webkitSpeechRecognition
     : null;
 
-export const isSupported = () => Boolean(SpeechRecognitionImpl);
+const isBrowserSttSupported = () => Boolean(SpeechRecognitionImpl);
 
 /**
- * 연속 음성 인식기를 만든다.
+ * 지금 모드에서 음성 인식을 쓸 수 있는가.
  *
- * @param {object} opts
- * @param {(text: string, meta: {confidence: number}) => void} opts.onResult  최종 인식 결과
- * @param {() => void} [opts.onStart]
- * @param {() => void} [opts.onEnd]
- * @param {(err: string) => void} [opts.onError]  무시해도 되는 오류는 전달하지 않는다
- * @param {string} [opts.lang='ko-KR']
- * @returns {{start: () => void, stop: () => void, abort: () => void, isSupported: boolean}}
+ * 모드마다 필요한 것이 다르다 — browser는 Web Speech API, server는 getUserMedia다.
+ * 둘을 같은 조건으로 보면 파이에서 서버 STT가 멀쩡한데도 "미지원"으로 떨어진다
+ * (파이 Chromium에 window.SpeechRecognition 이 없기 때문이다).
  */
-export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko-KR' }) {
+export const isSupported = () => (STT_MODE === 'browser'
+  ? isBrowserSttSupported()
+  : typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia));
+
+/**
+ * 되돌릴 수 없는 오류 — 다시 시도해도 같은 결과가 나온다.
+ * 마이크 권한 거부, 음성 서비스 자체를 못 쓰는 빌드, 입력 장치 없음, 미지원 언어.
+ */
+export const FATAL_STT_ERRORS = [
+  'not-allowed',
+  'service-not-allowed',
+  'audio-capture',
+  'language-not-supported',
+];
+
+/**
+ * 오류 심각도를 나눈다 — 'ignorable' | 'fatal' | 'transient'.
+ *
+ * 'network'를 fatal이 아니라 transient로 두는 것이 중요하다. 진짜 일시적 끊김일 수도 있지만,
+ * 구글 음성 키 없이 빌드된 Chromium(라즈베리파이 OS 저장소 빌드가 그럴 수 있다)에서는
+ * **매 세션이 network로 끝난다.** 그래서 호출부가 연속 횟수를 세서 판단해야 한다.
+ */
+export function classifySttError(err) {
+  // no-speech(침묵)와 aborted(우리가 직접 멈춤)는 정상 동작의 일부다.
+  if (!err || err === 'no-speech' || err === 'aborted') return 'ignorable';
+  if (FATAL_STT_ERRORS.includes(err)) return 'fatal';
+  return 'transient';
+}
+
+/** 브라우저 Web Speech API 구현. 개발 PC 전용 — 파이에서는 동작하지 않는다. */
+function createBrowserRecognizer({ onResult, onStart, onEnd, onError, lang }) {
   if (!SpeechRecognitionImpl) {
     return { start() {}, stop() {}, abort() {}, isSupported: false };
   }
@@ -46,9 +82,8 @@ export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko
   recognition.onend = () => { onEnd?.(); };
 
   recognition.onerror = (event) => {
-    // no-speech(침묵)와 aborted(우리가 직접 멈춤)는 정상 동작의 일부다.
-    // 이걸 오류로 취급하면 로그가 쓸모없어지고 화면이 깜빡인다.
-    if (event.error === 'no-speech' || event.error === 'aborted') return;
+    // ignorable을 오류로 취급하면 로그가 쓸모없어지고 화면이 깜빡인다.
+    if (classifySttError(event.error) === 'ignorable') return;
     onError?.(event.error);
   };
 
@@ -89,4 +124,26 @@ export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko
       }
     },
   };
+}
+
+/**
+ * 음성 인식기를 만든다. 구현은 STT_MODE가 고른다.
+ *
+ * @param {object} opts
+ * @param {(text: string, meta: {confidence: number}) => void} opts.onResult  최종 인식 결과
+ * @param {() => void} [opts.onStart]
+ * @param {() => void} [opts.onEnd]
+ * @param {(err: string) => void} [opts.onError]  무시해도 되는 오류는 전달하지 않는다
+ * @param {string} [opts.lang='ko-KR']  browser 모드에서만 쓰인다
+ * @param {object} [opts.vadOptions]  server 모드 전용 — VAD 임계값 덮어쓰기
+ * @param {(info: object) => void} [opts.onVad]  server 모드 전용 — 프레임마다 VAD 관측값
+ * @param {boolean} [opts.dryRun]  server 모드 전용 — 발화를 잡되 업로드하지 않는다
+ * @returns {{start: () => void, stop: () => void, abort: () => void, isSupported: boolean}}
+ */
+export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko-KR', vadOptions, onVad, dryRun }) {
+  if (STT_MODE === 'browser') {
+    // browser 모드에는 우리 VAD가 없다 — 경계를 Web Speech API가 잡는다.
+    return createBrowserRecognizer({ onResult, onStart, onEnd, onError, lang });
+  }
+  return createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, dryRun });
 }

@@ -24,9 +24,23 @@ Respond strictly as a JSON object with these keys:
 - confidence: number between 0 and 1 indicating how certain you are about isEmergency
 - summary: string (a short, one-sentence Korean description of the scene)`;
 
+// 파이 OS 저장소의 Chromium은 구글 음성 키 없이 빌드돼 있어 브라우저 음성 인식이
+// 항상 network 오류로 끝난다(2026-09-01 실측). 그래서 받아쓰기를 서버로 옮겼다.
+//
+// 이 프롬프트의 유일한 임무는 **들린 말을 그대로 옮기는 것**이다. 요약하거나 고쳐 쓰면
+// 웨이크워드 게이트(lib/wakeword.js)가 "효돌아"를 못 찾고, 응급 발화 우회도 같이 죽는다.
+const STT_PROMPT = `이 오디오는 한국 어르신이 돌봄 로봇에게 한 말입니다.
+들린 말을 한국어로 **그대로** 받아쓰세요.
+
+규칙:
+- 받아쓴 문장만 출력합니다. 설명, 번역, 요약, 따옴표, 라벨을 붙이지 마세요.
+- 들리는 대로 적습니다. 문장을 다듬거나 고쳐 쓰지 마세요.
+- 사람 목소리가 없거나 알아들을 수 없으면 **아무것도 출력하지 마세요**(빈 응답).
+- 잡음이나 배경 소리는 옮겨 적지 마세요.`;
+
 /** 매 턴 표정 정보를 함께 전달한다 — 시스템 프롬프트가 아니라 사용자 턴에 붙인다. */
 function buildUserTurn(text, seniorExpression) {
   return `[어르신의 현재 표정/감정: '${seniorExpression || 'neutral'}']\n어르신의 말씀: "${text}"`;
 }
 
-module.exports = { CHAT_SYSTEM_INSTRUCTION, VISION_PROMPT, buildUserTurn };
+module.exports = { CHAT_SYSTEM_INSTRUCTION, VISION_PROMPT, STT_PROMPT, buildUserTurn };

@@ -1,0 +1,25 @@
+[Unit]
+Description=Hyodol drivetrain — 이동 명령 소비자
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# %h = 이 사용자의 홈. 키오스크 스크립트들이 $HOME 을 쓰는 것과 같은 이유로
+# 사용자 이름을 박지 않는다(파이마다 다를 수 있다).
+WorkingDirectory=%h/silver-care-robot/deploy/pi/drivetrain
+# 주소와 키는 키오스크와 **같은 파일**에서 읽는다 (deploy/pi/kiosk.env.example).
+# set-url.sh 로 터널 주소를 바꾸면 여기도 함께 따라간다 — 두 곳에 적지 않기 위함이다.
+EnvironmentFile=%h/.config/hyodol/kiosk.env
+ExecStart=/usr/bin/python3 drivetrain.py --api ${KIOSK_URL} --key ${ROBOT_API_KEY}
+
+# 죽으면 다시 띄운다. 다시 뜨는 동안에는 아무도 move 를 소비하지 않으므로 로봇은 선다.
+Restart=always
+RestartSec=2
+
+# stop() 이 돌 시간을 준다 — SIGTERM 뒤 이만큼 기다렸다가 SIGKILL 한다.
+# drivetrain.py 의 finally 가 그 사이에 모터를 끈다.
+TimeoutStopSec=5
+
+[Install]
+WantedBy=default.target

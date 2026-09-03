@@ -13,6 +13,7 @@ const commandRoutes = require('./routes/commands');
 const controlRoutes = require('./routes/control');
 const eventRoutes = require('./routes/events');
 const ttsRoutes = require('./routes/tts');
+const sttRoutes = require('./routes/stt');
 const pushRoutes = require('./routes/push');
 const medicationRoutes = require('./routes/medications');
 
@@ -70,6 +71,7 @@ function createApp() {
   app.use('/api', controlRoutes);
   app.use('/api', eventRoutes);
   app.use('/api', ttsRoutes);
+  app.use('/api', sttRoutes);
   app.use('/api', pushRoutes);
   app.use('/api', medicationRoutes);
 
