@@ -202,8 +202,10 @@ body:has(.kiosk-root) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  padding: 1rem 2rem;
+  /* 800×480에서 이 값들은 곧 얼굴 크기다. 간격 3개 × 1rem = 48px, 위아래 여백 32px —
+     합치면 80px이고 그만큼 얼굴이 작아진다. 가로는 넉넉하므로 세로만 조인다. */
+  gap: 0.5rem;
+  padding: 0.5rem 2rem;
 }
 
 /* ─────────────────────────────────────────────
@@ -215,9 +217,10 @@ body:has(.kiosk-root) {
   align-items: center;
   justify-content: center;
   min-height: 0;
-  /* 안테나(.antenna-tip)가 얼굴 상자보다 36px 위로 나온다. 자리를 안 비워 두면
-     얼굴이 위로 붙었을 때 안테나가 잘린다 — 아래 max-height가 이 안쪽 높이를 본다. */
-  padding-top: 36px;
+  /* 안테나(.antenna-tip)가 얼굴 상자보다 위로 나온다. 자리를 안 비워 두면 얼굴이
+     위로 붙었을 때 안테나가 잘린다 — 아래 max-height가 이 안쪽 높이를 본다.
+     28px은 09-03에 얼굴을 키우며 줄인 값이다. 더 줄이면 안테나 끝이 잘린다. */
+  padding-top: 28px;
 }
 
 /* 얼굴 크기는 **희망 크기**이고, 실제로는 .face-area에 남는 만큼으로 줄어든다.
@@ -225,7 +228,9 @@ body:has(.kiosk-root) {
    얼굴이 말풍선을 덮어 글자를 가렸다. max-height로 자리에 맞추고 aspect-ratio로
    정사각형을 지킨다 — 줄어들 때 우선순위는 '읽어야 할 글 > 얼굴'이다. */
 .robot-face {
-  height: min(55vh, 300px);
+  /* 자리가 나면 여기까지 커진다. 실제 크기는 max-height가 정하므로 이건 상한일 뿐이다.
+     09-03 파이 실물에서 얼굴이 170px 남짓이라 작아 보인다는 지적이 있어 올렸다. */
+  height: min(70vh, 340px);
   width: auto;
   aspect-ratio: 1;
   max-height: 100%;
@@ -265,7 +270,7 @@ body:has(.kiosk-root) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.4rem 1rem;
+  padding: 0.15rem 1rem;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-glass);
   border-radius: 20px;
@@ -506,8 +511,8 @@ body:has(.kiosk-root) {
   display: flex;
   gap: 0.5rem;
   width: min(90%, 500px);
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
+  margin-top: 0.15rem;
+  margin-bottom: 0.15rem;
 }
 
 .text-chat-input {
