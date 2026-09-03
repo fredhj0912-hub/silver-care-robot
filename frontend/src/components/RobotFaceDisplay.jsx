@@ -19,6 +19,11 @@ const MOVE_ARROWS = { up: '⬆️', down: '⬇️', left: '⬅️', right: '➡�
 // 일시적 STT 오류가 이만큼 연속되면 음성 인식을 포기하고 텍스트 입력으로 안내한다.
 const STT_FAIL_LIMIT = 3;
 
+// 브라우저 TTS에 말을 시킨 뒤 이만큼 안에 onstart가 안 오면 '소리가 안 났다'로 본다.
+// 짧게 잡는 이유: 재생이 실제로 시작되는 데 걸리는 시간이 아니라, **한 번도 시작되지 않는**
+// 경우를 잡는 값이다. 파이에서는 speak()가 아예 무시되어 영영 오지 않는다.
+const VOICELESS_PROBE_MS = 1500;
+
 // 음성 인식이 안 될 때 화면에 뜨는 문구. 원인을 말해야 앞에 선 사람이 고칠 수 있다.
 const STT_UNAVAILABLE_TEXT = {
   insecure: '안전하지 않은 주소로 열렸어요 (HTTPS 필요) · 아래에 글로 말씀해 주세요',
@@ -55,6 +60,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
 
   // 음성 인식 상태: 'idle' | 'listening' | 'processing' | 'speaking'
   const [voiceState, setVoiceState] = useState('idle');
+  // 서버 TTS가 실패해 브라우저 TTS로 넘어갔는데 **소리가 실제로 나지 않은** 상태.
+  // 파이의 Chromium에는 speech-dispatcher가 없어 speak()가 조용히 무시된다(09-01 실측) —
+  // 그러면 화면에는 글이 뜨고 로봇은 벙어리가 되는데, 밖에서는 그 둘이 구별되지 않았다.
+  const [voiceless, setVoiceless] = useState(false);
 
   // Refs
   const recognitionRef = useRef(null);
@@ -64,6 +73,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   const shouldListenRef = useRef(true);
   const audioRef = useRef(null);          // 서버 TTS 오디오 재생 핸들
   const speechWatchdogRef = useRef(null); // 발화 완료 콜백이 영영 안 올 때를 대비한 타이머
+  const voicelessTimerRef = useRef(null); // 브라우저 TTS가 실제로 소리를 냈는지 재는 타이머
 
   // status.isEmergency 를 ref로도 들고 있는다.
   // speakText가 상태값에 직접 의존하면 비상 상태가 바뀔 때마다 콜백이 새로 만들어지고,
@@ -159,8 +169,20 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     }, budget);
   }, [finishSpeaking]);
 
-  const speakWithBrowser = useCallback((text) => {
-    if (!window.speechSynthesis) return finishSpeaking();
+  /**
+   * 브라우저 SpeechSynthesis로 말한다.
+   *
+   * @param {boolean} expectSound 서버 TTS가 **실패해서** 여기로 넘어왔는가.
+   *   true일 때만 무음 여부를 화면에 드러낸다 — 개발 PC처럼 `TTS_PROVIDER=browser`로
+   *   정상 동작하는 경우까지 경고를 띄우면 곧 아무도 그 표시를 안 믿게 된다.
+   */
+  const speakWithBrowser = useCallback((text, { expectSound = false } = {}) => {
+    clearTimeout(voicelessTimerRef.current);
+
+    if (!window.speechSynthesis) {
+      if (expectSound) setVoiceless(true);
+      return finishSpeaking();
+    }
 
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -178,12 +200,27 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     utterance.pitch = 1.2;
 
     utterance.onstart = () => {
+      // 소리가 실제로 시작됐다 — 이것만이 무음이 아니라는 증거다
+      clearTimeout(voicelessTimerRef.current);
+      setVoiceless(false);
       if (!emergencyRef.current) {
         setRobotEmotion(prev => (prev === 'neutral' || prev === 'thinking') ? 'happy' : prev);
       }
     };
     utterance.onend = finishSpeaking;
     utterance.onerror = finishSpeaking;
+
+    // speak()가 조용히 무시되면 onstart가 **한 번도** 오지 않는다. 워치독(최소 3초)은
+    // 듣기만 재개시킬 뿐 그 사실을 남기지 않으므로, 여기서 따로 짧게 재서 화면에 드러낸다.
+    //
+    // **speak() 앞에서 건다.** 뒤에 걸면 onstart를 동기로 부르는 구현에서 취소가
+    // 타이머보다 먼저 일어나, 말을 했는데도 무음이라고 표시하게 된다(테스트로 확인).
+    if (expectSound) {
+      voicelessTimerRef.current = setTimeout(() => {
+        console.warn('브라우저 TTS가 소리를 내지 못했습니다 — 화면 표시로만 전달됩니다.');
+        setVoiceless(true);
+      }, VOICELESS_PROBE_MS);
+    }
 
     window.speechSynthesis.speak(utterance);
     // 실제 재생이 시작되는 시점 기준으로 예산을 다시 잡는다
@@ -192,6 +229,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
 
   const speakText = useCallback(async (text) => {
     if (!text) return;
+
+    // 무음 표시는 지금 말하는 문장에 대한 것이다 — 새 문장을 시작할 때 지운다
+    clearTimeout(voicelessTimerRef.current);
+    setVoiceless(false);
 
     // 인식을 먼저 멈춘다 — 서버 응답을 기다리는 동안에도 자기 목소리를 들으면 안 된다
     isSpeakingRef.current = true;
@@ -209,10 +250,12 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       });
 
       // 204 = 서버가 브라우저 TTS로 처리하라는 신호 (provider=browser 또는 합성 실패)
+      // 이 헤더가 있으면 **합성 실패**다 — 즉 원래는 서버가 소리를 내 줬어야 하는 상황이고,
+      // 브라우저 TTS가 무음이면 어르신에게는 완전한 실패다. 그때만 무음 여부를 재 본다.
       if (res.status === 204 || !res.ok) {
         const serverError = res.headers.get('X-TTS-Error');
         if (serverError) console.warn('서버 TTS 실패 → 브라우저 TTS:', decodeURIComponent(serverError));
-        return speakWithBrowser(text);
+        return speakWithBrowser(text, { expectSound: Boolean(serverError) });
       }
 
       const blob = await res.blob();
@@ -227,15 +270,17 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       };
 
       audio.onplay = () => {
+        setVoiceless(false);
         if (!emergencyRef.current) {
           setRobotEmotion(prev => (prev === 'neutral' || prev === 'thinking') ? 'happy' : prev);
         }
       };
       audio.onended = cleanup;
       audio.onerror = () => {
+        // 서버는 음성을 줬는데 재생이 안 됐다 — 소리가 나야 하는 상황인 것은 확실하다
         URL.revokeObjectURL(url);
         audioRef.current = null;
-        speakWithBrowser(text);
+        speakWithBrowser(text, { expectSound: true });
       };
 
       await audio.play();
@@ -438,6 +483,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       clearTimeout(restartTimer);
       clearTimeout(gateTimerRef.current);
       clearTimeout(speechWatchdogRef.current);
+      clearTimeout(voicelessTimerRef.current);
       shouldListenRef.current = false;
       recognizer.abort();
     };
@@ -821,6 +867,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
           <div className="speech-bubble">
             <span className="speech-sender">🤖 효돌이:</span>
             <p className="speech-text">{robotSpeech}</p>
+            {/* 소리가 안 났다는 사실은 화면에 적지 않으면 아무 데도 남지 않는다 */}
+            {voiceless && (
+              <p className="speech-voiceless">🔇 소리가 나지 않아 글로만 전해 드렸어요</p>
+            )}
           </div>
         </div>
       )}

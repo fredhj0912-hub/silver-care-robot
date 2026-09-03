@@ -500,6 +500,15 @@ body:has(.kiosk-root) {
   margin: 0;
 }
 
+/* 소리가 안 났을 때만 뜬다. 말풍선 글자보다 작게 — 어르신이 읽어야 할 것은 답변이지
+   이 경고가 아니다. 다만 앞에 선 사람에게는 이게 유일한 단서다. */
+.speech-voiceless {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f59e0b;
+  margin: 0.45rem 0 0;
+}
+
 .text-chat-form {
   display: flex;
   gap: 0.5rem;

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { config } = require('../config');
+const gemini = require('./gemini');
 
 /**
  * 음성 합성.
@@ -19,6 +20,35 @@ const { config } = require('../config');
  */
 
 const GEMINI_TTS_SAMPLE_RATE = 24000;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 오류에 HTTP 상태를 실어 던진다.
+ *
+ * gemini.js는 SDK가 만든 메시지 문자열(`[503 ...]`)을 정규식으로 읽어 재시도를 판정하지만,
+ * 여기는 raw fetch라 상태코드를 **직접** 알 수 있다. 문자열을 추측할 이유가 없다.
+ */
+function httpError(message, status) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+// 잠시 후 다시 부르면 풀릴 수 있는 상태들 (모델 과부하·분당 한도·게이트웨이)
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+/**
+ * 이 오류를 다시 시도해도 되는가.
+ *
+ * 429는 두 가지다 — 분당 한도(잠시 후 풀린다)와 **할당량 소진**(오늘은 안 풀린다).
+ * 후자를 재시도하면 시간만 버리는 게 아니라 남은 통을 더 태운다. 그 판정은
+ * gemini.js의 것을 그대로 쓴다 — 두 곳으로 갈라지면 한쪽만 고치게 된다.
+ */
+function isRetryable(err) {
+  if (gemini.isQuotaExhausted(err)) return false;
+  return RETRYABLE_STATUS.has(err && err.status);
+}
 
 function cacheKey(text, provider, voice) {
   return crypto.createHash('sha1').update(`${provider}|${voice}|${text}`).digest('hex');
@@ -62,11 +92,14 @@ async function synthWithGemini(text, voice) {
     }),
   });
 
-  const json = await res.json();
-  if (json.error) throw new Error(`Gemini TTS ${json.error.code}: ${json.error.message}`);
+  // 503은 JSON이 아니라 게이트웨이 HTML로 오는 경우가 있다. 그때 파싱 예외를 그대로
+  // 올려보내면 상태코드가 사라져 **재시도할 수 있는 오류인지 판단할 수 없게 된다.**
+  const json = await res.json().catch(() => ({}));
+  if (json.error) throw httpError(`Gemini TTS ${json.error.code}: ${json.error.message}`, res.status);
+  if (!res.ok) throw httpError(`Gemini TTS ${res.status}: 응답을 읽지 못했습니다`, res.status);
 
   const b64 = json.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (!b64) throw new Error('Gemini TTS 응답에 오디오가 없습니다');
+  if (!b64) throw httpError('Gemini TTS 응답에 오디오가 없습니다', res.status);
 
   return { buffer: pcmToWav(Buffer.from(b64, 'base64')), ext: 'wav', mime: 'audio/wav' };
 }
@@ -89,23 +122,48 @@ async function synthWithCloud(text, voice) {
     }
   );
 
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (json.error) {
     // 가장 흔한 실패: API 미활성화. 무엇을 해야 하는지 알려준다.
+    // 403이라 RETRYABLE_STATUS에 없다 — 재시도해도 활성화되지 않는다.
     if (json.error.status === 'PERMISSION_DENIED') {
-      throw new Error(
+      throw httpError(
         'Cloud TTS API가 활성화되지 않았습니다. ' +
-        'https://console.cloud.google.com/apis/library/texttospeech.googleapis.com 에서 활성화하세요.'
+        'https://console.cloud.google.com/apis/library/texttospeech.googleapis.com 에서 활성화하세요.',
+        res.status
       );
     }
-    throw new Error(`Cloud TTS ${json.error.code}: ${json.error.message}`);
+    throw httpError(`Cloud TTS ${json.error.code}: ${json.error.message}`, res.status);
   }
-  if (!json.audioContent) throw new Error('Cloud TTS 응답에 오디오가 없습니다');
+  if (!res.ok) throw httpError(`Cloud TTS ${res.status}: 응답을 읽지 못했습니다`, res.status);
+  if (!json.audioContent) throw httpError('Cloud TTS 응답에 오디오가 없습니다', res.status);
 
   return { buffer: Buffer.from(json.audioContent, 'base64'), ext: 'mp3', mime: 'audio/mpeg' };
 }
 
 const PROVIDERS = { gemini: synthWithGemini, cloud: synthWithCloud };
+
+/**
+ * provider를 부르되 일시 오류는 다시 시도한다.
+ *
+ * 이게 없던 2026-09-02에 **503 한 번으로 로봇이 소리를 잃었다.** 실패하면 라우트가
+ * 204를 돌려주고 프론트가 브라우저 TTS로 넘어가는데, 파이의 브라우저 TTS는 무음이다.
+ * 즉 여기서 포기하는 것은 그 문장을 어르신이 **영영 못 듣는다**는 뜻이다.
+ */
+async function synthWithRetry(text, voice) {
+  const synth = PROVIDERS[config.ttsProvider];
+  const retries = Math.max(0, config.ttsRetries);
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await synth(text, voice);
+    } catch (err) {
+      if (attempt >= retries || !isRetryable(err)) throw err;
+      console.warn(`TTS 일시 오류(${err.status}) — 다시 시도합니다: ${err.message}`);
+      await sleep(config.ttsRetryDelayMs * (attempt + 1));
+    }
+  }
+}
 
 const isEnabled = () =>
   config.ttsProvider !== 'browser' && Boolean(config.geminiApiKey) && Boolean(PROVIDERS[config.ttsProvider]);
@@ -131,7 +189,7 @@ async function synthesize(text, { voice = config.ttsVoice } = {}) {
   }
 
   const started = Date.now();
-  const result = await PROVIDERS[config.ttsProvider](trimmed, voice);
+  const result = await synthWithRetry(trimmed, voice);
   const ms = Date.now() - started;
 
   fs.mkdirSync(config.ttsCacheDir, { recursive: true });

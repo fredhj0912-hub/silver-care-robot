@@ -80,6 +80,13 @@ const config = {
   ttsVoice: process.env.TTS_VOICE || (process.env.TTS_PROVIDER === 'cloud' ? 'ko-KR-Chirp3-HD-Leda' : 'Leda'),
   ttsSpeakingRate: Number(process.env.TTS_SPEAKING_RATE) || 1.0,
   ttsPitch: Number(process.env.TTS_PITCH) || 0,
+  // 일시 오류(503 등)를 몇 번 더 시도할지. **기본값을 1로 잡은 이유**: TTS도 하루 20건이고,
+  // 503 재시도가 그 카운트에 잡히는지 확인된 바 없다. 할당량 소진은 아예 재시도하지 않는다.
+  // `|| 1`이 아니라 이 형태인 이유: TTS_RETRIES=0("재시도하지 마라")이 살아남아야 한다.
+  ttsRetries: Number.isFinite(Number(process.env.TTS_RETRIES)) && process.env.TTS_RETRIES !== ''
+    ? Number(process.env.TTS_RETRIES)
+    : 1,
+  ttsRetryDelayMs: Number(process.env.TTS_RETRY_DELAY_MS) || 600,
 
   maxImageBytes: MAX_IMAGE_BYTES,
   maxAudioBytes: MAX_AUDIO_BYTES,

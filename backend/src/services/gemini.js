@@ -289,4 +289,6 @@ async function transcribeAudio(dataUri) {
   }
 }
 
-module.exports = { chat, analyzeImage, transcribeAudio, isAvailable, parseJSON, mockReply, cleanTranscript, withRetry };
+// isQuotaExhausted는 tts.js도 쓴다 — "오늘은 안 풀린다"의 판정이 두 곳으로 갈라지면
+// 한쪽만 고쳐 놓고 다른 쪽이 남은 할당량을 계속 태우게 된다.
+module.exports = { chat, analyzeImage, transcribeAudio, isAvailable, parseJSON, mockReply, cleanTranscript, withRetry, isQuotaExhausted };
