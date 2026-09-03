@@ -61,6 +61,16 @@ BOOTLOADER_WAIT_S = 2.0
 
 _fd = None
 
+# 마지막으로 실제 보낸 글자. **같은 글자를 반복해서 보내지 않기 위한 것이다.**
+# 처음에는 폴링마다(200ms) 다시 보냈는데, 그러면 바퀴가 아예 돌지 않았다
+# (2026-09-03 실물). 손으로 'F'를 **한 번** 보냈을 때는 잘 돌았다 — 펌웨어가 명령을
+# 받을 때마다 내부 상태를 다시 잡는 것으로 보인다. 그래서 **의도가 바뀔 때만** 보낸다.
+_last_sent = None
+
+# 정지는 반대로 다룬다. 'S'는 몇 번 받아도 로봇이 움직이지 않으므로 여러 번 보내
+# 한 글자가 유실돼도 서게 한다. 위험한 쪽으로 기울여 두는 것이 맞다.
+STOP_REPEATS = 3
+
 
 def _log(msg):
     print(f"[MOTORS] {msg}", file=sys.stderr, flush=True)
@@ -118,9 +128,12 @@ def _write(payload):
 def drive(direction, speed):
     """direction 방향으로 돈다. speed는 이 펌웨어에 전달할 방법이 없다(머리말 참고).
 
-    폴링마다 같은 글자를 다시 보낸다 — 한 글자가 유실돼도 다음 주기에 복구되고,
-    펌웨어에 자체 시한이 있더라도 그것을 갱신해 준다. 초당 5바이트라 부담이 없다.
+    drivetrain.py 는 움직이는 동안 이것을 폴링마다 부르지만, **선으로 나가는 것은
+    방향이 바뀔 때 한 글자뿐이다.** 무엇을 보낼지는 하드웨어를 아는 이 파일이 정한다.
+
+    쓰기에 실패하면 _last_sent 를 갱신하지 않으므로 다음 폴링에서 자동으로 다시 보낸다.
     """
+    global _last_sent
     payload = COMMANDS.get(direction)
     if payload is None:
         # 모르는 방향을 아두이노에 보내느니 멈춘다. drivetrain.py가 거르지만,
@@ -128,13 +141,25 @@ def drive(direction, speed):
         _log(f"모르는 방향: {direction} — 정지한다")
         stop()
         return
-    _write(payload)
+    if payload == _last_sent:
+        return
+    if _write(payload):
+        _last_sent = payload
+        _log(f"→ {payload.decode()}")
 
 
 def stop():
-    """즉시 정지. 여러 번 불려도, 이미 멈춰 있어도, 포트가 사라졌어도 안전해야 한다."""
+    """즉시 정지. 여러 번 불려도, 이미 멈춰 있어도, 포트가 사라졌어도 안전해야 한다.
+
+    이동 명령과 달리 **중복을 걸러내지 않는다.** 'S'를 여러 번 받아도 로봇은 움직이지
+    않지만, 한 번 보낸 'S'가 유실되면 로봇이 계속 간다. 위험이 한쪽으로만 있으므로
+    그쪽으로 기울인다.
+    """
+    global _last_sent
     try:
-        _write(STOP)
+        for _ in range(STOP_REPEATS):
+            _write(STOP)
+        _last_sent = STOP
     except Exception as err:
         # _write가 이미 삼키지만, 정지 경로에서는 어떤 예외도 밖으로 내보내지 않는다.
         _log(f"정지 중 예외 무시 ({err})")
