@@ -41,8 +41,10 @@ function ControlScreen({ isEmergency }) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [error, setError] = useState(null);
   const [held, setHeld] = useState(null);
-  // 보낸 심박 수. 손을 뗀 뒤에도 남겨 둔다 — 몇 번 나갔는지가 진단의 핵심이다.
-  const [beats, setBeats] = useState(0);
+  // 심박 통계. 손을 뗀 뒤에도 남겨 둔다 — 몇 번 나갔고 몇 번 **닿았는지**가 진단의
+  // 핵심이다. "보냈다"만 세면 타이머가 도는 것까지만 알 수 있고, 서버에 닿았는지는
+  // 여전히 모른다(09-03에 실제로 그 지점에서 막혔다).
+  const [beats, setBeats] = useState({ sent: 0, ok: 0, fail: 0, last: '' });
 
   const heartbeatRef = useRef(null);
 
@@ -65,12 +67,22 @@ function ControlScreen({ isEmergency }) {
   }, [refreshState]);
 
   const sendMove = useCallback(async (direction) => {
+    const started = Date.now();
     try {
       const res = await apiFetch('/api/control/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ direction, speed: SPEED, durationMs: MOVE_TTL_MS }),
       });
+      if (DEBUG) {
+        const took = Date.now() - started;
+        setBeats((b) => ({
+          ...b,
+          ok: b.ok + (res.ok ? 1 : 0),
+          fail: b.fail + (res.ok ? 0 : 1),
+          last: `${res.status} ${took}ms`,
+        }));
+      }
       if (res.ok) {
         setError(null);
       } else if (res.status === 423) {
@@ -78,7 +90,10 @@ function ControlScreen({ isEmergency }) {
       } else {
         setError('이동 명령을 보내지 못했어요.');
       }
-    } catch {
+    } catch (err) {
+      if (DEBUG) {
+        setBeats((b) => ({ ...b, fail: b.fail + 1, last: `throw ${Date.now() - started}ms` }));
+      }
       setError('로봇과 연결되지 않아요. 같은 Wi-Fi에 있는지 확인해 주세요.');
     }
   }, []);
@@ -106,9 +121,9 @@ function ControlScreen({ isEmergency }) {
     if (heartbeatRef.current) clearInterval(heartbeatRef.current);
     setHeld(direction);
     sendMove(direction);
-    setBeats(1);
+    setBeats({ sent: 1, ok: 0, fail: 0, last: '' });
     heartbeatRef.current = setInterval(() => {
-      setBeats((n) => n + 1);
+      setBeats((b) => ({ ...b, sent: b.sent + 1 }));
       sendMove(direction);
     }, HEARTBEAT_MS);
   }, [isEmergency, sendMove]);
@@ -225,7 +240,9 @@ function ControlScreen({ isEmergency }) {
 
       {DEBUG && (
         <p className="g-note-inline" style={{ marginTop: 12, fontFamily: 'monospace' }}>
-          {held ? `누르는 중: ${held}` : '떼어 놓음'} · 심박 {beats}회
+          {held ? `누르는 중: ${held}` : '떼어 놓음'}
+          {' · '}보냄 {beats.sent} · 닿음 {beats.ok} · 실패 {beats.fail}
+          {beats.last ? ` · 마지막 ${beats.last}` : ''}
         </p>
       )}
 
