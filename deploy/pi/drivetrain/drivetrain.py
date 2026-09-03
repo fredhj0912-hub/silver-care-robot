@@ -58,7 +58,9 @@ _running = True
 
 
 def _log(msg):
-    print(f"[DRIVETRAIN] {msg}", flush=True)
+    # 시각을 함께 찍는다 — 이 로그로 재려는 것이 "언제"가 아니라 "얼마나 걸렸나"이고,
+    # 시각이 없으면 뗀 순간과 선 순간 사이를 눈대중으로 재게 된다.
+    print(f"[DRIVETRAIN {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
 def fetch_state(api, key):
@@ -100,7 +102,10 @@ def run(api, key, dry_run):
         elif driving and (now_ms - last_fresh_ms) >= STALE_MS:
             # 신선한 의도가 끊겼다. 조회가 실패했든 서버가 "안 움직임"이라 했든 같다.
             if dry_run:
-                _log("[dry-run] stop()")
+                # 뗀 순간부터가 아니라 **마지막 신선한 의도부터** 잰다. 사람이 시계를
+                # 보고 재는 것보다 정확하고, 이 값이 곧 데드맨 판정에 걸린 시간이다
+                # (실제 정지까지는 여기에 심박 간격 이내의 시간이 더해진다).
+                _log(f"[dry-run] stop() — 마지막 신선한 의도로부터 {now_ms - last_fresh_ms:.0f}ms")
             else:
                 motors.stop()
             driving, last_direction = False, None
