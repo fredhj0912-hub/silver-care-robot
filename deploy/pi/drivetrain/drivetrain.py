@@ -83,6 +83,10 @@ def fetch_state(api, key):
 
 
 def run(api, key, dry_run):
+    # **로그는 실주행에서도 찍는다.** 예전에는 --dry-run 에서만 찍었는데, 정작 실물이
+    # 도는 동안 화면에 아무것도 안 나와서 "로봇이 왜 섰나"를 밖에서 볼 수가 없었다
+    # (2026-09-03에 실제로 그 상황을 만났다). 표시만 구분한다.
+    tag = "[dry-run] " if dry_run else ""
     last_fresh_ms = 0.0
     driving = False
     last_direction = None
@@ -98,10 +102,9 @@ def run(api, key, dry_run):
         if moving and direction in motors.DIRECTIONS:
             last_fresh_ms = now_ms
             speed = min(MAX_SPEED, int(state.get("speed") or MAX_SPEED))
-            if dry_run:
-                if not driving or direction != last_direction:
-                    _log(f"[dry-run] drive({direction}, {speed}) — 왕복 {(time.monotonic() - started) * 1000:.0f}ms")
-            else:
+            if not driving or direction != last_direction:
+                _log(f"{tag}drive({direction}, {speed}) — 왕복 {(time.monotonic() - started) * 1000:.0f}ms")
+            if not dry_run:
                 motors.drive(direction, speed)
             driving, last_direction = True, direction
 
@@ -116,10 +119,9 @@ def run(api, key, dry_run):
             answered = state is not None
             waited = now_ms - last_fresh_ms
             if answered or waited >= STALE_MS:
-                if dry_run:
-                    why = "서버가 정지" if answered else f"조회 실패 {waited:.0f}ms"
-                    _log(f"[dry-run] stop() — {why} (마지막 신선한 의도로부터 {waited:.0f}ms)")
-                else:
+                why = "서버가 정지" if answered else f"조회 실패 {waited:.0f}ms"
+                _log(f"{tag}stop() — {why} (마지막 신선한 의도로부터 {waited:.0f}ms)")
+                if not dry_run:
                     motors.stop()
                 driving, last_direction = False, None
 

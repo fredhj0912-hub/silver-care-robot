@@ -148,9 +148,18 @@ function ControlScreen({ isEmergency }) {
       // 길게 누르면 뜨는 컨텍스트 메뉴를 막는다. 메뉴가 뜨는 순간 pointerup을 놓쳐
       // **손을 뗐는데 심박이 계속 나가는** 상태가 될 수 있어, 보기 문제가 아니라 안전 문제다.
       onContextMenu={(e) => e.preventDefault()}
-      onPointerDown={(e) => { e.preventDefault(); press(direction); }}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        // 포인터를 이 버튼에 붙잡아 둔다. 없으면 손가락이 64px 버튼 밖으로 몇 px만
+        // 밀려도 pointerleave 가 떠서 정지하고, press()는 pointerdown 에서만 시작하므로
+        // **누르고 있는데도 다시 출발하지 않는다**(09-03 실물에서 실제로 그랬다).
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 미지원 브라우저 */ }
+        press(direction);
+      }}
       onPointerUp={releaseAll}
-      onPointerLeave={releaseAll}
+      // pointerleave 는 더 이상 정지 경로가 아니다 — 손을 뗀 것을 잡는 일은 위 pointerup 과
+      // window 의 pointerup/blur/visibilitychange 가 이미 전부 덮는다(useEffect 참고).
+      // 손가락 흔들림과 손을 뗀 것을 구분하지 못하는 이벤트로 로봇을 세우면 안 된다.
       onPointerCancel={releaseAll}
     >
       {label}
