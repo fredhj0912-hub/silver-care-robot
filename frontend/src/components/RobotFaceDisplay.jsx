@@ -36,6 +36,9 @@ const STT_UNAVAILABLE_TEXT = {
 // 네트워크가 끊겼다 돌아온 흔적이므로 지금 실행하면 안 된다.
 const MOVE_MAX_AGE_MS = 2000;
 
+// 말풍선은 말이 끝나도 바로 지우지 않는다 — 글로 다시 읽을 시간을 준다.
+const SPEECH_BUBBLE_HOLD_MS = 5000;
+
 /**
  * RobotFaceDisplay — 라즈베리파이 DSI 디스플레이 전용 전체 화면 로봇 얼굴 컴포넌트.
  * (실물은 720×1280 세로. 09-03 실측 — 그 전에는 800×480 가로로 잘못 알고 있었다)
@@ -74,6 +77,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   const audioRef = useRef(null);          // 서버 TTS 오디오 재생 핸들
   const speechWatchdogRef = useRef(null); // 발화 완료 콜백이 영영 안 올 때를 대비한 타이머
   const voicelessTimerRef = useRef(null); // 브라우저 TTS가 실제로 소리를 냈는지 재는 타이머
+  const speechBubbleTimerRef = useRef(null); // 말풍선을 지우기까지의 유예 타이머
 
   // status.isEmergency 를 ref로도 들고 있는다.
   // speakText가 상태값에 직접 의존하면 비상 상태가 바뀔 때마다 콜백이 새로 만들어지고,
@@ -150,6 +154,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     if (!emergencyRef.current) setRobotEmotion('neutral');
     setVoiceState('idle');
     startListening();
+
+    // 말은 끝났지만 말풍선은 잠시 더 둔다 — 어르신이 글로 다시 읽을 시간.
+    clearTimeout(speechBubbleTimerRef.current);
+    speechBubbleTimerRef.current = setTimeout(() => setRobotSpeech(''), SPEECH_BUBBLE_HOLD_MS);
   }, []);
 
   /**
@@ -233,6 +241,9 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     // 무음 표시는 지금 말하는 문장에 대한 것이다 — 새 문장을 시작할 때 지운다
     clearTimeout(voicelessTimerRef.current);
     setVoiceless(false);
+    // 이전 말풍선을 지우려던 예약도 취소한다 — 안 그러면 새 말풍선이 뜬 채로
+    // 옛 타이머가 마저 돌아 방금 뜬 새 메시지를 지워 버린다.
+    clearTimeout(speechBubbleTimerRef.current);
 
     // 인식을 먼저 멈춘다 — 서버 응답을 기다리는 동안에도 자기 목소리를 들으면 안 된다
     isSpeakingRef.current = true;
@@ -484,6 +495,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       clearTimeout(gateTimerRef.current);
       clearTimeout(speechWatchdogRef.current);
       clearTimeout(voicelessTimerRef.current);
+      clearTimeout(speechBubbleTimerRef.current);
       shouldListenRef.current = false;
       recognizer.abort();
     };
