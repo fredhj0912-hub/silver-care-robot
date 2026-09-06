@@ -16,6 +16,7 @@ const ttsRoutes = require('./routes/tts');
 const sttRoutes = require('./routes/stt');
 const pushRoutes = require('./routes/push');
 const medicationRoutes = require('./routes/medications');
+const snapshotRoutes = require('./routes/snapshots');
 
 /**
  * 사설 네트워크에서 온 요청만 허용한다.
@@ -67,6 +68,8 @@ function createApp() {
   app.use('/api', chatRoutes);
   app.use('/api', alertRoutes);
   app.use('/api', visionRoutes);
+  // /api/snapshots (목록·업로드). 이미지 서빙 /api/snapshots/:filename 은 alertRoutes 에 있다
+  app.use('/api', snapshotRoutes);
   app.use('/api', commandRoutes);
   app.use('/api', controlRoutes);
   app.use('/api', eventRoutes);

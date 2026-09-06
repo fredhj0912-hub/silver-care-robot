@@ -6,9 +6,10 @@ const { config } = require('../config');
 let S3Client = null;
 let PutObjectCommand = null;
 let GetObjectCommand = null;
+let DeleteObjectCommand = null;
 let NoSuchKey = null;
 try {
-  ({ S3Client, PutObjectCommand, GetObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3'));
+  ({ S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3'));
 } catch {
   console.log('@aws-sdk/client-s3 를 불러오지 못했습니다 — SNAPSHOT_STORAGE=s3는 동작하지 않습니다');
 }
@@ -72,8 +73,19 @@ async function saveS3(name, buffer, mime) {
   }));
 }
 
+async function removeLocal(name) {
+  fs.rmSync(path.join(config.snapshotDir, name), { force: true });
+}
+
+async function removeS3(name) {
+  const client = getS3Client();
+  if (!client) throw new Error('S3 클라이언트를 사용할 수 없습니다 (@aws-sdk/client-s3 로드 실패)');
+  await client.send(new DeleteObjectCommand({ Bucket: config.s3Bucket, Key: name }));
+}
+
 const SAVE_PROVIDERS = { local: saveLocal, s3: saveS3 };
 const SERVE_PROVIDERS = { local: serveLocal, s3: serveS3 };
+const REMOVE_PROVIDERS = { local: removeLocal, s3: removeS3 };
 
 /**
  * 파일명 접두어로 저장 당시의 provider를 알아낸다. `SNAPSHOT_STORAGE`를 바꿔도 이미
@@ -178,4 +190,25 @@ async function serve(filename, res) {
   await provider(filename, res);
 }
 
-module.exports = { save, serve, parseDataUri };
+/**
+ * 파일을 지운다. 보관 상한을 넘긴 스냅샷 정리용.
+ *
+ * 실패해도 던지지 않는다 — 지우려던 파일이 이미 없거나 S3가 잠깐 죽은 것 때문에
+ * 새 스냅샷 저장이 실패하면 안 된다. 그 경우 DB 행은 이미 사라졌으므로 파일만
+ * 남는데(고아 파일), 그건 다음 정리 대상이 아니라 로그로 남길 일이다.
+ *
+ * @returns {Promise<boolean>} 실제로 지웠는지
+ */
+async function remove(filename) {
+  const safe = safeFilename(filename);
+  if (!safe) return false;
+  try {
+    await REMOVE_PROVIDERS[providerFromFilename(safe)](safe);
+    return true;
+  } catch (err) {
+    console.error(`[SNAPSHOT] 삭제 실패 (${safe}):`, err.message);
+    return false;
+  }
+}
+
+module.exports = { save, serve, remove, parseDataUri };

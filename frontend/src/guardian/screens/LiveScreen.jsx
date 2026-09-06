@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { apiFetch } from '../../lib/api';
+import { apiFetch, assetUrl } from '../../lib/api';
 import { formatTime, relativeTime } from '../format';
 
 const REFRESH_MS = 10000;
@@ -18,9 +18,22 @@ function LiveScreen() {
 
   const load = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/vision/latest');
+      // 저장된 사진이 먼저다. /api/vision/latest 는 메모리에만 있어서 백엔드가
+      // 재시작하면 사라지고, Gemini 분석 경로(할당량을 쓰는 쪽)를 켰을 때만 채워진다.
+      const res = await apiFetch('/api/snapshots?limit=1');
       if (res.ok) {
-        const data = await res.json();
+        const { snapshots } = await res.json();
+        if (snapshots.length) {
+          setSnapshot(assetUrl(snapshots[0].url));
+          setCapturedAt(snapshots[0].capturedAt);
+          return;
+        }
+      }
+
+      // 저장된 것이 없으면 분석 경로가 메모리에 들고 있는 마지막 프레임을 본다.
+      const fallback = await apiFetch('/api/vision/latest');
+      if (fallback.ok) {
+        const data = await fallback.json();
         setSnapshot(data.image);
         setCapturedAt(data.capturedAt);
       }
@@ -55,7 +68,7 @@ function LiveScreen() {
         <p className="g-empty">
           {loading
             ? '불러오는 중이에요.'
-            : '아직 찍힌 사진이 없어요.\n로봇의 카메라 모니터링이 꺼져 있을 수 있어요.'}
+            : '아직 찍힌 사진이 없어요.\n로봇의 카메라가 꺼져 있을 수 있어요.'}
         </p>
       )}
     </main>

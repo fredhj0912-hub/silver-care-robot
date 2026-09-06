@@ -27,7 +27,10 @@ src/
     drivers/pg.js          node-pg 풀. ?→$n 변환, int8→number 파서, 풀에서 빌린 단일
                              커넥션 트랜잭션
   repositories/           one file per table; the only files that touch db/index.js
-    messages.js, alerts.js, commands.js, detections.js, status.js, subscriptions.js, medications.js
+    messages.js, alerts.js, commands.js, detections.js, status.js, subscriptions.js, medications.js,
+      snapshots.js  (카메라 스냅샷 **기록만** — 이미지 바이트는 DB에 안 들어간다.
+                       services/snapshots.js가 디스크/S3에 두고 여기엔 파일명만.
+                       pruneToLimit()이 지운 파일명을 돌려주므로 호출부가 파일도 지운다)
   services/               business logic + external API adapters — routes call these, never SDKs directly
     gemini.js              chat()/analyzeImage()/transcribeAudio(), retry + model-fallback chain,
                              mock fallback. transcribeAudio() is server-side STT — the Pi's Chromium
@@ -41,7 +44,8 @@ src/
     history.js              Gemini multi-turn history sliding window (trimToTurns — always starts on 'user')
     events.js                SSE pub/sub (EventEmitter-based), role-scoped event filtering
     prompts.js                Gemini system instructions
-    snapshots.js               data-URI → file on disk, path-traversal-safe read-back
+    snapshots.js               data-URI → file on disk(또는 S3), path-traversal-safe read-back,
+                                 remove()로 보관 상한 정리. 파일명 접두어가 저장 당시 provider다
     medication.js            classifyUtterance()/evaluateUtterance()/tick() — emergency.js와 같은 형태.
                               tick()이 시간이 된 약을 기존 speak 명령 큐에 넣고, 24시간 내 3회
                               미복용을 emergency.raise()로 **warning** 알림 1건으로 올린다
@@ -49,7 +53,10 @@ src/
                                  timer safety switch. No real actuator yet; simulates coordinates in memory
   routes/                 one file per resource, mounted under /api in app.js
     status.js, chat.js, alerts.js, vision.js, commands.js, events.js, tts.js, stt.js, push.js,
-    control.js, medications.js
+    control.js, medications.js,
+    snapshots.js             POST/GET /api/snapshots — 분석 없이 사진만 올리고 목록을 준다.
+                               **Gemini를 안 부른다**(vision.js와의 차이가 존재 이유다).
+                               이미지 서빙 GET /api/snapshots/:filename 은 alerts.js에 있다
   middleware/index.js     securityHeaders, apiKeyAuth, asyncHandler, notFound, errorHandler
 scripts/
   migrate-json-to-sqlite.js   one-time database.json import — idempotent (no-ops if messages already exist)

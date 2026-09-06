@@ -14,6 +14,14 @@ const VAD_DEBUG = readVadDebug(typeof window !== 'undefined' ? window.location.s
 const VISION_ENABLED = import.meta.env.VITE_VISION_ENABLED === 'true';
 const VISION_INTERVAL_MS = Number(import.meta.env.VITE_VISION_INTERVAL_MS) || 15000;
 
+// 분석 없이 사진만 올리는 경로. 보호자가 방 안을 보는 용도이고 **Gemini 를 안 쓴다**.
+// VITE_VISION_ENABLED 가 켜져 있으면 그쪽이 이긴다 — 카메라는 하나이고, 분석 경로가
+// 이미 사진을 남기므로 둘을 같이 돌릴 이유가 없다.
+const SNAPSHOT_ENABLED = !VISION_ENABLED && import.meta.env.VITE_SNAPSHOT_ENABLED === 'true';
+const SNAPSHOT_INTERVAL_MS = Number(import.meta.env.VITE_SNAPSHOT_INTERVAL_MS) || 30000;
+
+const CAMERA_ENABLED = VISION_ENABLED || SNAPSHOT_ENABLED;
+
 const MOVE_ARROWS = { up: '⬆️', down: '⬇️', left: '⬅️', right: '➡️' };
 
 // 일시적 STT 오류가 이만큼 연속되면 음성 인식을 포기하고 텍스트 입력으로 안내한다.
@@ -122,8 +130,9 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   }, [onStatusChange]);
 
   const { videoRef, canvasRef, cameraError } = useCameraMonitor({
-    enabled: VISION_ENABLED,
-    intervalMs: VISION_INTERVAL_MS,
+    enabled: CAMERA_ENABLED,
+    intervalMs: VISION_ENABLED ? VISION_INTERVAL_MS : SNAPSHOT_INTERVAL_MS,
+    analyze: VISION_ENABLED,
     onEmergency: handleVisionEmergency,
   });
 
@@ -819,7 +828,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   return (
     <div className="kiosk-container">
       {/* 카메라 캡처용 숨은 엘리먼트. 화면에 보이지 않고 프레임을 찍어 서버로 보내는 용도. */}
-      {VISION_ENABLED && (
+      {CAMERA_ENABLED && (
         <>
           <video ref={videoRef} playsInline muted style={{ display: 'none' }} />
           <canvas ref={canvasRef} style={{ display: 'none' }} />

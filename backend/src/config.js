@@ -65,6 +65,12 @@ const config = {
   snapshotStorage: process.env.SNAPSHOT_STORAGE || 'local',
   s3Bucket: process.env.S3_BUCKET || '',
 
+  // 보관할 카메라 스냅샷 개수. 넘으면 오래된 것부터 행과 파일을 함께 지운다.
+  // 30초 간격 · 장당 40KB 안팎이면 200장은 약 8MB / 약 1시간 40분치다.
+  // **응급 알림에 붙은 증거 사진은 이 상한과 무관하다** — 그건 alerts 테이블이
+  // 참조하는 별개 파일이라 여기서 지우지 않는다.
+  snapshotKeep: Number(process.env.SNAPSHOT_KEEP) || 200,
+
   // TTS — 'browser' | 'gemini' | 'cloud'
   //
   //  browser  브라우저 SpeechSynthesis. 지연 0, 무료. 목소리 캐릭터를 고를 수 없다.

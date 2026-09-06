@@ -102,3 +102,16 @@ CREATE TABLE IF NOT EXISTS medications (
   created_at    TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_medications_due ON medications (status, scheduled_at);
+
+-- 카메라 스냅샷 기록. **이미지 바이트는 여기 들어가지 않는다** — 파일은
+-- services/snapshots.js 가 디스크(또는 S3)에 두고, 여기에는 그 파일명만 남긴다.
+-- 팀원과 같은 RDS 를 쓰므로 이미지를 DB 에 넣으면 남의 용량을 우리가 먹는다.
+--
+-- 보관은 개수 상한(SNAPSHOT_KEEP)으로 자른다. 넣을 때마다 오래된 것부터
+-- 행과 파일을 함께 지운다 — 행만 지우면 파일이 디스크에 영원히 남는다.
+CREATE TABLE IF NOT EXISTS snapshots (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts       TEXT NOT NULL,   -- ISO8601 UTC
+  filename TEXT NOT NULL    -- services/snapshots.js 가 돌려준 이름
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON snapshots (ts DESC);
