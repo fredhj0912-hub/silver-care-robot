@@ -4,11 +4,11 @@ const emergency = require('./emergency');
 const { emit, EVENTS } = require('./events');
 
 /**
- * 복약 알림 — 일정이 되면 효돌이가 소리 내어 알리고, 어르신 대답으로 복용을 확인한다.
+ * 복약 알림 — 일정이 되면 돌봄이가 소리 내어 알리고, 어르신 대답으로 복용을 확인한다.
  *
  * 알림 전달은 새 경로를 만들지 않고 기존 `outbound_commands` 큐(kind: 'speak')를 탄다.
  * 로봇 키오스크가 이미 2.5초마다 이 큐를 폴링해 읽어주고 웨이크워드 게이트까지 열어주므로
- * (`RobotFaceDisplay.jsx`), 어르신이 "효돌아"를 다시 부르지 않고 바로 대답할 수 있다.
+ * (`RobotFaceDisplay.jsx`), 어르신이 "돌봄아"를 다시 부르지 않고 바로 대답할 수 있다.
  */
 
 // 복용 시각이 이만큼 지나도록 확인이 없으면 미복용(missed)으로 넘긴다.

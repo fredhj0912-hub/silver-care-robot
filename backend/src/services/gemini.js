@@ -119,7 +119,7 @@ function mockReply(text) {
   if (t.includes('안녕') || t.includes('고마워') || t.includes('사랑')) {
     return { text: '헤헤, 저도 어르신이 제일 좋아요! 오늘도 저랑 즐겁게 지내요.', emotion: 'happy' };
   }
-  return { text: '네 어르신, 효돌이가 늘 곁에서 말씀 잘 듣고 있어요. 오늘 하루는 어떻게 보내고 계신가요?', emotion: 'neutral' };
+  return { text: '네 어르신, 돌봄이가 늘 곁에서 말씀 잘 듣고 있어요. 오늘 하루는 어떻게 보내고 계신가요?', emotion: 'neutral' };
 }
 
 /**

@@ -87,7 +87,7 @@ test/
 ## Gotchas
 
 - `node:sqlite` requires Node ≥ 22.5 (repo assumes 24). No native build step, unlike `better-sqlite3`.
-- **`POST /api/stt`는 받아쓰기만 한다.** 웨이크워드 판정("효돌아")과 응급 우회는
+- **`POST /api/stt`는 받아쓰기만 한다.** 웨이크워드 판정("돌봄아")과 응급 우회는
   프론트의 `lib/wakeword.js`에 그대로 둔다 — 서버로 옮기면 그 판정이 두 곳으로 갈라진다.
 - **받아쓰기를 못 하는 상태는 200이 아니라 503으로 알린다.** 빈 `text`로 조용히 성공시키면
   프론트가 음성 경로를 접지 못해, 어르신은 로봇이 못 알아듣는다고만 느낀다.

@@ -94,12 +94,12 @@ test('빈 받아쓰기는 침묵과 같다 — onResult를 부르지 않는다',
   const { cbs } = await open();
   utter();
 
-  fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ text: '효돌아' }) });
+  fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ text: '돌봄아' }) });
   utter();
 
   await vi.waitFor(() => expect(cbs.onResult).toHaveBeenCalled());
   expect(cbs.onResult).toHaveBeenCalledTimes(1);
-  expect(cbs.onResult).toHaveBeenCalledWith('효돌아', { confidence: 0 });
+  expect(cbs.onResult).toHaveBeenCalledWith('돌봄아', { confidence: 0 });
   expect(cbs.onError).not.toHaveBeenCalled();
 });
 

@@ -525,7 +525,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
         const label = command.payload.label || '보호자님 메시지';
         setRobotSpeech(`${label}: ${command.payload.text}`);
         // 보호자가 말을 걸었으니 어르신이 바로 대답할 수 있게 창을 열어둔다.
-        // 이때 "효돌아"부터 다시 불러야 한다면 대화가 끊긴다.
+        // 이때 "돌봄아"부터 다시 불러야 한다면 대화가 끊긴다.
         openGate();
         speakText(command.payload.text);
         onStatusChange();
@@ -698,7 +698,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   const getStateText = () => {
     if (sttUnavailable) return STT_UNAVAILABLE_TEXT[sttReason] || STT_UNAVAILABLE_TEXT.unsupported;
     switch (voiceState) {
-      case 'listening': return isGateActive ? '말씀하세요, 듣고 있어요' : '"효돌아" 하고 불러주세요';
+      case 'listening': return isGateActive ? '말씀하세요, 듣고 있어요' : '"돌봄아" 하고 불러주세요';
       case 'processing': return '생각하는 중...';
       case 'speaking': return '말하는 중...';
       default: return '준비 중...';
@@ -876,11 +876,11 @@ function RobotFaceDisplay({ status, onStatusChange }) {
         </div>
       )}
 
-      {/* 효돌이 답변 말풍선 자막 */}
+      {/* 돌봄이 답변 말풍선 자막 */}
       {robotSpeech && (
         <div className="speech-bubble-container">
           <div className="speech-bubble">
-            <span className="speech-sender">🤖 효돌이:</span>
+            <span className="speech-sender">🤖 돌봄이:</span>
             <p className="speech-text">{robotSpeech}</p>
             {/* 소리가 안 났다는 사실은 화면에 적지 않으면 아무 데도 남지 않는다 */}
             {voiceless && (

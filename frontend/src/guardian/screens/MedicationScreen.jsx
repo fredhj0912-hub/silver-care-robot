@@ -20,7 +20,7 @@ function defaultWhen() {
 }
 
 /**
- * 복약 — 보호자가 약 일정을 등록하면 시간이 됐을 때 효돌이가 소리 내어 알린다.
+ * 복약 — 보호자가 약 일정을 등록하면 시간이 됐을 때 돌봄이가 소리 내어 알린다.
  *
  * 어르신이 "약 먹었어"라고 대답하면 백엔드가 알아서 복용 처리하므로
  * (`services/medication.js`), 이 화면의 「드셨어요」 버튼은 보호자가 대신 표시하는 용도다.
@@ -45,7 +45,7 @@ function MedicationScreen() {
         setItems(data.medications);
       }
     } catch {
-      setError('효돌이와 연결되지 않아요. 잠시 후 다시 시도해 주세요.');
+      setError('돌봄이와 연결되지 않아요. 잠시 후 다시 시도해 주세요.');
     } finally {
       setLoading(false);
     }
@@ -79,7 +79,7 @@ function MedicationScreen() {
         setError(body?.error || '등록하지 못했어요.');
       }
     } catch {
-      setError('효돌이와 연결되지 않아요. 잠시 후 다시 시도해 주세요.');
+      setError('돌봄이와 연결되지 않아요. 잠시 후 다시 시도해 주세요.');
     } finally {
       setSaving(false);
     }
@@ -106,7 +106,7 @@ function MedicationScreen() {
     <main>
       <h1 className="g-section-title">복약</h1>
       <p className="g-note-inline" style={{ margin: '0 20px 16px' }}>
-        시간이 되면 효돌이가 어르신께 소리로 알려드려요.
+        시간이 되면 돌봄이가 어르신께 소리로 알려드려요.
       </p>
 
       <form className="g-medform" onSubmit={submit}>
@@ -160,7 +160,7 @@ function MedicationScreen() {
       {!loading && items.length === 0 ? (
         <p className="g-empty">
           아직 등록된 약이 없어요.<br />
-          약 이름과 시각을 넣으면 효돌이가 챙겨드릴게요.
+          약 이름과 시각을 넣으면 돌봄이가 챙겨드릴게요.
         </p>
       ) : (
         <div className="g-list">

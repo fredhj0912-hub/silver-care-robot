@@ -1,4 +1,4 @@
--- 효돌이 로컬 데이터베이스 (node:sqlite / Node 24 내장)
+-- 돌봄이 로컬 데이터베이스 (node:sqlite / Node 24 내장)
 -- 모든 시각은 ISO8601 UTC(끝에 Z)로 통일한다.
 -- 이전 database.json은 +09:00 오프셋과 Z가 섞여 있어 정렬이 어긋났다.
 

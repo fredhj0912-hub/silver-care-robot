@@ -83,7 +83,7 @@ const ALERT_LABELS = {
 export const alertLabel = (type) => ALERT_LABELS[type] || type;
 
 /**
- * 안부 카드 본문. 효돌이가 1인칭으로 오늘을 전한다.
+ * 안부 카드 본문. 돌봄이가 1인칭으로 오늘을 전한다.
  *
  * HTML 문자열이 아니라 토큰 배열을 반환한다 — 강조 표시를 위해
  * dangerouslySetInnerHTML 을 쓰면, 나중에 누군가 이 문장에 사용자 입력을

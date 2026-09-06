@@ -196,7 +196,7 @@ function ControlScreen({ isEmergency }) {
     <main>
       <h1 className="g-section-title">원격 조종</h1>
       <p className="g-note-inline" style={{ margin: '0 20px 16px' }}>
-        화살표를 <strong>누르고 있는 동안</strong> 효돌이가 그 방향으로 움직여요.
+        화살표를 <strong>누르고 있는 동안</strong> 돌봄이가 그 방향으로 움직여요.
         손을 떼면 멈춰요. 지금은 시뮬레이션이에요.
       </p>
 

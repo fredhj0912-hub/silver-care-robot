@@ -4,12 +4,12 @@ import { apiFetch, assetUrl } from '../../lib/api';
 import { pushSupported, subscribeToPush, ensurePushRegistered } from '../../lib/push';
 import { buildDailyNote, stateLabel, formatTime, formatWhen, relativeTime, alertLabel } from '../format';
 
-const SENDER_NAME = { senior: '어르신', robot: '효돌이', guardian: '나' };
+const SENDER_NAME = { senior: '어르신', robot: '돌봄이', guardian: '나' };
 
 /**
  * 홈 — "엄마 괜찮으신가?"에 한 화면으로 답한다.
  *
- * 평상시엔 효돌이가 남긴 안부 쪽지를 보여주고,
+ * 평상시엔 돌봄이가 남긴 안부 쪽지를 보여주고,
  * 미해결 알림이 있으면 화면 전체가 응급 상태로 바뀌며 쪽지 자리에 알림이 들어온다.
  */
 function HomeScreen({ status, openAlerts, summary, connected, refresh }) {

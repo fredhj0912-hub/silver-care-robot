@@ -5,7 +5,7 @@
  *   node scripts/make-icons.js
  *
  * 이미지 라이브러리를 의존성으로 추가하지 않으려고 PNG를 직접 인코딩한다.
- * 아이콘은 효돌이 얼굴을 단순화한 것 — 키오스크 화면의 로봇 얼굴과 같은
+ * 아이콘은 돌봄이 얼굴을 단순화한 것 — 키오스크 화면의 로봇 얼굴과 같은
  * 인디고 배경에 흰 눈 두 개와 미소. 홈 화면에서 작게 보여도 알아볼 수 있다.
  */
 import fs from 'node:fs';
@@ -71,7 +71,7 @@ function encodePNG(size, pixelAt) {
   ]);
 }
 
-/** 효돌이 얼굴. maskable 아이콘이 잘려도 남도록 중앙 80% 안에만 그린다. */
+/** 돌봄이 얼굴. maskable 아이콘이 잘려도 남도록 중앙 80% 안에만 그린다. */
 function facePixel(size) {
   const eyeR = size * 0.072;
   const eyeY = size * 0.43;

@@ -1,4 +1,4 @@
--- 효돌이 PostgreSQL 스키마 (RDS). `schema.sql`(SQLite)과 쌍을 이룬다.
+-- 돌봄이 PostgreSQL 스키마 (RDS). `schema.sql`(SQLite)과 쌍을 이룬다.
 --
 -- 두 파일을 하나로 합치지 않는 이유: PRAGMA / AUTOINCREMENT 는 SQLite 전용이고
 -- IDENTITY 는 PostgreSQL 전용이라 한 파일로는 양쪽에서 돌릴 수 없다.

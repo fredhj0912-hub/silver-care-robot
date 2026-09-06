@@ -9,7 +9,7 @@ const path = require('node:path');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'hyodol-static-'));
 const DIST = path.join(TMP, 'dist');
 fs.mkdirSync(path.join(DIST, 'assets'), { recursive: true });
-fs.writeFileSync(path.join(DIST, 'index.html'), '<!doctype html><title>효돌이</title><div id="root"></div>');
+fs.writeFileSync(path.join(DIST, 'index.html'), '<!doctype html><title>돌봄이</title><div id="root"></div>');
 fs.writeFileSync(path.join(DIST, 'sw.js'), '// service worker');
 fs.writeFileSync(path.join(DIST, 'assets', 'index-abc123.js'), 'console.log(1)');
 

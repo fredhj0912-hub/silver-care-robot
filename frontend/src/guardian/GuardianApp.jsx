@@ -28,7 +28,7 @@ function GuardianApp() {
   return (
     <div className={`guardian-root${emergency ? ' is-emergency' : ''}`}>
       <header className="g-header">
-        <span className="g-header__name">효돌이</span>
+        <span className="g-header__name">돌봄이</span>
         <span className="g-header__clock">{formatTime(new Date().toISOString())}</span>
       </header>
 

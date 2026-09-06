@@ -168,7 +168,7 @@ NODE_BIN=$(ls -d /home/ec2-user/.nvm/versions/node/*/bin/node | tail -1)
 
 ```ini
 [Unit]
-Description=Hyodol backend (Express + RDS PostgreSQL)
+Description=Dolbom backend (Express + RDS PostgreSQL)
 After=network-online.target
 Wants=network-online.target
 

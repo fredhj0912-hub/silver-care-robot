@@ -49,7 +49,7 @@ test.after(async () => {
 
 test('cleanTranscript: 통째로 싸인 따옴표를 벗긴다', () => {
   assert.strictEqual(gemini.cleanTranscript('"안녕하세요"'), '안녕하세요');
-  assert.strictEqual(gemini.cleanTranscript('“효돌아”'), '효돌아');
+  assert.strictEqual(gemini.cleanTranscript('“돌봄아”'), '돌봄아');
 });
 
 test('cleanTranscript: 문장 안의 따옴표는 건드리지 않는다', () => {
@@ -62,7 +62,7 @@ test('cleanTranscript: 통째로 괄호에 싸인 것은 모델의 주석이므�
 });
 
 test('cleanTranscript: 평범한 발화는 앞뒤 공백만 다듬는다', () => {
-  assert.strictEqual(gemini.cleanTranscript('  효돌아 밥 먹었어  '), '효돌아 밥 먹었어');
+  assert.strictEqual(gemini.cleanTranscript('  돌봄아 밥 먹었어  '), '돌봄아 밥 먹었어');
   assert.strictEqual(gemini.cleanTranscript(null), '');
 });
 

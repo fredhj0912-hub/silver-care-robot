@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# 효돌이 키오스크 실행기 — 라즈베리파이 5 / Chromium.
+# 돌봄이 키오스크 실행기 — 라즈베리파이 5 / Chromium.
 #
 # systemd 유닛이 아니라 셸 스크립트인 이유: Bookworm/파이5는 Wayland(labwc·wayfire)가
 # 기본이라 systemd **user** 서비스가 컴포지터 환경변수(WAYLAND_DISPLAY, XDG_RUNTIME_DIR)를
@@ -17,8 +17,8 @@ CONFIG="${HYODOL_CONFIG:-$HOME/.config/hyodol/kiosk.env}"
 
 die() {
   # 파이에는 키보드가 없을 수 있다. 화면에도 남도록 tty와 로그 양쪽에 쓴다.
-  echo "[효돌이 키오스크] $*" >&2
-  command -v wall >/dev/null 2>&1 && wall "[효돌이 키오스크] $*" 2>/dev/null
+  echo "[돌봄이 키오스크] $*" >&2
+  command -v wall >/dev/null 2>&1 && wall "[돌봄이 키오스크] $*" 2>/dev/null
   exit 1
 }
 
@@ -49,7 +49,7 @@ mkdir -p "$PROFILE"
 # 꼬이든 여기서 막는다.
 exec 9>"$HOME/.config/hyodol/kiosk.lock"
 if command -v flock >/dev/null 2>&1 && ! flock -n 9; then
-  echo "[효돌이 키오스크] 이미 실행 중입니다 — 이 인스턴스는 종료합니다."
+  echo "[돌봄이 키오스크] 이미 실행 중입니다 — 이 인스턴스는 종료합니다."
   exit 0
 fi
 
@@ -87,24 +87,24 @@ FLAGS=(
 # 맞는 값은 파이에서 `wlr-randr` 로 출력 이름을 보고 하나씩 시험해 찾는다.
 if [ -n "${KIOSK_ROTATE:-}" ]; then
   if ! command -v wlr-randr >/dev/null 2>&1; then
-    echo "[효돌이 키오스크] ⚠️  KIOSK_ROTATE=$KIOSK_ROTATE 인데 wlr-randr 가 없습니다 (sudo apt install wlr-randr) — 회전을 건너뜁니다."
+    echo "[돌봄이 키오스크] ⚠️  KIOSK_ROTATE=$KIOSK_ROTATE 인데 wlr-randr 가 없습니다 (sudo apt install wlr-randr) — 회전을 건너뜁니다."
   else
     # 출력 이름을 지정하지 않았으면 첫 번째 출력을 쓴다. 파이 7인치 디스플레이는
     # 보통 출력이 하나뿐이라 이름을 외우게 하는 것보다 이쪽이 덜 틀린다.
     ROTATE_OUTPUT="${KIOSK_ROTATE_OUTPUT:-$(wlr-randr 2>/dev/null | awk 'NR==1 {print $1}')}"
     if [ -z "$ROTATE_OUTPUT" ]; then
-      echo "[효돌이 키오스크] ⚠️  wlr-randr 가 출력을 찾지 못했습니다 — 회전을 건너뜁니다."
+      echo "[돌봄이 키오스크] ⚠️  wlr-randr 가 출력을 찾지 못했습니다 — 회전을 건너뜁니다."
     elif wlr-randr --output "$ROTATE_OUTPUT" --transform "$KIOSK_ROTATE" 2>&1; then
-      echo "[효돌이 키오스크] 화면 회전: $ROTATE_OUTPUT → $KIOSK_ROTATE"
+      echo "[돌봄이 키오스크] 화면 회전: $ROTATE_OUTPUT → $KIOSK_ROTATE"
     else
       # 회전 실패로 키오스크를 안 띄우면 화면에 아무것도 없어 원인을 알 수 없다.
       # 세로로라도 뜨는 편이 낫다.
-      echo "[효돌이 키오스크] ⚠️  회전 실패 ($ROTATE_OUTPUT → $KIOSK_ROTATE) — 그대로 진행합니다."
+      echo "[돌봄이 키오스크] ⚠️  회전 실패 ($ROTATE_OUTPUT → $KIOSK_ROTATE) — 그대로 진행합니다."
     fi
   fi
 fi
 
-echo "[효돌이 키오스크] $CHROMIUM → $KIOSK_URL"
+echo "[돌봄이 키오스크] $CHROMIUM → $KIOSK_URL"
 
 # 감시 루프 — Chromium이 죽으면 3초 뒤 다시 띄운다(systemd Restart=always 대용).
 while true; do
@@ -117,11 +117,11 @@ while true; do
   # 코드 0으로 끝난다("Opening in existing browser session"). 그대로 재시작하면
   # 무한 루프가 되어 화면이 깜빡인다 — 재시작이 아니라 원인을 적고 멈추는 게 맞다.
   if [ "$code" -eq 0 ] && [ "$ran" -lt 5 ]; then
-    echo "[효돌이 키오스크] Chromium이 ${ran}초 만에 코드 0으로 끝났습니다."
-    echo "[효돌이 키오스크] 같은 프로필의 인스턴스가 이미 떠 있는 것으로 보입니다 — 재시작하지 않습니다."
+    echo "[돌봄이 키오스크] Chromium이 ${ran}초 만에 코드 0으로 끝났습니다."
+    echo "[돌봄이 키오스크] 같은 프로필의 인스턴스가 이미 떠 있는 것으로 보입니다 — 재시작하지 않습니다."
     exit 0
   fi
 
-  echo "[효돌이 키오스크] Chromium 종료 (코드 $code) — 3초 뒤 재시작"
+  echo "[돌봄이 키오스크] Chromium 종료 (코드 $code) — 3초 뒤 재시작"
   sleep 3
 done

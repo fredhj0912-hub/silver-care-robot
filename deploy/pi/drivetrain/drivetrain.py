@@ -130,7 +130,7 @@ def run(api, key, dry_run):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="효돌이 구동부 — 이동 명령 소비자")
+    parser = argparse.ArgumentParser(description="돌봄이 구동부 — 이동 명령 소비자")
     parser.add_argument("--api", required=True, help="백엔드 주소 (예: https://xxx.trycloudflare.com)")
     parser.add_argument("--key", default="", help="ROBOT_API_KEY (설정돼 있으면 필수)")
     parser.add_argument("--dry-run", action="store_true", help="모터를 건드리지 않고 로그만 찍는다")

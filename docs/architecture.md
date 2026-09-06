@@ -146,7 +146,7 @@ become unavailable is stopping.
 flowchart LR
     STT["STT result"] --> Decide{"decideAction()"}
     Decide -->|"emergency phrase<br/>(bypasses gate)"| Send["send to /api/chat"]
-    Decide -->|"heard '효돌아'<br/>(+ 20 mis-hearing variants)"| Ack["acknowledge,<br/>open 30s window"]
+    Decide -->|"heard '돌봄아'<br/>(+ 20 mis-hearing variants)"| Ack["acknowledge,<br/>open 30s window"]
     Decide -->|"inside 30s window"| Send
     Decide -->|"otherwise"| Ignore["ignore"]
 ```

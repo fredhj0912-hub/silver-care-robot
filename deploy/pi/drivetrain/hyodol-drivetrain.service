@@ -1,5 +1,5 @@
 [Unit]
-Description=Hyodol drivetrain — 이동 명령 소비자
+Description=Dolbom drivetrain — 이동 명령 소비자
 After=network-online.target
 Wants=network-online.target
 

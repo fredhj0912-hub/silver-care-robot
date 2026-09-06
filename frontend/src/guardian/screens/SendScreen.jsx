@@ -14,7 +14,7 @@ const QUICK = [
 ];
 
 /**
- * 메시지 보내기 — 보낸 말은 효돌이가 어르신께 소리 내어 읽어준다.
+ * 메시지 보내기 — 보낸 말은 돌봄이가 어르신께 소리 내어 읽어준다.
  * 어르신은 화면을 읽지 않으므로, 소리로 들었을 때 자연스러운 문장이어야 한다.
  */
 function SendScreen() {
@@ -54,7 +54,7 @@ function SendScreen() {
     <main>
       <h1 className="g-section-title">보내기</h1>
       <p className="g-note-inline" style={{ margin: '0 20px 16px' }}>
-        보낸 말은 효돌이가 어르신께 소리로 전해드려요.
+        보낸 말은 돌봄이가 어르신께 소리로 전해드려요.
       </p>
 
       <div className="g-chips">
@@ -81,7 +81,7 @@ function SendScreen() {
 
         <div className="g-field" style={{ marginTop: 8 }}>
           <button className="g-btn g-btn--primary" type="submit" disabled={!text.trim() || sending}>
-            {sending ? '보내는 중' : '효돌이에게 전하기'}
+            {sending ? '보내는 중' : '돌봄이에게 전하기'}
           </button>
         </div>
       </form>
@@ -89,7 +89,7 @@ function SendScreen() {
       {sent && (
         <p className="g-note-inline">
           전했어요 — “{sent}”<br />
-          효돌이가 어르신께 읽어드릴 거예요.{' '}
+          돌봄이가 어르신께 읽어드릴 거예요.{' '}
           <Link to="/guardian/log" style={{ color: 'var(--indigo)', fontWeight: 500 }}>
             대화에서 보기
           </Link>

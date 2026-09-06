@@ -54,7 +54,7 @@ test('인증: 키가 없으면 401, /api/health 는 공개', async () => {
 test('PUBLIC_DIR 미설정이면 / 는 기존 상태 페이지를 유지한다', async () => {
   const res = await fetch(BASE + '/');
   assert.strictEqual(res.status, 200);
-  assert.match(await res.text(), /효돌이 백엔드 API 서버/);
+  assert.match(await res.text(), /돌봄이 백엔드 API 서버/);
 });
 
 test('알 수 없는 경로는 HTML이 아니라 JSON 404를 반환한다', async () => {

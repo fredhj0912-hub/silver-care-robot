@@ -88,7 +88,7 @@ function render({ ip, tunnel, hyodol, cloudflared, commit, health, stopped }) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>효돌이 접속 주소</title>
+<title>돌봄이 접속 주소</title>
 <style>
   :root { color-scheme: light dark; }
   body { font-family: system-ui, "Segoe UI", sans-serif; margin: 0; padding: 28px 18px 60px;
@@ -126,7 +126,7 @@ function render({ ip, tunnel, hyodol, cloudflared, commit, health, stopped }) {
 </head>
 <body>
 <div class="wrap">
-  <h1>🤖 효돌이 접속 주소</h1>
+  <h1>🤖 돌봄이 접속 주소</h1>
   <p class="meta">갱신: ${esc(now)} (KST) · 인스턴스 ${esc(ip || '알 수 없음')}</p>
 
   <div class="status">

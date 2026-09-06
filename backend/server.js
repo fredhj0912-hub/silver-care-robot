@@ -1,5 +1,5 @@
 /**
- * 효돌이 백엔드 진입점.
+ * 돌봄이 백엔드 진입점.
  * 라우트/서비스/저장소 구현은 src/ 아래에 있다.
  */
 const { createApp } = require('./src/app');
@@ -50,7 +50,7 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
   server = createApp().listen(config.port, '0.0.0.0', () => {
     console.log('\n======================================================');
-    console.log('🤖 효돌이 백엔드 서버 실행 중');
+    console.log('🤖 돌봄이 백엔드 서버 실행 중');
     console.log(`   URL:      http://0.0.0.0:${config.port}`);
     console.log(`   Database: ${describeDB()}`);
     console.log(`   Gemini:   ${gemini.isAvailable() ? `사용 가능 (${config.geminiModel})` : '사용 불가 → mock 대화'}`);

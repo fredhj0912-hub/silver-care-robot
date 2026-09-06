@@ -34,7 +34,7 @@ mkdir -p "$AUTOSTART_DIR"
 cat > "$AUTOSTART_DIR/hyodol-kiosk.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Hyodol Kiosk
+Name=Dolbom Kiosk
 Exec=$KIOSK_SH
 X-GNOME-Autostart-enabled=true
 EOF

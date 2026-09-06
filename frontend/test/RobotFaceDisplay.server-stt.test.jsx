@@ -107,7 +107,7 @@ async function mountAndListen() {
 
 test('마이크를 잡으면 웨이크워드를 기다린다고 알린다', async () => {
   await mountAndListen();
-  expect(screen.getByText(/효돌아.*불러주세요/)).toBeInTheDocument();
+  expect(screen.getByText(/돌봄아.*불러주세요/)).toBeInTheDocument();
 });
 
 test('웨이크워드 없는 발화는 서버로 받아쓰되 대화는 부르지 않는다', async () => {
@@ -121,7 +121,7 @@ test('웨이크워드 없는 발화는 서버로 받아쓰되 대화는 부르�
 
 test('웨이크워드가 붙은 발화는 웨이크워드를 떼고 대화로 넘어간다', async () => {
   await mountAndListen();
-  transcript = '효돌아 오늘 날씨 어때';
+  transcript = '돌봄아 오늘 날씨 어때';
   utter();
   await waitFor(() => expect(chatCalls().length).toBe(1));
   expect(JSON.parse(chatCalls()[0].body).text).toBe('오늘 날씨 어때');
@@ -136,7 +136,7 @@ test('응급 발화는 웨이크워드 없이도 통과한다', async () => {
 
 test('보낸 오디오는 백엔드가 받는 WAV data URI다', async () => {
   await mountAndListen();
-  transcript = '효돌아';
+  transcript = '돌봄아';
   utter();
   await waitFor(() => expect(sttCalls().length).toBe(1));
   const { audio } = JSON.parse(sttCalls()[0].body);
@@ -184,7 +184,7 @@ test('포기하면 마이크를 실제로 멈춘다 — 요청이 계속 나가�
 
   // 연속 실패 한도(3)까지 채운다
   for (let i = 0; i < 3; i++) {
-    transcript = '효돌아';
+    transcript = '돌봄아';
     utter();
     await waitFor(() => expect(sttCalls().length).toBe(i + 1));
   }
@@ -245,7 +245,7 @@ test('?vad=1 이면 오버레이가 뜨고 받아쓰기를 올리지 않는다',
   expect(document.body.textContent).toContain('start 0.005');
   expect(document.body.textContent).toContain('업로드 안 함');
 
-  transcript = '효돌아 오늘 날씨 어때';
+  transcript = '돌봄아 오늘 날씨 어때';
   utter();
   await waitFor(() => expect(document.body.textContent).toContain('직전: ended'));
 

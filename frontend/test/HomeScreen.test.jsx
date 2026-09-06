@@ -53,7 +53,7 @@ const renderHome = (props) =>
 beforeEach(stubFetch);
 afterEach(() => vi.unstubAllGlobals());
 
-test('미해결 알림이 없으면 효돌이의 안부 쪽지를 보여준다', async () => {
+test('미해결 알림이 없으면 돌봄이의 안부 쪽지를 보여준다', async () => {
   const { container } = renderHome();
 
   const note = container.querySelector('.g-note__body');

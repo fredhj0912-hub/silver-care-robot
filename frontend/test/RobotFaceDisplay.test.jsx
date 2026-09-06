@@ -98,7 +98,7 @@ test('듣고 있지만 게이트가 닫혀 있으면 웨이크워드를 부르�
   try {
     renderKiosk();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });   // 인식 시작 타이머
-    expect(screen.getByText('"효돌아" 하고 불러주세요')).toBeInTheDocument();
+    expect(screen.getByText('"돌봄아" 하고 불러주세요')).toBeInTheDocument();
   } finally {
     vi.useRealTimers();
   }
@@ -116,7 +116,7 @@ test('웨이크워드 없는 발화는 Gemini를 부르지 않는다', async () 
 test('웨이크워드와 함께 말하면 웨이크워드를 뗀 내용만 보낸다', async () => {
   renderKiosk();
 
-  speak('효돌아 오늘 날씨 어때');
+  speak('돌봄아 오늘 날씨 어때');
 
   await waitFor(() => expect(chatCalls()).toHaveLength(1));
   expect(JSON.parse(chatCalls()[0].body).text).toBe('오늘 날씨 어때');
@@ -125,14 +125,14 @@ test('웨이크워드와 함께 말하면 웨이크워드를 뗀 내용만 보�
 test('웨이크워드만 부르면 Gemini 없이 바로 대답한다', async () => {
   renderKiosk();
 
-  speak('효돌아');
+  speak('돌봄아');
 
-  await waitFor(() => expect(screen.getByText(/효돌이:/)).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText(/돌봄이:/)).toBeInTheDocument());
   expect(chatCalls()).toHaveLength(0);
 });
 
 test('응급 발화는 웨이크워드 없이도 통과한다', async () => {
-  // 넘어진 어르신이 "효돌아, 도와줘"라고 격식을 갖춰 부를 것이라 기대할 수 없다.
+  // 넘어진 어르신이 "돌봄아, 도와줘"라고 격식을 갖춰 부를 것이라 기대할 수 없다.
   renderKiosk();
 
   speak('살려줘');
@@ -197,7 +197,7 @@ test('발화 완료 신호가 영영 안 와도 워치독이 듣기를 되살린
     renderKiosk();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
 
-    speak('효돌아');
+    speak('돌봄아');
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(screen.getByText('말하는 중...')).toBeInTheDocument();
 
