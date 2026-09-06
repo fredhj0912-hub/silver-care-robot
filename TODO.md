@@ -6,7 +6,7 @@
 
 - 아키텍처: `docs/architecture.md`
 - 현장 절차: `docs/pi-runbook.md`
-- **다시 겪지 않으려고 적어 둔 교훈 29개: `docs/lessons.md`** — 새 작업 전에 훑을 것
+- **다시 겪지 않으려고 적어 둔 교훈 33개: `docs/lessons.md`** — 새 작업 전에 훑을 것
 - 완료 이력: 맨 아래 요약 + `git log`
 
 ---

@@ -94,6 +94,12 @@ const config = {
     : 1,
   ttsRetryDelayMs: Number(process.env.TTS_RETRY_DELAY_MS) || 600,
 
+  // 합성 한 번의 시한. 없으면 응답하지 않는 연결에 **영원히** 매달린다 —
+  // 2026-09-06에 EC2 예열이 첫 문구에서 몇 분째 멈춰 있던 원인이 이것이었다.
+  // 늦게 온 음성은 쓸모가 없다는 점에서 받아쓰기(STT_TIMEOUT_MS)와 같은 판단이고,
+  // Gemini TTS 는 정상일 때도 문장당 5초쯤 걸리므로 그보다 넉넉히 잡는다.
+  ttsTimeoutMs: Number(process.env.TTS_TIMEOUT_MS) || 20000,
+
   maxImageBytes: MAX_IMAGE_BYTES,
   maxAudioBytes: MAX_AUDIO_BYTES,
   maxJsonBody: MAX_JSON_BODY,

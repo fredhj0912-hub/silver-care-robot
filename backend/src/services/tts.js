@@ -36,7 +36,30 @@ function httpError(message, status) {
 }
 
 // 잠시 후 다시 부르면 풀릴 수 있는 상태들 (모델 과부하·분당 한도·게이트웨이)
+// 504는 우리가 스스로 끊은 시간 초과에도 쓴다 — 게이트웨이 시간 초과와 성격이 같다.
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+/**
+ * 시한을 건 fetch.
+ *
+ * 이게 없던 2026-09-06에 EC2 예열이 **첫 문구에서 몇 분째 멈춰 있었다.** 응답하지
+ * 않는 연결은 503처럼 오류로 돌아오지 않고 그냥 붙잡혀 있어서, 재시도 로직이
+ * 아예 돌지 못한다. 같은 synthesize()가 POST /api/tts 도 처리하므로 어르신 앞에서
+ * 로봇이 말하려다 굳는 것과 같은 경로다.
+ *
+ * 시간 초과를 504로 올려 재시도 대상에 넣는다 — 한 번 늦었다고 그 문장을 포기하면
+ * 파이에서는 브라우저 TTS 폴백이 무음이라 어르신이 그 말을 영영 못 듣는다.
+ */
+async function fetchWithTimeout(url, options) {
+  try {
+    return await fetch(url, { ...options, signal: AbortSignal.timeout(config.ttsTimeoutMs) });
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      throw httpError(`TTS 시간 초과 (${config.ttsTimeoutMs}ms) — 응답이 없습니다`, 504);
+    }
+    throw err;
+  }
+}
 
 /**
  * 이 오류를 다시 시도해도 되는가.
@@ -80,7 +103,7 @@ function pcmToWav(pcm, sampleRate = GEMINI_TTS_SAMPLE_RATE, channels = 1, bits =
 
 async function synthWithGemini(text, voice) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.ttsGeminiModel}:generateContent?key=${config.geminiApiKey}`;
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -105,7 +128,7 @@ async function synthWithGemini(text, voice) {
 }
 
 async function synthWithCloud(text, voice) {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://texttospeech.googleapis.com/v1/text:synthesize?key=${config.geminiApiKey}`,
     {
       method: 'POST',
@@ -220,14 +243,27 @@ async function prewarm() {
   let generated = 0;
   let cached = 0;
   const failures = [];
+  let consecutiveFailures = 0;
 
-  for (const phrase of COMMON_PHRASES) {
+  for (const [i, phrase] of COMMON_PHRASES.entries()) {
+    const label = `[${i + 1}/${COMMON_PHRASES.length}] ${phrase.slice(0, 20)}…`;
     try {
       const r = await synthesize(phrase);
-      if (r?.cached) cached++;
-      else generated++;
+      if (r?.cached) { cached++; console.log(`${label} 이미 캐시됨`); }
+      else { generated++; console.log(`${label} 생성 ${r.ms}ms`); }
+      consecutiveFailures = 0;
     } catch (err) {
       failures.push(err.message);
+      consecutiveFailures++;
+      console.warn(`${label} 실패: ${err.message}`);
+
+      // 연속으로 이만큼 실패하면 provider 자체가 죽은 것이다. 남은 문구를 계속
+      // 시도해 봐야 시한(문구당 최대 ttsTimeoutMs × 재시도)만큼 더 붙잡혀 있을 뿐이고,
+      // 할당량 소진이라면 남은 통을 더 태운다.
+      if (consecutiveFailures >= 3) {
+        console.warn(`연속 ${consecutiveFailures}회 실패 — 남은 문구를 건너뜁니다`);
+        break;
+      }
     }
   }
 

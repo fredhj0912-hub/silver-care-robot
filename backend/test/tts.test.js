@@ -91,6 +91,7 @@ test.beforeEach(() => {
   config.geminiApiKey = 'test-key';
   config.ttsRetries = 1;
   config.ttsRetryDelayMs = 0; // 테스트를 기다리게 하지 않는다
+  config.ttsTimeoutMs = 20000;
 });
 test.afterEach(() => { globalThis.fetch = realFetch; });
 
@@ -119,6 +120,29 @@ test('503 본문이 JSON이 아니어도 재시도한다', async () => {
 
   assert.ok(result);
   assert.strictEqual(calls.length, 2, 'HTML 503도 일시 오류로 봐야 한다');
+});
+
+test('응답이 없으면 시한을 걸어 끊고, 그 시간 초과는 재시도한다', async () => {
+  // 2026-09-06: 시한이 없어 EC2 예열이 첫 문구에서 몇 분째 멈춰 있었다.
+  // 응답하지 않는 연결은 오류로 돌아오지 않으므로 재시도 로직이 아예 돌지 못한다.
+  config.ttsTimeoutMs = 30;
+
+  const calls = [];
+  globalThis.fetch = (url, options) => new Promise((_resolve, reject) => {
+    calls.push(url);
+    options.signal.addEventListener('abort', () => {
+      const err = new Error('The operation was aborted due to timeout');
+      err.name = 'TimeoutError';
+      reject(err);
+    });
+  });
+
+  await assert.rejects(
+    synthesize(uniqueText()),
+    (err) => err.status === 504 && /시간 초과/.test(err.message),
+    '시간 초과는 504로 올라와야 재시도 대상이 된다',
+  );
+  assert.strictEqual(calls.length, 2, '시간 초과도 한 번은 다시 시도해야 한다');
 });
 
 test('할당량이 바닥나면 다시 시도하지 않는다', async () => {
