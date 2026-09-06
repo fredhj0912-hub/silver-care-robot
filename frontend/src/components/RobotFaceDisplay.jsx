@@ -15,9 +15,25 @@ const VISION_ENABLED = import.meta.env.VITE_VISION_ENABLED === 'true';
 const VISION_INTERVAL_MS = Number(import.meta.env.VITE_VISION_INTERVAL_MS) || 15000;
 
 // 분석 없이 사진만 올리는 경로. 보호자가 방 안을 보는 용도이고 **Gemini 를 안 쓴다**.
+//
+// ⚠️ 이건 **기기별 스위치라 URL 로 켠다**(`?snapshot=1`). `.env` 로만 켜면 그 값이
+// EC2 가 서빙하는 빌드 하나에 박혀서, 같은 주소를 연 브라우저는 전부 자기 웹캠으로
+// 찍어 올린다 — 개발용으로 노트북에서 키오스크를 열어 본 순간 보호자 화면에 방 안
+// 사진과 노트북 웹캠 사진이 섞인다. 찍어야 하는 건 파이에 달린 카메라 하나다.
+// 파이는 deploy/pi/set-url.sh 가 넣어 주는 주소에 이 파라미터를 달고 뜬다.
+//
+// VITE_SNAPSHOT_ENABLED 는 로컬 개발용 기본값으로만 남긴다. `?snapshot=0` 이 이긴다.
 // VITE_VISION_ENABLED 가 켜져 있으면 그쪽이 이긴다 — 카메라는 하나이고, 분석 경로가
 // 이미 사진을 남기므로 둘을 같이 돌릴 이유가 없다.
-const SNAPSHOT_ENABLED = !VISION_ENABLED && import.meta.env.VITE_SNAPSHOT_ENABLED === 'true';
+function readSnapshotFlag(search = '') {
+  const q = new URLSearchParams(search).get('snapshot');
+  if (q === '1') return true;
+  if (q === '0') return false;
+  return import.meta.env.VITE_SNAPSHOT_ENABLED === 'true';
+}
+
+const SNAPSHOT_ENABLED = !VISION_ENABLED
+  && readSnapshotFlag(typeof window !== 'undefined' ? window.location.search : '');
 const SNAPSHOT_INTERVAL_MS = Number(import.meta.env.VITE_SNAPSHOT_INTERVAL_MS) || 30000;
 
 const CAMERA_ENABLED = VISION_ENABLED || SNAPSHOT_ENABLED;

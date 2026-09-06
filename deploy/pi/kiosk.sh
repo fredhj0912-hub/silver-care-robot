@@ -104,12 +104,24 @@ if [ -n "${KIOSK_ROTATE:-}" ]; then
   fi
 fi
 
-echo "[돌봄이 키오스크] $CHROMIUM → $KIOSK_URL"
+# 카메라 스냅샷은 **이 기기에서만** 켠다. 서버 빌드(.env)로 켜면 같은 주소를 연
+# 브라우저가 전부 자기 웹캠으로 찍어 올려, 보호자 화면에 방 안 사진과 개발용
+# 노트북 웹캠 사진이 섞인다. 찍어야 하는 카메라는 파이에 달린 것 하나다.
+# KIOSK_URL 자체에는 붙이지 않는다 — 그 값은 "$KIOSK_URL/api/health" 로도 쓰인다.
+PAGE_URL="$KIOSK_URL"
+if [ "${KIOSK_SNAPSHOT:-0}" = "1" ]; then
+  case "$PAGE_URL" in
+    *\?*) PAGE_URL="$PAGE_URL&snapshot=1" ;;
+    *)    PAGE_URL="$PAGE_URL?snapshot=1" ;;
+  esac
+fi
+
+echo "[돌봄이 키오스크] $CHROMIUM → $PAGE_URL"
 
 # 감시 루프 — Chromium이 죽으면 3초 뒤 다시 띄운다(systemd Restart=always 대용).
 while true; do
   started=$(date +%s)
-  "$CHROMIUM" "${FLAGS[@]}" "$KIOSK_URL"
+  "$CHROMIUM" "${FLAGS[@]}" "$PAGE_URL"
   code=$?
   ran=$(( $(date +%s) - started ))
 
