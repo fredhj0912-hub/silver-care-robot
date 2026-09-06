@@ -119,6 +119,15 @@ fi
 echo "[돌봄이 키오스크] $CHROMIUM → $PAGE_URL"
 
 # 감시 루프 — Chromium이 죽으면 3초 뒤 다시 띄운다(systemd Restart=always 대용).
+#
+# 단, **빨리 죽는 것을 무한히 되살리지는 않는다.** 브라우저가 뜰 수 없는 상태(예: SSH에서
+# DISPLAY 없이 실행하면 "Missing X server")면 3초마다 영원히 같은 실패를 반복하고,
+# 파이 화면에는 깜빡임만 보여 원인을 알 수 없다(09-06에 실제로 겪었다). 몇 번 해 보고
+# 안 되면 멈추고 마지막 이유를 남기는 편이 낫다 — 화면이 검은 것과 깜빡이는 것 중
+# 원인을 찾을 수 있는 쪽은 전자다.
+FAST_FAIL_LIMIT=5
+fast_failures=0
+
 while true; do
   started=$(date +%s)
   "$CHROMIUM" "${FLAGS[@]}" "$PAGE_URL"
@@ -134,6 +143,16 @@ while true; do
     exit 0
   fi
 
-  echo "[돌봄이 키오스크] Chromium 종료 (코드 $code) — 3초 뒤 재시작"
+  # 오래 떠 있다가 죽은 것은 정상적인 재시작 대상이다(크래시·OOM). 카운터를 되돌린다.
+  if [ "$ran" -ge 5 ]; then
+    fast_failures=0
+  else
+    fast_failures=$(( fast_failures + 1 ))
+    if [ "$fast_failures" -ge "$FAST_FAIL_LIMIT" ]; then
+      die "Chromium이 ${FAST_FAIL_LIMIT}번 연속으로 ${ran}초 만에 코드 $code 로 죽었습니다 — 재시작을 멈춥니다. 마지막 오류를 위에서 확인하세요."
+    fi
+  fi
+
+  echo "[돌봄이 키오스크] Chromium 종료 (코드 $code) — 3초 뒤 재시작 (연속 빠른 실패 $fast_failures/$FAST_FAIL_LIMIT)"
   sleep 3
 done
