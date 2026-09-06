@@ -166,9 +166,9 @@ async function evaluateUtterance(text) {
 }
 
 /**
- * 모든 알림이 해제되면 비상 상태를 내린다.
+ * 미해결 critical 알림이 하나도 없으면 비상 상태를 내린다.
  *
- * ⚠️ RDS(pg) 전환 시 트랜잭션으로 감쌀 것 (raise()와 같은 이유). "미해결 수 조회 →
+ * ⚠️ RDS(pg) 전환 시 트랜잭션으로 감쌀 것 (raise()와 같은 이유). "미해결 critical 수 조회 →
  * isEmergency=false" 사이에 새 critical 알림이 끼어들면 그 알림이 켠 비상 상태를
  * 여기서 도로 꺼버린다 — 보호자가 응급 상황을 놓치는 경로다.
  */
@@ -183,7 +183,10 @@ async function resolveAlert(id, by = 'senior') {
 
     let current = await statusRepo.get(tx);
     let cleared = false;
-    if (await alertsRepo.unresolvedCount(tx) === 0 && current.isEmergency) {
+    // 비상 모드를 켜는 것은 critical 뿐이므로(위 raise 참고) 끄는 판정도 critical 만 센다.
+    // 전체를 세면 화면에도 안 뜨고 스스로 해제되지도 않는 warning 이 쌓인 만큼
+    // 어르신이 해제 버튼을 더 눌러야 한다 — 몇 번인지는 아무도 모른다.
+    if (await alertsRepo.unresolvedCount({ severity: 'critical' }, tx) === 0 && current.isEmergency) {
       current = await statusRepo.update({ isEmergency: false }, tx);
       cleared = true;
     }

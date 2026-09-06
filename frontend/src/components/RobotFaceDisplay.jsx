@@ -626,7 +626,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // ──────────────────────────────────────────────
   const resolveActiveAlert = async () => {
     try {
-      const res = await apiFetch('/api/alerts?resolved=false&limit=1');
+      // 경보를 켠 것은 critical 이므로 해제 대상도 critical 이어야 한다. 등급을 안 주면
+      // 어르신이 본 적도 없는 아침의 warning 이 대신 해제되고(resolved_by=senior 로
+      // 기록까지 오염된다) 정작 경보는 안 꺼진다.
+      const res = await apiFetch('/api/alerts?resolved=false&severity=critical&limit=1');
       if (res.ok) {
         const data = await res.json();
         const activeAlert = data.alerts[0];

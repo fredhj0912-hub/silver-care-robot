@@ -7,10 +7,10 @@ const snapshots = require('../services/snapshots');
 const router = express.Router();
 
 router.get('/alerts', asyncHandler(async (req, res) => {
-  const { resolved, type, from, to, before, limit } = req.query;
+  const { resolved, type, severity, from, to, before, limit } = req.query;
   res.json(await alertsRepo.list({
     resolved: resolved === undefined ? null : resolved === 'true' || resolved === '1',
-    type, from, to, before, limit,
+    type, severity, from, to, before, limit,
   }));
 }));
 

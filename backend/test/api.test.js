@@ -90,6 +90,44 @@ test('모든 알림을 해제하면 비상 상태가 내려간다', async () => 
   assert.strictEqual((await get('/api/status')).b.isEmergency, false);
 });
 
+test('warning이 미해결로 남아 있어도 critical 해제만으로 비상이 풀린다', async () => {
+  // warning 은 비상 모드를 켜지도, 푸시를 보내지도, 스스로 해제되지도 않는다 —
+  // 아무도 존재를 모르는 채 쌓인다. 그게 경보 해제를 막으면 어르신은 버튼을 몇 번
+  // 눌러야 하는지 알 수 없다.
+  const warning = await post('/api/chat', { text: '오늘 좀 어지럽네' });
+  assert.strictEqual(warning.b.alert.severity, 'warning');
+  assert.strictEqual((await get('/api/status')).b.isEmergency, false);
+
+  const critical = await post('/api/alerts', { description: '해제 대상 critical' });
+  assert.strictEqual((await get('/api/status')).b.isEmergency, true);
+
+  // 키오스크의 해제 버튼이 고르는 목록 — 아침의 warning 이 아니라 방금 그 critical 이어야 한다.
+  const open = await get('/api/alerts?resolved=false&severity=critical&limit=1');
+  assert.strictEqual(open.b.alerts[0].id, critical.b.alert.id);
+
+  const res = await post('/api/alerts/resolve', { id: critical.b.alert.id, by: 'senior' });
+  assert.strictEqual(res.b.isEmergency, false);
+  assert.strictEqual((await get('/api/status')).b.isEmergency, false);
+
+  // 어르신이 누른 해제가 warning 을 대신 지우지 않았는지 (기록 오염)
+  const stillOpen = await get('/api/alerts?resolved=false');
+  assert.ok(stillOpen.b.alerts.some((a) => a.id === warning.b.alert.id));
+
+  // 뒤 테스트가 깨끗한 DB 를 보도록 정리한다
+  await post('/api/alerts/resolve', { id: warning.b.alert.id, by: 'guardian' });
+});
+
+test('critical 2건 중 1건만 해제하면 비상 상태는 유지된다', async () => {
+  const first = await post('/api/alerts', { description: 'critical 1' });
+  const second = await post('/api/alerts', { description: 'critical 2' });
+
+  const afterFirst = await post('/api/alerts/resolve', { id: first.b.alert.id, by: 'guardian' });
+  assert.strictEqual(afterFirst.b.isEmergency, true);
+
+  const afterSecond = await post('/api/alerts/resolve', { id: second.b.alert.id, by: 'guardian' });
+  assert.strictEqual(afterSecond.b.isEmergency, false);
+});
+
 test('수동 SOS 버튼: 기본값이 채워지고 쿨다운을 무시하고 항상 알림을 만든다', async () => {
   const first = await post('/api/alerts', {});
   assert.strictEqual(first.b.success, true);
