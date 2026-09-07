@@ -34,8 +34,10 @@ const BUCKETS = {
 const PT = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' });
 const today = (instant = new Date()) => PT.format(instant);
 
-function exhausted(bucket, used, budget) {
-  const err = new Error(`오늘 ${bucket} 예산을 다 썼습니다 (${used}/${budget})`);
+function exhausted(bucket, budget) {
+  // 실제 사용량은 여기서 알 수 없다 — incrementIfBelow 가 막을 때는 행을 안 돌려주기
+  // 때문이다. 없는 숫자를 지어내느니 한도만 적는다(이 문자열이 화면까지 나간다).
+  const err = new Error(`오늘 ${bucket} 예산(${budget}건)을 다 썼습니다`);
   err.code = 'BUDGET_EXHAUSTED';
   return err;
 }
@@ -51,14 +53,28 @@ const isExhausted = (err) => Boolean(err) && err.code === 'BUDGET_EXHAUSTED';
  */
 async function consume(bucket) {
   const budget = BUCKETS[bucket]();
+  // day 는 한 번만 계산한다 — 두 번 부르면 PT 자정 경계에서 어제를 읽고 오늘에 쓸 수 있다.
+  const day = today();
 
-  const before = (await usageRepo.getDay(today()))[bucket] || 0;
-  if (before >= budget) {
-    console.warn(`[QUOTA] ${bucket} 예산 초과 — 호출하지 않고 mock 으로 떨어뜨립니다 (${before}/${budget})`);
-    throw exhausted(bucket, before, budget);
+  // 읽기·판단·쓰기가 한 문장 안에서 끝난다(리포지토리 주석 참고). null 이면 가득 찼다는 뜻.
+  let used;
+  try {
+    used = await usageRepo.incrementIfBelow(day, bucket, budget);
+  } catch (err) {
+    // **DB 장애를 "Gemini 실패"로 둔갑시키지 않는다.** 이걸 그냥 던지면 호출부의 catch 가
+    // mock 폴백으로 삼켜서, RDS 가 끊긴 내내 로봇이 통조림 답변만 하고 로그에는
+    // "Gemini 호출 실패"로만 남는다 — 장애 원인을 엉뚱한 데서 찾게 된다.
+    //
+    // 세지 못하는 동안에는 **통과시킨다**(fail-open). 예산은 비용을 막는 장치지,
+    // 우리 DB 가 아플 때 어르신 앞의 로봇을 막는 장치가 아니다. 대신 크게 남긴다.
+    console.error(`[QUOTA] ${bucket} 사용량 기록 실패 — 세지 못한 채 호출을 통과시킵니다:`, err.message);
+    return null;
+  }
+  if (used === null) {
+    console.warn(`[QUOTA] ${bucket} 예산 ${budget}건을 다 썼습니다 — 호출하지 않고 mock 으로 떨어뜨립니다`);
+    throw exhausted(bucket, budget);
   }
 
-  const used = await usageRepo.increment(today(), bucket);
   console.log(`[QUOTA] ${bucket} ${used}/${budget}`);
   return used;
 }

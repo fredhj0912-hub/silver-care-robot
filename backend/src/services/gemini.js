@@ -184,7 +184,9 @@ async function chat(text, seniorExpression) {
     } catch (err) {
       // 조용히 삼키지 않는다 — 호출부가 이 사실을 화면까지 전달한다
       console.error('Gemini 호출 실패 → mock 폴백:', err.message);
-      return { ...mockReply(text), source: 'mock', error: err.message };
+      // 예산 초과에는 STT 와 **같은 안정된 이름**을 붙인다. 원문 한국어 문장을 그대로
+      // 내보내면 화면·로그가 "예산 때문"인지 "파싱 실패"인지 문자열 매칭으로만 구분된다.
+      return { ...mockReply(text), source: 'mock', error: budget.isExhausted(err) ? 'budget_exhausted' : err.message };
     }
   }
 
@@ -236,7 +238,7 @@ async function analyzeImage(dataUri) {
     };
   } catch (err) {
     console.error('Gemini Vision 호출 실패:', err.message);
-    return { ...fallback, error: err.message };
+    return { ...fallback, error: budget.isExhausted(err) ? 'budget_exhausted' : err.message };
   }
 }
 

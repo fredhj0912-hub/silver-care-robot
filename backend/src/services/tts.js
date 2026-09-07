@@ -176,7 +176,7 @@ const PROVIDERS = { gemini: synthWithGemini, cloud: synthWithCloud };
  * 204를 돌려주고 프론트가 브라우저 TTS로 넘어가는데, 파이의 브라우저 TTS는 무음이다.
  * 즉 여기서 포기하는 것은 그 문장을 어르신이 **영영 못 듣는다**는 뜻이다.
  */
-async function synthWithRetry(text, voice) {
+async function synthWithRetry(text, voice, { countsAgainstBudget = true } = {}) {
   const synth = PROVIDERS[config.ttsProvider];
   const retries = Math.max(0, config.ttsRetries);
 
@@ -184,7 +184,7 @@ async function synthWithRetry(text, voice) {
     try {
       // 캐시 히트는 synthesize() 에서 이미 돌아가므로 여기까지 오지 않는다 —
       // **예열된 문구는 계속 0건**이다. 재시도도 실제 요청이라 시도마다 센다.
-      await budget.consume('tts');
+      if (countsAgainstBudget) await budget.consume('tts');
       return await synth(text, voice);
     } catch (err) {
       if (attempt >= retries || !isRetryable(err)) throw err;
@@ -204,7 +204,7 @@ const isEnabled = () =>
  * @returns {Promise<{buffer: Buffer, mime: string, cached: boolean, ms: number}|null>}
  *          provider가 browser면 null (프론트가 자체 TTS로 처리)
  */
-async function synthesize(text, { voice = config.ttsVoice } = {}) {
+async function synthesize(text, { voice = config.ttsVoice, countsAgainstBudget = true } = {}) {
   if (!isEnabled()) return null;
 
   const trimmed = String(text || '').trim();
@@ -220,7 +220,7 @@ async function synthesize(text, { voice = config.ttsVoice } = {}) {
   }
 
   const started = Date.now();
-  const result = await synthWithRetry(trimmed, voice);
+  const result = await synthWithRetry(trimmed, voice, { countsAgainstBudget });
   const ms = Date.now() - started;
 
   fs.mkdirSync(config.ttsCacheDir, { recursive: true });
@@ -256,7 +256,10 @@ async function prewarm() {
   for (const [i, phrase] of COMMON_PHRASES.entries()) {
     const label = `[${i + 1}/${COMMON_PHRASES.length}] ${phrase.slice(0, 20)}…`;
     try {
-      const r = await synthesize(phrase);
+      // **예열은 예산에서 빼 준다.** 문구 수가 정해져 있고(9개), 하는 일이 나중에 쓸
+      // 예산을 아끼는 것이다 — 하루 18건에서 절반을 여기서 먼저 쓰면, 새 EC2 에 배포한
+      // 날 오후에 로봇이 묵언 수행을 한다. 운영자가 의도적으로 한 번 돌리는 명령이다.
+      const r = await synthesize(phrase, { countsAgainstBudget: false });
       if (r?.cached) { cached++; console.log(`${label} 이미 캐시됨`); }
       else { generated++; console.log(`${label} 생성 ${r.ms}ms`); }
       consecutiveFailures = 0;

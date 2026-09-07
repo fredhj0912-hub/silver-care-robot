@@ -20,6 +20,9 @@
 >   `sdk_unavailable` 로 뭉뚱그려져 "SDK 가 깨졌나" 하고 엉뚱한 데를 뒤지게 되어 있었다.
 >   새 이유 두 개(`disabled`, `budget_exhausted`)는 `POST /api/stt` 가 502 가 아니라
 >   **503**(오늘 안에는 안 풀림)으로 알린다.
+> - **예산 판정을 원자적으로 고쳤다**(09-07 `/review`). 처음 판은 조회 후 증가라 그 사이의
+>   `await` 에서 동시 요청 둘이 같은 값을 읽고 둘 다 통과했다. 지금은 `DO UPDATE ... WHERE`
+>   한 문장이다. **pg-mem 은 이 가드를 검증하지 못한다** — `verify-rds` 가 대신 본다.
 > - **`tts.test.js` 와 `stt.test.js` 가 개발자의 `.env` 를 읽어 갈리고 있었다** — `GEMINI_ENABLED`
 >   와 DB 경로를 파일 안에 핀으로 박았다(`api.test.js` 가 이미 하던 것과 같은 이유).
 

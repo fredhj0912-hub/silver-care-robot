@@ -16,9 +16,12 @@ const assert = require('node:assert');
  *    pg-mem은 항상 숫자를 준다. 그래서 아래 타입 단언들은 pg-mem 위에서는 통과만 할 뿐
  *    실제로 규칙을 지키는지 증명하지 못한다 — int8 파서를 지우거나 스키마를 BIGINT로
  *    바꿔도 여기서는 잡히지 않는다(변이 테스트로 확인).
+ * 3. **`ON CONFLICT ... DO UPDATE ... WHERE` 의 가드.** 조건이 거짓이면 진짜 PostgreSQL 은
+ *    갱신도 RETURNING 도 하지 않는데(2026-09-07 RDS 실측), pg-mem 은 갱신 전 행을 돌려준다.
+ *    예산 상한이 통째로 이 한 줄에 걸려 있으므로 **verify-rds 가 이것을 검사한다.**
  *
- * 이 두 가지는 **`npm run verify-rds`가 실제 RDS를 상대로 확인한다.** 그 스크립트에
- * 롤백 검사와 id/COUNT 타입 검사가 모두 들어 있다. RDS에 처음 붙일 때 반드시 실행할 것.
+ * 이 세 가지는 **`npm run verify-rds`가 실제 RDS를 상대로 확인한다.** 그 스크립트에
+ * 롤백 검사, id/COUNT 타입 검사, 예산 가드 검사가 모두 들어 있다. RDS에 처음 붙일 때 반드시 실행할 것.
  *
  * 반대로 여기서 확실히 잡히는 것: 플레이스홀더 변환, `schema.pg.sql` 문법,
  * RETURNING, ON CONFLICT upsert, LIKE/커서, 트랜잭션 커밋 경로, JSON 왕복.
@@ -141,13 +144,16 @@ test('푸시 구독 upsert (ON CONFLICT ... DO UPDATE)', async () => {
   await subscriptionsRepo.remove('https://push/one');
 });
 
-test('사용량 카운터: 복합 PK 에 ON CONFLICT ... DO UPDATE + RETURNING', async () => {
+test('사용량 카운터: 복합 PK 에 ON CONFLICT ... DO UPDATE ... WHERE + RETURNING', async () => {
   // 예산 상한이 기대는 유일한 문장이다. pg 에서 파싱조차 안 되면 EC2 배포 순간에야 안다.
-  assert.strictEqual(await usageRepo.increment('2026-09-07', 'text'), 1);
-  assert.strictEqual(await usageRepo.increment('2026-09-07', 'text'), 2);
-  assert.strictEqual(await usageRepo.increment('2026-09-07', 'tts'), 1);
-  assert.strictEqual(await usageRepo.increment('2026-09-08', 'text'), 1);
+  assert.strictEqual(await usageRepo.incrementIfBelow('2026-09-07', 'text', 99), 1);
+  assert.strictEqual(await usageRepo.incrementIfBelow('2026-09-07', 'text', 99), 2);
+  assert.strictEqual(await usageRepo.incrementIfBelow('2026-09-07', 'tts', 99), 1);
+  assert.strictEqual(await usageRepo.incrementIfBelow('2026-09-08', 'text', 99), 1);
 
+  // **WHERE 가드는 여기서 확인하지 않는다** — pg-mem 은 조건이 거짓일 때도 갱신 전 행을
+  // 돌려준다(진짜 PostgreSQL 은 아무것도 안 돌려준다, 09-07 RDS 실측). 헤더의 3번 참고.
+  // 여기서 보는 것은 이 문장이 pg 문법으로 **파싱되고 증가가 도는가** 뿐이다.
   assert.deepStrictEqual(await usageRepo.getDay('2026-09-07'), { text: 2, tts: 1 });
   assert.deepStrictEqual(await usageRepo.getDay('2026-09-09'), {});
 });

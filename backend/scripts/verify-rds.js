@@ -81,7 +81,21 @@ async function main() {
   if (afterRollback.description !== TEST_TS) throw new Error('롤백이 동작하지 않았습니다');
   console.log('✅ 트랜잭션 롤백');
 
-  // 6) 뒷정리 — 확인용 행을 남기지 않는다
+  // 6) 예산 가드 — `ON CONFLICT ... DO UPDATE ... WHERE` 가 조건이 거짓일 때 정말로
+  //    아무것도 돌려주지 않는가. **pg-mem 은 이걸 못 잡는다**(갱신 전 행을 돌려준다).
+  //    Gemini 하루 상한이 통째로 이 한 줄에 걸려 있어 실제 RDS 에서만 확인된다.
+  const usageRepo = require('../src/repositories/usage');
+  const budgetDay = `verify-${Date.now()}`;
+  const first = await usageRepo.incrementIfBelow(budgetDay, 'text', 1);
+  const blocked = await usageRepo.incrementIfBelow(budgetDay, 'text', 1);
+  const zero = await usageRepo.incrementIfBelow(`${budgetDay}-zero`, 'text', 0);
+  if (first !== 1) throw new Error(`예산 증가가 1을 돌려주지 않았습니다 (${first})`);
+  if (blocked !== null) throw new Error(`상한에 닿았는데 통과했습니다 (${blocked}) — 예산 상한이 새고 있습니다`);
+  if (zero !== null) throw new Error(`한도 0인데 첫 삽입이 통과했습니다 (${zero})`);
+  await query('DELETE FROM api_usage WHERE day LIKE ?', [`${budgetDay}%`]);
+  console.log('✅ 예산 가드 (DO UPDATE ... WHERE)');
+
+  // 7) 뒷정리 — 확인용 행을 남기지 않는다
   const { rowCount } = await query('DELETE FROM alerts WHERE description = ?', [TEST_TS]);
   console.log(`✅ 정리 완료 (${rowCount}건 삭제)`);
 

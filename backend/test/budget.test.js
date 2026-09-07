@@ -42,6 +42,21 @@ test('consume 은 시도마다 1건씩 올린다', async () => {
   assert.deepStrictEqual(await usageRepo.getDay(budget.today()), { text: 2 });
 });
 
+test('동시에 들어온 요청이 상한을 넘기지 못한다', async () => {
+  // 읽기와 판단이 갈라져 있으면 둘 다 "아직 여유 있다"를 읽고 둘 다 올려 상한을 넘긴다.
+  // 예산 2에 다섯을 한꺼번에 밀어 넣어도 성공은 정확히 2건이어야 한다.
+  const results = await Promise.allSettled([1, 2, 3, 4, 5].map(() => budget.consume('text')));
+  const ok = results.filter((r) => r.status === 'fulfilled');
+  assert.strictEqual(ok.length, 2, '상한을 넘겨 통과했다');
+  assert.deepStrictEqual(await usageRepo.getDay(budget.today()), { text: 2 });
+});
+
+test('예산이 0이면 첫 호출부터 막힌다', async () => {
+  // 0("아무 호출도 하지 마라")에서 첫 INSERT 가 새면 상한이 상한이 아니다.
+  assert.strictEqual(await usageRepo.incrementIfBelow(budget.today(), 'text', 0), null);
+  assert.deepStrictEqual(await usageRepo.getDay(budget.today()), {});
+});
+
 test('text 와 tts 는 서로 다른 통이다', async () => {
   await budget.consume('text');
   await budget.consume('tts');
@@ -79,4 +94,22 @@ test('GEMINI_ENABLED=0 이면 호출 자체가 없어 카운터가 아예 안 �
   const reply = await gemini.chat('안녕하세요');
   assert.strictEqual(reply.source, 'mock');
   assert.deepStrictEqual(await usageRepo.getDay(budget.today()), {});
+});
+
+/**
+ * DB 장애는 "Gemini 실패"가 아니다.
+ *
+ * consume() 이 던지면 호출부의 catch 가 mock 폴백으로 삼켜서, RDS 가 끊긴 내내 로봇이
+ * 통조림 답변만 하고 로그에는 "Gemini 호출 실패"로만 남는다 — 원인을 엉뚱한 데서 찾게 된다.
+ * 예산은 비용을 막는 장치지 우리 DB 가 아플 때 어르신 앞의 로봇을 막는 장치가 아니다.
+ */
+test('사용량을 기록하지 못하면 막지 않고 통과시킨다 (fail-open)', async () => {
+  const real = usageRepo.incrementIfBelow;
+  usageRepo.incrementIfBelow = async () => { throw new Error('connection terminated unexpectedly'); };
+  try {
+    // 던지지 않는다 — 던지면 대화가 통째로 mock 으로 떨어진다
+    assert.strictEqual(await budget.consume('text'), null);
+  } finally {
+    usageRepo.incrementIfBelow = real;
+  }
 });

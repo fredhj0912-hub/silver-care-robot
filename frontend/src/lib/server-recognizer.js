@@ -31,7 +31,7 @@ const SAMPLE_RATE = 16000;
 // 2의 거듭제곱이어야 한다. 4096 @ 16kHz = 256ms — VAD 판정에 충분히 촘촘하다.
 const FRAME_SIZE = 4096;
 
-export function createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, dryRun }) {
+export function createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, dryRun, oneShot }) {
   let stream = null;
   let audioContext = null;
   let processor = null;
@@ -130,7 +130,18 @@ export function createServerRecognizer({ onResult, onStart, onEnd, onError, vadO
     // 일에 Gemini 할당량이 들지 않게 하는 것이 이 스위치의 존재 이유다.
     if (dryRun) { dropBuffer(); return; }
 
-    // 발화가 끝났다. 업로드하는 동안에도 캡처는 계속 돈다 —
+    // 푸시투토크(oneShot)는 **이 발화 하나로 끝**이다. 업로드를 시작하기 전에 캡처를 닫는다.
+    // 안 닫으면 같은 누름 안에서 TV 소리·기침이 다음 발화로 잡혀 또 올라가고, 그게 곧
+    // 예산 한 건이다. 받아쓰기 결과가 비면 onResult 가 아예 안 불리므로(아래 `if (!text)`)
+    // 화면 쪽 stopPtt 만 믿을 수도 없다 — 닫는 책임이 여기 있어야 한다.
+    // transcribe() 는 맨 위에서 버퍼를 동기적으로 합치므로 여기서 닫아도 오디오는 온전하다.
+    if (oneShot) {
+      capturing = false;
+      resetSpeech(vad);
+      onEnd?.();
+    }
+
+    // 상시 청취에서는 업로드하는 동안에도 캡처가 계속 돈다 —
     // 어르신이 이어서 말하면 그것도 다음 발화로 잡아야 한다.
     transcribe();
   }

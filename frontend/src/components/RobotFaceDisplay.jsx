@@ -146,6 +146,9 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   const [sttReason, setSttReason] = useState(null);
 
   // 푸시투토크: 지금 듣는 중인지와 남은 시간(초). always 모드에서는 계속 null 이다.
+  // 카운트다운은 마이크가 **실제로 열린 뒤**(인식기의 onStart)에 시작한다 — 파이에서
+  // getUserMedia 가 수백 ms 걸리는데 미리 세면 그만큼을 그냥 날린다. 그 사이가 arming 이다.
+  const [pttArming, setPttArming] = useState(false);
   const [pttSecondsLeft, setPttSecondsLeft] = useState(null);
   const pttTimerRef = useRef(null);
   const pttTickRef = useRef(null);
@@ -432,8 +435,14 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     clearInterval(pttTickRef.current);
     pttTimerRef.current = null;
     pttTickRef.current = null;
+    setPttArming(false);
     setPttSecondsLeft(null);
     recognitionRef.current?.stop();
+    // 상태줄을 반드시 여기서 되돌린다. ptt 모드에서는 인식기의 onEnd 가 먼저 return 하므로
+    // 이걸 빠뜨리면 마이크가 닫힌 뒤에도 화면은 "말씀하세요, 듣고 있어요"로 남고 안테나도
+    // 초록으로 켜져 있다 — 어르신이 죽은 마이크에 대고 계속 말하게 된다.
+    // (말하는 중이면 건드리지 않는다. 그 상태는 finishSpeaking 이 정리한다)
+    if (!isSpeakingRef.current) setVoiceState('idle');
   }, []);
 
   /** 대화 창을 열고 30초 타이머를 (다시) 건다 */
@@ -458,17 +467,30 @@ function RobotFaceDisplay({ status, onStatusChange }) {
 
     openGate();   // 버튼을 누른 것 자체가 대화 의사 표시다
     shouldListenRef.current = true;
+    setPttArming(true);
     startListening({ manual: true });
 
+    // 마이크가 영영 안 열리는 경우(권한 거부·장치 없음)의 안전 시한. 실제 카운트다운은
+    // 아래 onStart 가 다시 건다 — 여기 타이머는 그때 교체된다.
+    pttTimerRef.current = setTimeout(stopPtt, PTT_TIMEOUT_MS);
+  }, [openGate, startListening, stopPtt, sttUnavailable]);
+
+  /** 마이크가 실제로 열렸다 — 여기서부터가 진짜 8초다. */
+  const beginPttCountdown = useCallback(() => {
+    setPttArming(false);
     setPttSecondsLeft(Math.ceil(PTT_TIMEOUT_MS / 1000));
+
+    clearInterval(pttTickRef.current);
     pttTickRef.current = setInterval(() => {
       setPttSecondsLeft((n) => (n === null ? null : Math.max(0, n - 1)));
     }, 1000);
+
+    clearTimeout(pttTimerRef.current);
     pttTimerRef.current = setTimeout(() => {
       // 눌렀는데 아무 말이 없었다. 조용히 닫는다 — 업로드가 없었으므로 예산은 0건이다.
       stopPtt();
     }, PTT_TIMEOUT_MS);
-  }, [openGate, startListening, stopPtt, sttUnavailable]);
+  }, [stopPtt]);
 
   /**
    * 인식된 발화를 어떻게 처리할지 결정한다.
@@ -534,12 +556,18 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       setSttUnavailable(true);
       setSttReason(reason);
       setVoiceState('idle');
+      // 버튼이 화면에서 사라져도 타이머는 안 사라진다 — 여기서 같이 닫는다.
+      stopPtt();
     };
 
     const recognizer = createRecognizer({
       vadOptions: VAD_DEBUG.vadOptions,
       // 관측 모드에서는 발화 경계만 화면에 보여 주고 Gemini로 올리지 않는다.
       dryRun: VAD_DEBUG.enabled,
+      // 푸시투토크는 발화 하나를 잡으면 인식기가 스스로 캡처를 닫는다. 화면의 stopPtt 는
+      // 받아쓰기 결과가 비면 아예 안 불리므로(빈 결과는 onResult 를 건너뛴다) 여기서 막아야
+      // 한 번 누름에 업로드가 여러 건 나가지 않는다.
+      oneShot: PTT_MODE,
       onVad: VAD_DEBUG.enabled
         ? (info) => setVadInfo((prev) => ({
             ...info,
@@ -552,6 +580,8 @@ function RobotFaceDisplay({ status, onStatusChange }) {
         : undefined,
       onStart: () => {
         if (!isSpeakingRef.current) setVoiceState('listening');
+        // 마이크가 진짜로 열린 시점이다. 8초는 여기서부터 센다.
+        if (PTT_MODE) beginPttCountdown();
       },
       onResult: (text) => {
         sttFailStreakRef.current = 0;  // 한 번이라도 들렸으면 연속 실패가 아니다
@@ -574,8 +604,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
         // 다만 실패가 이어지면 간격을 늘린다 — 예전에는 고정 300ms였고,
         // 영구 실패 상태에서는 초당 3회짜리 무한 루프가 됐다.
         if (isSpeakingRef.current || !shouldListenRef.current) return;
-        // 푸시투토크는 스스로 다시 열지 않는다. 재시작 backoff 는 always 모드용으로 남긴다.
-        if (PTT_MODE) return;
+        // 푸시투토크는 스스로 다시 열지 않는다. 대신 화면을 닫힌 상태로 맞춘다 —
+        // 인식기가 발화 하나를 잡고 캡처를 닫은 순간이 곧 "이제 안 듣는다"이다.
+        // (stopPtt 는 멱등이라 여기서 다시 불려도 안전하다)
+        if (PTT_MODE) { stopPtt(); return; }
         const delay = Math.min(300 * 2 ** sttFailStreakRef.current, 10000);
         restartTimer = setTimeout(() => startListening(), delay);
       },
@@ -596,10 +628,17 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       clearTimeout(speechBubbleTimerRef.current);
       clearTimeout(pttTimerRef.current);
       clearInterval(pttTickRef.current);
+      pttTimerRef.current = null;
+      pttTickRef.current = null;
+      // **화면 상태도 되돌린다.** 이 효과는 상태값이 바뀌면 누르는 도중에도 다시 돌 수
+      // 있는데, 그때 타이머만 지우고 여기를 빼먹으면 버튼이 숫자가 멈춘 채
+      // "🔴 듣고 있어요"로 굳는다 — 닫을 타이머까지 이미 지워진 뒤라 영영 안 풀린다.
+      setPttArming(false);
+      setPttSecondsLeft(null);
       shouldListenRef.current = false;
       recognizer.abort();
     };
-  }, [handleTranscript, startListening]);
+  }, [handleTranscript, startListening, beginPttCountdown, stopPtt]);
 
   // ──────────────────────────────────────────────
   // 보호자 명령 큐 폴링
@@ -1017,13 +1056,13 @@ function RobotFaceDisplay({ status, onStatusChange }) {
         <div className="ptt-area">
           <button
             type="button"
-            onClick={pttSecondsLeft === null ? startPtt : stopPtt}
+            onClick={pttArming || pttSecondsLeft !== null ? stopPtt : startPtt}
             className={`ptt-btn ${pttSecondsLeft === null ? '' : 'is-listening'}`}
             disabled={voiceState === 'speaking' || isChatLoading}
           >
-            {pttSecondsLeft === null
-              ? '🎤 눌러서 말하기'
-              : `🔴 듣고 있어요 · ${pttSecondsLeft}초`}
+            {pttSecondsLeft !== null
+              ? `🔴 듣고 있어요 · ${pttSecondsLeft}초`
+              : pttArming ? '🎤 마이크를 여는 중…' : '🎤 눌러서 말하기'}
           </button>
         </div>
       )}

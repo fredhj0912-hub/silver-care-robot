@@ -212,3 +212,22 @@ test('provider가 browser면 아예 합성하지 않는다', async () => {
   assert.strictEqual(await synthesize(uniqueText()), null, '프론트가 자체 TTS로 처리한다는 신호');
   assert.strictEqual(calls.length, 0);
 });
+
+/**
+ * 예열은 예산에서 뺀다. 문구 수가 정해져 있고(9개), 하는 일이 나중 예산을 아끼는 것이다 —
+ * 하루 18건에서 절반을 예열이 먼저 쓰면 새 EC2 에 배포한 날 오후에 로봇이 묵언 수행을 한다.
+ */
+test('예열은 TTS 예산을 쓰지 않는다', async () => {
+  const budget = require('../src/services/budget');
+  const usageRepo = require('../src/repositories/usage');
+  stubFetch([{ status: 200, body: OK_AUDIO }]);
+
+  const before = (await usageRepo.getDay(budget.today())).tts || 0;
+  await synthesize(uniqueText(), { countsAgainstBudget: false });
+  assert.strictEqual((await usageRepo.getDay(budget.today())).tts || 0, before,
+    '예열이 하루 예산을 먹었다');
+
+  // 대조군: 평소 경로는 그대로 센다
+  await synthesize(uniqueText());
+  assert.strictEqual((await usageRepo.getDay(budget.today())).tts || 0, before + 1);
+});

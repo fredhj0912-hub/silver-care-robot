@@ -140,10 +140,10 @@ function createBrowserRecognizer({ onResult, onStart, onEnd, onError, lang }) {
  * @param {boolean} [opts.dryRun]  server 모드 전용 — 발화를 잡되 업로드하지 않는다
  * @returns {{start: () => void, stop: () => void, abort: () => void, isSupported: boolean}}
  */
-export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko-KR', vadOptions, onVad, dryRun }) {
+export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko-KR', vadOptions, onVad, dryRun, oneShot }) {
   if (STT_MODE === 'browser') {
     // browser 모드에는 우리 VAD가 없다 — 경계를 Web Speech API가 잡는다.
     return createBrowserRecognizer({ onResult, onStart, onEnd, onError, lang });
   }
-  return createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, dryRun });
+  return createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, dryRun, oneShot });
 }

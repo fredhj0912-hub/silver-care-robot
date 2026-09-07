@@ -20,7 +20,10 @@ const MAX_AUDIO_BYTES = 6 * 1024 * 1024;             // base64 data URI 문자�
  * 0이 의미 있는 값인 설정이 있어 그 형태를 쓸 수 없다.
  */
 function numberFromEnv(raw, fallback) {
-  return Number.isFinite(Number(raw)) && raw !== '' && raw !== undefined ? Number(raw) : fallback;
+  // trim 이 필요한 이유: Number(' ') 은 0 이다. `GEMINI_DAILY_BUDGET= ` 한 칸이
+  // "하루 0건"으로 조용히 바뀌면 로봇이 온종일 mock 으로만 답한다.
+  const trimmed = raw === undefined || raw === null ? '' : String(raw).trim();
+  return trimmed !== '' && Number.isFinite(Number(trimmed)) ? Number(trimmed) : fallback;
 }
 
 const config = {

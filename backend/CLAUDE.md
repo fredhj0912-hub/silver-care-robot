@@ -119,7 +119,9 @@ test/
 - **`emergency.raise()`/`resolveAlert()`는 트랜잭션 안에서 돈다.** 이벤트 발행·푸시·모터
   정지 같은 **되돌릴 수 없는 부수효과는 반드시 커밋 이후**에 둘 것 — 롤백된 알림으로
   보호자 폰이 울리면 존재하지 않는 응급을 보호자가 믿게 된다.
-- **pg 경로에서 pg-mem이 검증하지 못하는 것 둘**: 트랜잭션 롤백, COUNT/id의 타입.
-  RDS에 처음 붙일 때 `npm run verify-rds`를 반드시 돌릴 것 (둘 다 거기서 검사한다).
+- **pg 경로에서 pg-mem이 검증하지 못하는 것 셋**: 트랜잭션 롤백, COUNT/id의 타입,
+  `ON CONFLICT ... DO UPDATE ... WHERE` 의 가드(조건이 거짓이면 진짜 PostgreSQL 은 아무것도
+  돌려주지 않는데 pg-mem 은 갱신 전 행을 돌려준다 — 09-07 RDS 실측). **예산 상한이 그 한 줄에**
+  **걸려 있다.** RDS에 처음 붙일 때 `npm run verify-rds`를 반드시 돌릴 것 (셋 다 거기서 검사한다).
 - The old `GET /api/history`, `POST /api/remote-message`, and `GET /api/remote-message/poll` compat shims were removed 2026-08-27 (no callers left). Use `/api/messages` + `/api/alerts` and `/api/commands/pending` + `/api/commands/:id/ack`.
 - `config.geminiModel` defaults to `gemini-3.6-flash`, not the newer `gemini-3.7-flash` — the latter 503s under load as of 2026-08.
