@@ -142,8 +142,18 @@ become unavailable is stopping.
 
 ## Wake-word gate
 
+**마이크는 기본적으로 닫혀 있다** (`VITE_MIC_MODE=ptt`, 2026-09-07). 화면의 큰 버튼을
+눌러야 한 발화만큼 열린다 — 상시 청취에서는 방 안의 모든 소리가 받아쓰기 1건이고,
+웨이크워드 판정이 그 *뒤*라 게이트가 닫혀 있어도 이미 지불된 뒤이기 때문이다.
+`?mic=always` 로 상시 청취를 되살릴 수 있다(디버깅용).
+
+⚠️ **그래서 음성 응급 경로가 없다.** 아래 그림의 "emergency phrase" 우회는 마이크가
+열려 있을 때만 도달한다. 쓰러져서 화면에 손이 못 닿는 어르신에게 남는 것은 SOS 버튼
+하나뿐이고, 근본 대체재인 낙상 감지(YOLOv8)는 아직 미구현이다.
+
 ```mermaid
 flowchart LR
+    Btn["🎤 눌러서 말하기<br/>(8초 뒤 자동 닫힘)"] --> STT
     STT["STT result"] --> Decide{"decideAction()"}
     Decide -->|"emergency phrase<br/>(bypasses gate)"| Send["send to /api/chat"]
     Decide -->|"heard '돌봄아'<br/>(+ 20 mis-hearing variants)"| Ack["acknowledge,<br/>open 30s window"]

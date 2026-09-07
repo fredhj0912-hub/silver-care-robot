@@ -68,6 +68,9 @@ let RobotFaceDisplay;
 beforeAll(async () => {
   // 기본값이지만 명시한다 — .env에 VITE_STT_MODE=browser가 있어도 이 파일은 server를 본다.
   vi.stubEnv('VITE_STT_MODE', 'server');
+  // 이 파일은 **상시 청취** 배선을 검증한다 — 기본값이 푸시투토크로 바뀐 뒤에도
+  // 그 경로가 살아 있는지 보는 것이 목적이므로 모드를 명시적으로 고정한다.
+  vi.stubEnv('VITE_MIC_MODE', 'always');
   RobotFaceDisplay = (await import('../src/components/RobotFaceDisplay')).default;
 });
 
@@ -231,6 +234,9 @@ test('언마운트하면 마이크를 놓아준다', async () => {
 test('?vad=1 이면 오버레이가 뜨고 받아쓰기를 올리지 않는다', async () => {
   window.history.replaceState({}, '', '/?vad=1&vadstart=0.005');
   vi.resetModules();
+  // afterEach의 unstubAllEnvs가 beforeAll의 핀을 이미 걷어 갔다. 여기서 모듈을 새로
+  // 부르므로 상시 청취를 다시 박아 준다 — 안 하면 기본값(ptt)이라 마이크가 안 열린다.
+  vi.stubEnv('VITE_MIC_MODE', 'always');
   const Debug = (await import('../src/components/RobotFaceDisplay')).default;
 
   vi.useFakeTimers({ shouldAdvanceTime: true });

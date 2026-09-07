@@ -38,6 +38,29 @@ const SNAPSHOT_INTERVAL_MS = Number(import.meta.env.VITE_SNAPSHOT_INTERVAL_MS) |
 
 const CAMERA_ENABLED = VISION_ENABLED || SNAPSHOT_ENABLED;
 
+// 마이크를 언제 여는가 — 푸시투토크(기본) / 상시 청취.
+//
+// 상시 청취에서는 **방 안에서 나는 모든 소리가 받아쓰기 1건**이다(웨이크워드 판정이
+// 받아쓰기 *뒤*라 게이트가 닫혀 있어도 이미 지불된 뒤다). 2026-09-02 파이에서
+// 한 시간에 100건을 그렇게 태웠다. 그래서 기본값은 눌러야 듣는 ptt 다.
+//
+// ⚠️ **이 전환은 음성 응급 경로를 없앤다.** 쓰러져서 화면에 손이 못 닿는 어르신에게는
+// wakeword.js 의 우회 문구("살려줘" 등)가 닿을 길이 사라진다. 남는 대체 수단은 SOS
+// 버튼(항상 화면에 있다)이고, 근본 대체재인 낙상 감지는 아직 미구현이다.
+//
+// `?snapshot=1` 과 같은 패턴으로 **URL 이 env 를 이긴다** — 디버깅할 때 `?mic=always`.
+function readMicMode(search = '') {
+  const q = new URLSearchParams(search).get('mic');
+  if (q === 'always' || q === 'ptt') return q;
+  return import.meta.env.VITE_MIC_MODE === 'always' ? 'always' : 'ptt';
+}
+
+const MIC_MODE = readMicMode(typeof window !== 'undefined' ? window.location.search : '');
+const PTT_MODE = MIC_MODE === 'ptt';
+
+// 눌렀는데 아무 말이 없으면 스스로 닫는다. 마이크가 열린 채 잊히는 경로를 없앤다.
+const PTT_TIMEOUT_MS = 8000;
+
 const MOVE_ARROWS = { up: '⬆️', down: '⬇️', left: '⬅️', right: '➡️' };
 
 // 일시적 STT 오류가 이만큼 연속되면 음성 인식을 포기하고 텍스트 입력으로 안내한다.
@@ -121,6 +144,11 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // 음성 인식이 안 되는 '이유' — 'insecure' | 'unsupported' | 'denied' | 'network'.
   // 이 화면 앞에는 devtools를 열어 둘 사람이 없다. 콘솔이 아니라 7인치 화면에 떠야 한다.
   const [sttReason, setSttReason] = useState(null);
+
+  // 푸시투토크: 지금 듣는 중인지와 남은 시간(초). always 모드에서는 계속 null 이다.
+  const [pttSecondsLeft, setPttSecondsLeft] = useState(null);
+  const pttTimerRef = useRef(null);
+  const pttTickRef = useRef(null);
 
   // 일시적 오류(주로 'network')의 연속 횟수. onresult가 오면 0으로 되돌린다.
   const sttFailStreakRef = useRef(0);
@@ -389,9 +417,23 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // ──────────────────────────────────────────────
   // 자동 음성 인식 (Always Listening)
   // ──────────────────────────────────────────────
-  const startListening = useCallback(() => {
+  const startListening = useCallback(({ manual = false } = {}) => {
     if (isSpeakingRef.current || !shouldListenRef.current) return;
+    // 푸시투토크에서는 **버튼을 누른 것만** 마이크를 연다. 여기 한 곳에서 막으면
+    // 발화 종료·응답 완료·오류 같은 기존 재개 지점을 하나씩 고칠 필요가 없다
+    // (그 중 하나만 빠뜨려도 마이크가 상시로 열려 예산이 새 나간다).
+    if (PTT_MODE && !manual) return;
     recognitionRef.current?.start();
+  }, []);
+
+  /** 푸시투토크: 듣기를 닫고 타이머를 정리한다. 여러 경로에서 불리므로 **멱등**이다. */
+  const stopPtt = useCallback(() => {
+    clearTimeout(pttTimerRef.current);
+    clearInterval(pttTickRef.current);
+    pttTimerRef.current = null;
+    pttTickRef.current = null;
+    setPttSecondsLeft(null);
+    recognitionRef.current?.stop();
   }, []);
 
   /** 대화 창을 열고 30초 타이머를 (다시) 건다 */
@@ -406,13 +448,41 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   }, []);
 
   /**
+   * 푸시투토크: 버튼을 눌렀다. 한 번 누름 = 한 발화.
+   *
+   * 로봇이 말하는 중이면 받지 않는다 — 자기 목소리를 자기가 받아쓰면 그것도 예산 2건이다.
+   */
+  const startPtt = useCallback(() => {
+    if (isSpeakingRef.current || sttUnavailable) return;
+    if (pttTimerRef.current) return;   // 이미 듣는 중이면 연타를 무시한다
+
+    openGate();   // 버튼을 누른 것 자체가 대화 의사 표시다
+    shouldListenRef.current = true;
+    startListening({ manual: true });
+
+    setPttSecondsLeft(Math.ceil(PTT_TIMEOUT_MS / 1000));
+    pttTickRef.current = setInterval(() => {
+      setPttSecondsLeft((n) => (n === null ? null : Math.max(0, n - 1)));
+    }, 1000);
+    pttTimerRef.current = setTimeout(() => {
+      // 눌렀는데 아무 말이 없었다. 조용히 닫는다 — 업로드가 없었으므로 예산은 0건이다.
+      stopPtt();
+    }, PTT_TIMEOUT_MS);
+  }, [openGate, startListening, stopPtt, sttUnavailable]);
+
+  /**
    * 인식된 발화를 어떻게 처리할지 결정한다.
    *
    * 이전에는 인식된 모든 발화를 그대로 /api/chat 으로 보내서
    * TV 소리, 혼잣말, 통화 소리에까지 로봇이 대답했다.
    */
   const handleTranscript = useCallback((transcript) => {
-    const decision = decideAction(transcript, gateActiveRef.current);
+    // 푸시투토크에서는 **버튼을 누른 것이 곧 의도 표명**이라 웨이크워드를 요구하지 않는다.
+    // 잡음 필터(isMeaningfulUtterance)와 응급 우회는 그대로 일한다.
+    const decision = decideAction(transcript, PTT_MODE ? true : gateActiveRef.current);
+
+    // 한 번 누름 = 한 발화. 흘려보낸 말이든 아니든 여기서 마이크를 닫는다.
+    if (PTT_MODE) stopPtt();
 
     if (decision.action === 'ignore') {
       // dormant 상태에서 흘려보낸 말. 인식은 계속 돌지만 API는 부르지 않는다.
@@ -432,7 +502,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     }
 
     sendVoiceMessage(decision.text);
-  }, [openGate, speakText, sendVoiceMessage]);
+  }, [openGate, speakText, sendVoiceMessage, stopPtt]);
 
   useEffect(() => {
     // 보안 컨텍스트(HTTPS 또는 localhost)가 아니면 음성 인식·카메라·서비스워커가 전부
@@ -504,6 +574,8 @@ function RobotFaceDisplay({ status, onStatusChange }) {
         // 다만 실패가 이어지면 간격을 늘린다 — 예전에는 고정 300ms였고,
         // 영구 실패 상태에서는 초당 3회짜리 무한 루프가 됐다.
         if (isSpeakingRef.current || !shouldListenRef.current) return;
+        // 푸시투토크는 스스로 다시 열지 않는다. 재시작 backoff 는 always 모드용으로 남긴다.
+        if (PTT_MODE) return;
         const delay = Math.min(300 * 2 ** sttFailStreakRef.current, 10000);
         restartTimer = setTimeout(() => startListening(), delay);
       },
@@ -512,7 +584,8 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     recognitionRef.current = recognizer;
     shouldListenRef.current = true;
 
-    const initTimer = setTimeout(() => startListening(), 1000);
+    // 푸시투토크는 마운트 때 마이크를 열지 않는다 — 버튼을 눌러야 열린다.
+    const initTimer = PTT_MODE ? null : setTimeout(() => startListening(), 1000);
 
     return () => {
       clearTimeout(initTimer);
@@ -521,6 +594,8 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       clearTimeout(speechWatchdogRef.current);
       clearTimeout(voicelessTimerRef.current);
       clearTimeout(speechBubbleTimerRef.current);
+      clearTimeout(pttTimerRef.current);
+      clearInterval(pttTickRef.current);
       shouldListenRef.current = false;
       recognizer.abort();
     };
@@ -722,6 +797,8 @@ function RobotFaceDisplay({ status, onStatusChange }) {
 
   const getStateText = () => {
     if (sttUnavailable) return STT_UNAVAILABLE_TEXT[sttReason] || STT_UNAVAILABLE_TEXT.unsupported;
+    // 푸시투토크에서는 "돌봄아 하고 불러주세요"가 거짓말이 된다 — 안 듣고 있기 때문이다.
+    if (PTT_MODE && voiceState === 'idle') return '아래 버튼을 누르고 말씀해 주세요';
     switch (voiceState) {
       case 'listening': return isGateActive ? '말씀하세요, 듣고 있어요' : '"돌봄아" 하고 불러주세요';
       case 'processing': return '생각하는 중...';
@@ -933,6 +1010,23 @@ function RobotFaceDisplay({ status, onStatusChange }) {
           {getStateText()}
         </span>
       </div>
+
+      {/* 푸시투토크 버튼 — 이 화면에서 마이크가 열리는 **유일한** 지점이다.
+          어르신이 쓰고 720×1280 세로 패널이라 터치 타깃을 크게 잡는다. */}
+      {PTT_MODE && !sttUnavailable && (
+        <div className="ptt-area">
+          <button
+            type="button"
+            onClick={pttSecondsLeft === null ? startPtt : stopPtt}
+            className={`ptt-btn ${pttSecondsLeft === null ? '' : 'is-listening'}`}
+            disabled={voiceState === 'speaking' || isChatLoading}
+          >
+            {pttSecondsLeft === null
+              ? '🎤 눌러서 말하기'
+              : `🔴 듣고 있어요 · ${pttSecondsLeft}초`}
+          </button>
+        </div>
+      )}
 
       {/* 텍스트 대화 테스트 입력창 */}
       <form onSubmit={handleTextSubmit} className="text-chat-form">

@@ -45,6 +45,9 @@ beforeAll(async () => {
   // 공통이므로, 이벤트를 손으로 흘려보낼 수 있는 browser 모드로 고정해 테스트한다.
   // 기본값(server)에서도 같은 배선이 도는 것은 RobotFaceDisplay.server-stt.test.jsx가 덮는다.
   vi.stubEnv('VITE_STT_MODE', 'browser');
+  // 이 파일은 **상시 청취** 배선을 검증한다 — 기본값이 푸시투토크로 바뀐 뒤에도
+  // 그 경로가 살아 있는지 보는 것이 목적이므로 모드를 명시적으로 고정한다.
+  vi.stubEnv('VITE_MIC_MODE', 'always');
   window.SpeechRecognition = FakeRecognition;
   RobotFaceDisplay = (await import('../src/components/RobotFaceDisplay')).default;
 });

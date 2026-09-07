@@ -56,6 +56,7 @@ test/
   MedicationScreen.test.jsx        복약: 등록 시 UTC 변환, 복용 버튼 게이팅, 시리즈 삭제
   useGuardianData.test.jsx         SSE 정체 감지·재연결, 폴백 폴링 중에는 오프라인 안내 안 함
   RobotFaceDisplay.test.jsx        키오스크가 웨이크워드 게이트를 실제로 통과시키는지 (STT/TTS 스텁)
+  RobotFaceDisplay.ptt.test.jsx    푸시투토크(기본): **안 눌렀으면 /api/stt 가 안 나가는지**
 ```
 
 ## Conventions
@@ -63,6 +64,11 @@ test/
 - **Voice-related state changes go through `setRobotEmotion`/`setVoiceState`**, not direct style/DOM writes — the SVG face and antenna color derive from these plus `status.isEmergency`.
 - **`isSpeakingRef`/`shouldListenRef` gate self-hearing prevention** (recognition stops before TTS starts, restarts on end/error). Route any new speech-output path through `speakText`/`finishSpeaking` — don't bypass this gate.
 - **`emergencyRef`/`gateActiveRef` exist so long-lived callbacks/effects can read current `status.isEmergency`/gate state without retriggering.** Read the ref; don't add the state value to a dependency array just to read its current value.
+- **마이크는 기본적으로 닫혀 있다** (`VITE_MIC_MODE`, 기본 `ptt`). 여는 곳은 화면의
+  푸시투토크 버튼 **한 곳뿐**이고, `startListening()` 이 `manual: true` 가 아닌 호출을
+  전부 막는다. 새 자동 재개 지점을 만들지 말 것 — 하나만 새도 마이크가 상시로 열린다.
+  ⚠️ 이 모드에는 **음성 응급 경로가 없다**(마이크가 닫혀 있으면 우회 문구가 닿지 않는다).
+  그래서 **SOS 버튼은 항상 화면에 있어야 한다** — 지금 유일한 대체 수단이다.
 - **New chat-triggering input (voice, text, button) should go through `decideAction()`** from `lib/wakeword.js`, not call `sendVoiceMessage` directly — that's how the wake-word gate and emergency bypass stay consistent across input methods.
 - **TTS**: `speakText` tries `POST /api/tts` first, falls back to browser `SpeechSynthesis` on a 204 or any failure. Always design for the fallback path being the one that's actually live.
 
@@ -88,6 +94,11 @@ uses Vitest while the backend stays on `node --test`.
 - **`stt.js`는 모듈 로드 시점에 `window.SpeechRecognition`과 `VITE_STT_MODE`를 붙잡는다.**
   그래서 `RobotFaceDisplay.test.jsx`는 `vi.stubEnv`와 스텁을 먼저 심고 컴포넌트를
   **동적 import**한다 — 정적 import로 바꾸면 둘 다 늦어 STT 경로가 통째로 죽는다.
+- **`RobotFaceDisplay.test.jsx`·`.server-stt`·`.tts` 세 파일은 `VITE_MIC_MODE=always` 를
+  핀으로 박고 돈다** — 기본값이 푸시투토크로 바뀐 뒤에도 상시 청취 배선이 살아 있는지
+  보는 것이 그 파일들의 목적이기 때문이다. 기본 경로는 `RobotFaceDisplay.ptt.test.jsx` 가 덮는다.
+  (`vi.resetModules()` 로 모듈을 다시 부르는 테스트는 그 자리에서 핀을 다시 박아야 한다 —
+  `afterEach` 의 `unstubAllEnvs` 가 이미 걷어 간 뒤다)
 - **기본 모드는 `server`인데 `RobotFaceDisplay.test.jsx`는 `browser`로 고정해 돈다**
   (이벤트를 손으로 흘려보내야 해서). 그러면 **실제 배포 경로를 아무도 안 지나가므로**,
   같은 배선을 server 모드로 한 번 더 덮는 `RobotFaceDisplay.server-stt.test.jsx`가 있다.

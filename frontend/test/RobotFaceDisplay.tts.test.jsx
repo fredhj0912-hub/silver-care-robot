@@ -77,6 +77,9 @@ beforeAll(async () => {
   // browser 모드 + window.SpeechRecognition 없음 → 인식기가 '미지원'으로 조용히 접힌다.
   // 이 파일이 보려는 것은 STT가 아니라 TTS라, 마이크 대역을 통째로 비워 둔다.
   vi.stubEnv('VITE_STT_MODE', 'browser');
+  // 이 파일은 **상시 청취** 배선을 검증한다 — 기본값이 푸시투토크로 바뀐 뒤에도
+  // 그 경로가 살아 있는지 보는 것이 목적이므로 모드를 명시적으로 고정한다.
+  vi.stubEnv('VITE_MIC_MODE', 'always');
   RobotFaceDisplay = (await import('../src/components/RobotFaceDisplay')).default;
 });
 

@@ -295,6 +295,49 @@ body:has(.kiosk-root) {
 }
 
 /* ─────────────────────────────────────────────
+   푸시투토크 버튼
+
+   이 화면에서 마이크가 열리는 유일한 지점이다. 어르신 손가락과 720×1280 세로
+   패널을 기준으로 SOS 버튼과 같은 크기를 준다 — 둘 중 하나만 작으면 그게 못 눌린다.
+   ───────────────────────────────────────────── */
+.ptt-area {
+  width: 100%;
+  max-width: 400px;
+}
+
+.ptt-btn {
+  width: 100%;
+  min-height: 100px;
+  padding: 1.2rem 2rem;
+  border: 2px solid rgba(59, 130, 246, 0.35);
+  border-radius: 20px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+  font-size: 1.6rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  letter-spacing: -0.01em;
+}
+
+/* 듣는 중은 한눈에 달라 보여야 한다 — 말해도 되는 때가 언제인지가 이 화면의 전부다 */
+.ptt-btn.is-listening {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+.ptt-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ptt-btn:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 3px;
+}
+
+/* ─────────────────────────────────────────────
    SOS 버튼 영역
    ───────────────────────────────────────────── */
 .sos-area {
@@ -444,6 +487,12 @@ body:has(.kiosk-root) {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.kiosk-container:has(.speech-bubble-container) .ptt-btn {
+  min-height: 72px;
+  padding: 0.7rem 1.5rem;
+  font-size: 1.35rem;
 }
 
 .kiosk-container:has(.speech-bubble-container) .sos-btn {
