@@ -37,7 +37,9 @@ router.post('/stt', asyncHandler(async (req, res) => {
   //
   // 되돌릴 수 없는 것(503)과 일시적인 것(502)을 나눠 주는 것이 중요하다 —
   // 프론트는 503이면 즉시 텍스트 입력을 안내하고, 502면 연속 실패 횟수를 센다.
-  if (result.error === 'no_api_key' || result.error === 'sdk_unavailable') {
+  // 오늘 안에는 풀리지 않는 것들 — 재시도해도 소용없으므로 503 으로 알린다.
+  const PERMANENT = ['no_api_key', 'sdk_unavailable', 'disabled', 'budget_exhausted'];
+  if (PERMANENT.includes(result.error)) {
     return res.status(503).json({ error: '받아쓰기를 쓸 수 없습니다', reason: result.error });
   }
   if (result.error) {

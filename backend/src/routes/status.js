@@ -5,6 +5,7 @@ const messagesRepo = require('../repositories/messages');
 const alertsRepo = require('../repositories/alerts');
 const detectionsRepo = require('../repositories/detections');
 const gemini = require('../services/gemini');
+const budget = require('../services/budget');
 const { config } = require('../config');
 const { emit, EVENTS } = require('../services/events');
 
@@ -36,7 +37,9 @@ router.get('/health', (req, res) => {
 });
 
 router.get('/status', asyncHandler(async (req, res) => {
-  res.json(await statusRepo.get());
+  // usage 는 오늘 남은 Gemini 예산이다. 화면(키오스크 DEV 배지)이 이미 source 를
+  // 보여 주므로, 여기 숫자와 함께 보면 mock 으로 떨어진 이유가 구분된다.
+  res.json({ ...(await statusRepo.get()), usage: await budget.snapshot() });
 }));
 
 router.post('/status', asyncHandler(async (req, res) => {

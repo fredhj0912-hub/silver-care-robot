@@ -11,6 +11,9 @@ process.env.DB_PATH = path.join(TMP, 'test.sqlite');
 process.env.SNAPSHOT_DIR = path.join(TMP, 'snapshots');
 process.env.ROBOT_API_KEY = 'test-key';
 process.env.GEMINI_API_KEY = '';          // 결정론적 테스트를 위해 mock 경로 고정
+// 개발자 .env 의 GEMINI_ENABLED=0 이 들어오면 이유가 'disabled' 로 바뀌어 아래 단언이 깨진다.
+// 이 파일이 보려는 것은 '키가 없을 때'의 동작이므로 킬 스위치는 꺼진 상태로 고정한다.
+process.env.GEMINI_ENABLED = '1';
 process.env.PUBLIC_DIR = '';
 
 const { createApp } = require('../src/app');

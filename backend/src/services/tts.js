@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { config } = require('../config');
 const gemini = require('./gemini');
+const budget = require('./budget');
 
 /**
  * 음성 합성.
@@ -69,6 +70,8 @@ async function fetchWithTimeout(url, options) {
  * gemini.js의 것을 그대로 쓴다 — 두 곳으로 갈라지면 한쪽만 고치게 된다.
  */
 function isRetryable(err) {
+  // 예산 초과는 할당량 소진과 같다 — 기다린다고 풀리지 않는다.
+  if (budget.isExhausted(err)) return false;
   if (gemini.isQuotaExhausted(err)) return false;
   return RETRYABLE_STATUS.has(err && err.status);
 }
@@ -179,6 +182,9 @@ async function synthWithRetry(text, voice) {
 
   for (let attempt = 0; ; attempt++) {
     try {
+      // 캐시 히트는 synthesize() 에서 이미 돌아가므로 여기까지 오지 않는다 —
+      // **예열된 문구는 계속 0건**이다. 재시도도 실제 요청이라 시도마다 센다.
+      await budget.consume('tts');
       return await synth(text, voice);
     } catch (err) {
       if (attempt >= retries || !isRetryable(err)) throw err;
@@ -188,8 +194,10 @@ async function synthWithRetry(text, voice) {
   }
 }
 
+// GEMINI_ENABLED=0 이면 서버측 합성을 하지 않는다 — 라우트가 204 를 주고
+// 프론트가 브라우저 TTS 로 넘어간다(기존 경로).
 const isEnabled = () =>
-  config.ttsProvider !== 'browser' && Boolean(config.geminiApiKey) && Boolean(PROVIDERS[config.ttsProvider]);
+  config.geminiEnabled && config.ttsProvider !== 'browser' && Boolean(config.geminiApiKey) && Boolean(PROVIDERS[config.ttsProvider]);
 
 /**
  * 문장을 음성으로 합성한다. 캐시에 있으면 즉시 반환한다.

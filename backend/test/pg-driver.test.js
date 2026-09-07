@@ -50,6 +50,7 @@ const commandsRepo = require('../src/repositories/commands');
 const detectionsRepo = require('../src/repositories/detections');
 const subscriptionsRepo = require('../src/repositories/subscriptions');
 const statusRepo = require('../src/repositories/status');
+const usageRepo = require('../src/repositories/usage');
 const emergency = require('../src/services/emergency');
 
 test.before(async () => {
@@ -64,7 +65,7 @@ test('pg 드라이버가 선택되고 schema.pg.sql 이 적용된다', async () 
     []
   );
   const present = new Set(rows.map((r) => r.table_name));
-  for (const t of ['messages', 'alerts', 'outbound_commands', 'robot_status', 'push_subscriptions', 'detections', 'medications']) {
+  for (const t of ['messages', 'alerts', 'outbound_commands', 'robot_status', 'push_subscriptions', 'detections', 'medications', 'api_usage']) {
     assert.ok(present.has(t), `테이블 누락: ${t}`);
   }
 });
@@ -138,6 +139,17 @@ test('푸시 구독 upsert (ON CONFLICT ... DO UPDATE)', async () => {
   assert.strictEqual(mine[0].label, '폰(재등록)');
 
   await subscriptionsRepo.remove('https://push/one');
+});
+
+test('사용량 카운터: 복합 PK 에 ON CONFLICT ... DO UPDATE + RETURNING', async () => {
+  // 예산 상한이 기대는 유일한 문장이다. pg 에서 파싱조차 안 되면 EC2 배포 순간에야 안다.
+  assert.strictEqual(await usageRepo.increment('2026-09-07', 'text'), 1);
+  assert.strictEqual(await usageRepo.increment('2026-09-07', 'text'), 2);
+  assert.strictEqual(await usageRepo.increment('2026-09-07', 'tts'), 1);
+  assert.strictEqual(await usageRepo.increment('2026-09-08', 'text'), 1);
+
+  assert.deepStrictEqual(await usageRepo.getDay('2026-09-07'), { text: 2, tts: 1 });
+  assert.deepStrictEqual(await usageRepo.getDay('2026-09-09'), {});
 });
 
 test('감지 기록: RETURNING 으로 id를 받는다', async () => {

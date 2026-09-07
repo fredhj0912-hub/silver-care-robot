@@ -1,6 +1,7 @@
 const { config } = require('../config');
 const prompts = require('./prompts');
 const history = require('./history');
+const budget = require('./budget');
 
 let GoogleGenerativeAI = null;
 try {
@@ -12,12 +13,24 @@ try {
 // 클라이언트는 한 번만 만든다. 이전에는 요청마다 new GoogleGenerativeAI(...) 를 호출했다.
 let client = null;
 function getClient() {
+  // GEMINI_ENABLED=0 은 여기서만 막는다 — 호출부마다 분기를 넣으면 언젠가 한 곳이 빠진다.
+  // null 을 돌려주면 chat/analyzeImage/transcribeAudio 가 전부 기존 mock 경로로 간다.
+  if (!config.geminiEnabled) return null;
   if (!GoogleGenerativeAI || !config.geminiApiKey) return null;
   if (!client) client = new GoogleGenerativeAI(config.geminiApiKey);
   return client;
 }
 
 const isAvailable = () => Boolean(getClient());
+
+/**
+ * 왜 Gemini 를 못 쓰는가 — 화면(DEV 배지)과 STT 라우트가 이 문자열로 갈린다.
+ * 킬 스위치를 sdk_unavailable 로 뭉뚱그리면 "SDK 가 깨졌나" 하고 엉뚱한 데를 뒤지게 된다.
+ */
+function unavailableReason() {
+  if (!config.geminiEnabled) return 'disabled';
+  return config.geminiApiKey ? 'sdk_unavailable' : 'no_api_key';
+}
 
 const ALLOWED_EMOTIONS = ['happy', 'neutral', 'sad', 'concerned', 'thinking'];
 const ALLOWED_EXPRESSIONS = ['happy', 'sad', 'neutral', 'pain', 'sleeping', 'unknown'];
@@ -36,6 +49,10 @@ function isQuotaExhausted(err) {
 
 /** 잠시 후 다시 시도하면 풀릴 수 있는 오류인가 (모델 과부하, 분당 한도, 게이트웨이) */
 function isTransient(err) {
+  // 예산 초과는 재시도해도, **대체 모델로 넘어가도** 풀리지 않는다. transient 가 아니어야
+  // withRetry 의 `if (!isTransient(err)) throw err` 가 모델 체인 루프까지 빠져나간다 —
+  // 여기를 틀리면 막힌 뒤에도 호출 한 번마다 두 모델을 다 두드린다.
+  if (budget.isExhausted(err)) return false;
   if (isQuotaExhausted(err)) return false;
   return /\[(429|500|502|503|504)\s/.test(String(err && err.message));
 }
@@ -64,6 +81,9 @@ async function withRetry(call, { retries = config.geminiRetries, deadline = null
       // 이미 늦었는데 한 번 더 부르면 그만큼 더 기다리게 된다.
       if (deadline && Date.now() >= deadline) throw lastErr || new Error('시간 초과');
       try {
+        // 모든 chat/vision/stt 가 지나는 유일한 병목이라 여기서 한 번만 센다.
+        // 재시도와 대체 모델 전환도 Google 이 세는 실제 요청이므로 시도마다 1건이다.
+        await budget.consume('text');
         return { result: await call(modelId), modelUsed: modelId };
       } catch (err) {
         lastErr = err;
@@ -168,7 +188,7 @@ async function chat(text, seniorExpression) {
     }
   }
 
-  return { ...mockReply(text), source: 'mock', error: config.geminiApiKey ? 'sdk_unavailable' : 'no_api_key' };
+  return { ...mockReply(text), source: 'mock', error: unavailableReason() };
 }
 
 /**
@@ -182,7 +202,7 @@ async function analyzeImage(dataUri) {
   };
 
   const genAI = getClient();
-  if (!genAI) return { ...fallback, error: config.geminiApiKey ? 'sdk_unavailable' : 'no_api_key' };
+  if (!genAI) return { ...fallback, error: unavailableReason() };
 
   const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(dataUri);
   if (!match) return { ...fallback, error: 'bad_data_uri' };
@@ -252,7 +272,7 @@ async function transcribeAudio(dataUri) {
   const fallback = { text: '', source: 'mock', error: null };
 
   const genAI = getClient();
-  if (!genAI) return { ...fallback, error: config.geminiApiKey ? 'sdk_unavailable' : 'no_api_key' };
+  if (!genAI) return { ...fallback, error: unavailableReason() };
 
   const match = /^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(dataUri);
   if (!match) return { ...fallback, error: 'bad_data_uri' };
@@ -281,7 +301,10 @@ async function transcribeAudio(dataUri) {
 
     return { text: cleanTranscript(result), source: 'gemini', error: null };
   } catch (err) {
-    const reason = Date.now() >= deadline ? `시간 초과 (${config.sttTimeoutMs}ms)` : err.message;
+    // 예산 초과는 재시도로 풀리지 않는다 — 라우트가 502(일시)가 아니라 503(사용 불가)을
+    // 주도록 안정된 이름을 붙인다. 그래야 프론트가 즉시 텍스트 입력을 안내한다.
+    const reason = budget.isExhausted(err) ? 'budget_exhausted'
+      : Date.now() >= deadline ? `시간 초과 (${config.sttTimeoutMs}ms)` : err.message;
     console.error('Gemini STT 호출 실패:', reason);
     // **빈 문자열로 조용히 성공시키지 않는다.** 화면에서 '침묵'과 구분되지 않아
     // 어르신이 말을 걸었는데 아무 일도 안 일어난 것처럼 보인다(2026-09-02 실측).

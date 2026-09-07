@@ -14,6 +14,15 @@ const MAX_JSON_BODY = `${MAX_JSON_BODY_BYTES}b`;     // express.json 이 이해�
 // 마이크가 켜진 채 방치돼도 한 요청이 서버를 오래 붙들지 않게 하는 것이 목적이다.
 const MAX_AUDIO_BYTES = 6 * 1024 * 1024;             // base64 data URI 문자열 기준
 
+/**
+ * 숫자 환경변수. `Number(x) || 기본값` 은 **0을 기본값으로 되돌려 버린다** —
+ * TTS_RETRIES=0("재시도하지 마라")이나 GEMINI_DAILY_BUDGET=0("호출하지 마라")처럼
+ * 0이 의미 있는 값인 설정이 있어 그 형태를 쓸 수 없다.
+ */
+function numberFromEnv(raw, fallback) {
+  return Number.isFinite(Number(raw)) && raw !== '' && raw !== undefined ? Number(raw) : fallback;
+}
+
 const config = {
   port: Number(process.env.PORT) || 3001,
 
@@ -25,6 +34,17 @@ const config = {
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
   geminiFallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash',
+
+  // 개발용 킬 스위치. 0이면 API 키가 있어도 Gemini 를 아예 부르지 않는다 —
+  // Claude 가 로컬에서 붙어 작업하는 동안 호출이 **구조적으로 0건**이 된다.
+  // (getClient() 가 null 을 돌려주므로 전부 기존 mock 경로로 간다)
+  geminiEnabled: process.env.GEMINI_ENABLED !== '0',
+
+  // 하루 예산 상한 (services/budget.js). 무료 등급의 실제 통은 대화+받아쓰기 합쳐 40,
+  // TTS 별도 20이라 여유를 남긴 값이다. **결제를 켜면 이 숫자가 곧 요금 상한**이다.
+  // `|| 36` 이 아닌 이유: 0("아무 호출도 하지 마라")이 조용히 기본값으로 바뀌면 안 된다.
+  geminiDailyBudget: numberFromEnv(process.env.GEMINI_DAILY_BUDGET, 36),
+  ttsDailyBudget: numberFromEnv(process.env.TTS_DAILY_BUDGET, 18),
 
   // 일시적 오류(429/503) 재시도. 대화 지연이 길어지면 어르신이 로봇이 고장난 줄 안다.
   geminiRetries: Number(process.env.GEMINI_RETRIES) || 1,
@@ -136,6 +156,11 @@ function describeStartup() {
   if (!config.geminiApiKey) {
     lines.push('⚠️  GEMINI_API_KEY 미설정 → mock 대화 모드로 동작합니다');
     lines.push('   🔗 https://aistudio.google.com/ 에서 API 키를 발급받으세요');
+  }
+  if (!config.geminiEnabled) {
+    lines.push('🔌 GEMINI_ENABLED=0 → Gemini 호출을 하지 않습니다 (대화·받아쓰기·TTS 전부 mock)');
+  } else {
+    lines.push(`📊 하루 예산: 대화/받아쓰기 ${config.geminiDailyBudget}건 · TTS ${config.ttsDailyBudget}건`);
   }
   if (!config.robotApiKey) {
     lines.push('⚠️  ROBOT_API_KEY 미설정 → 모든 API가 인증 없이 열려 있습니다');

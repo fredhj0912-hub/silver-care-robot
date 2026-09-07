@@ -28,6 +28,8 @@ src/
                              커넥션 트랜잭션
   repositories/           one file per table; the only files that touch db/index.js
     messages.js, alerts.js, commands.js, detections.js, status.js, subscriptions.js, medications.js,
+      usage.js      Gemini 호출 일일 카운터 (day, bucket) — 원자적 UPSERT 한 문장.
+                      조회 후 삽입으로 바꾸지 말 것(예산은 세는 게 어긋나면 의미가 없다)
       snapshots.js  (카메라 스냅샷 **기록만** — 이미지 바이트는 DB에 안 들어간다.
                        services/snapshots.js가 디스크/S3에 두고 여기엔 파일명만.
                        pruneToLimit()이 지운 파일명을 돌려주므로 호출부가 파일도 지운다)
@@ -35,6 +37,9 @@ src/
     gemini.js              chat()/analyzeImage()/transcribeAudio(), retry + model-fallback chain,
                              mock fallback. transcribeAudio() is server-side STT — the Pi's Chromium
                              cannot do Web Speech API (see docs/deploy-raspberry-pi.md §3)
+    budget.js               consume(bucket)/snapshot() — Gemini 하루 예산 상한.
+                              버킷은 둘: 'text'(대화+받아쓰기+표정, 같은 모델 통) / 'tts'.
+                              날짜 경계는 **미국 태평양 시각**(무료 등급 리셋이 PT 자정)
     tts.js                  synthesize()/prewarm(), 3-provider switch, disk cache (sha1 of provider|voice|text)
     emergency.js            classifyUtterance()/evaluateUtterance()/raise()/resolveAlert() — single funnel
                               for all alert creation; cooldown + severity logic lives here only
@@ -79,6 +84,13 @@ test/
 ## Conventions
 
 - **Routes stay thin**: validate input, call one or two service/repo functions, shape the response. Business logic belongs in `services/`.
+- **모든 Gemini 호출은 `services/budget.js` 의 `consume()` 을 지난다.** 강제 지점은 딱 두 곳 —
+  `gemini.js` 의 `withRetry()`(chat/vision/stt 가 전부 지나는 병목)와 `tts.js` 의
+  `synthWithRetry()`. **새 Gemini 호출을 그 밖에 만들지 말 것** — 세는 곳을 빠져나가면 상한이
+  상한이 아니게 된다. 예산 초과는 `err.code === 'BUDGET_EXHAUSTED'` 이고 **transient 가 아니라서**
+  모델 체인까지 빠져나와 기존 mock 폴백으로 떨어진다.
+- **`GEMINI_ENABLED=0` 은 로컬 작업용 킬 스위치다** — `getClient()` 가 `null` 을 돌려주고
+  `tts.isEnabled()` 가 false 가 되어 호출이 구조적으로 0건이 된다. 코드를 만지는 동안 켜 둘 것.
 - **All alert creation goes through `services/emergency.js`'s `raise()`**, never `alertsRepo.create()` directly from a route — that's where the cooldown and `robot_status.is_emergency` flip happen.
 - **DB 접근은 `db/index.js`의 `query`/`queryOne`/`transaction`만 쓴다.** 드라이버를 직접
   require하지 말 것. SQL은 두 드라이버에서 모두 돌아야 한다(플레이스홀더 `?`, `RETURNING`,
@@ -93,6 +105,10 @@ test/
 
 ## Gotchas
 
+- **테스트는 개발자의 `backend/.env` 를 읽는다.** `config` 가 require 시점에 환경변수를 읽으므로,
+  `.env` 의 `GEMINI_ENABLED=0` 이나 `DB_DRIVER=pg` 가 그대로 테스트에 새어 든다
+  (09-07 에 `tts.test.js`/`stt.test.js` 가 실제로 이것 때문에 깨졌다). 새 테스트는 파일 맨 위에서
+  `DB_DRIVER`/`DB_PATH` 와 필요한 스위치를 **직접 핀으로 박을 것**.
 - `node:sqlite` requires Node ≥ 22.5 (repo assumes 24). No native build step, unlike `better-sqlite3`.
 - **`POST /api/stt`는 받아쓰기만 한다.** 웨이크워드 판정("돌봄아")과 응급 우회는
   프론트의 `lib/wakeword.js`에 그대로 둔다 — 서버로 옮기면 그 판정이 두 곳으로 갈라진다.

@@ -8,12 +8,21 @@ const path = require('node:path');
 // 임시 캐시를 안 쓰면 테스트가 **실제 캐시(backend/data/tts-cache)를 오염시킨다.**
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'hyodol-tts-test-'));
 process.env.TTS_CACHE_DIR = TMP;
+// synthesize() 는 캐시 미스마다 budget.consume('tts') 를 지난다 — 그게 DB 를 친다.
+// .env 에 DB_DRIVER=pg 가 있어도 실제 RDS 를, 기본 경로여도 실제 대화 로그를 안 건드리게 고정한다.
+process.env.DB_DRIVER = 'sqlite';
+process.env.DB_PATH = path.join(TMP, 'test.sqlite');
+process.env.TTS_DAILY_BUDGET = '9999';   // 재시도 동작을 보는 테스트라 예산은 막지 않는다
 
 const { pcmToWav, synthesize } = require('../src/services/tts');
 // config는 require 시점에 값이 고정된 객체다 — 같은 참조를 mutate해야 tts.js가 읽는 값도 바뀐다.
 const { config } = require('../src/config');
+const { initDB, closeDB } = require('../src/db');
 
-test.after(() => {
+test.before(async () => { await initDB(); });
+
+test.after(async () => {
+  await closeDB();
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -87,6 +96,7 @@ const uniqueText = () => `테스트 문장 ${++seq}`;
 
 const realFetch = globalThis.fetch;
 test.beforeEach(() => {
+  config.geminiEnabled = true;   // 개발용 킬 스위치(.env)가 켜져 있어도 이 테스트는 합성 경로를 본다
   config.ttsProvider = 'gemini';
   config.geminiApiKey = 'test-key';
   config.ttsRetries = 1;

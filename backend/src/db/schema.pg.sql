@@ -114,3 +114,13 @@ CREATE TABLE IF NOT EXISTS snapshots (
   filename TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON snapshots (ts DESC);
+
+-- Gemini 호출 일일 카운터 (schema.sql 과 같은 표). `day`는 **미국 태평양 시각** 기준이다 —
+-- 무료 등급 리셋 경계가 PT 자정이라 다른 경계를 쓰면 실제 통과 어긋난다.
+-- id 컬럼이 없어(복합 PK) IDENTITY 가 필요 없다 — 두 파일의 본문이 같다.
+CREATE TABLE IF NOT EXISTS api_usage (
+  day    TEXT    NOT NULL,
+  bucket TEXT    NOT NULL,
+  n      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, bucket)
+);

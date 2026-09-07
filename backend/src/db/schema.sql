@@ -115,3 +115,18 @@ CREATE TABLE IF NOT EXISTS snapshots (
   filename TEXT NOT NULL    -- services/snapshots.js 가 돌려준 이름
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON snapshots (ts DESC);
+
+-- Gemini 호출 일일 카운터. 이 프로젝트에서 호출을 세는 유일한 곳이다.
+--
+-- `day`는 **미국 태평양 시각 기준 YYYY-MM-DD**다(KST가 아니다). 무료 등급의 할당량
+-- 리셋 경계가 PT 자정이라, 우리 카운터가 다른 경계를 쓰면 실제 통과 어긋나 "우리는
+-- 아직 여유 있는데 Google은 이미 막는" 구간이 생긴다.
+--
+-- `bucket`은 둘뿐이다 — 'text'(대화+받아쓰기+표정: 같은 모델 통을 쓴다)와
+-- 'tts'(별도 모델, 별도 통). services/budget.js 참고.
+CREATE TABLE IF NOT EXISTS api_usage (
+  day    TEXT    NOT NULL,
+  bucket TEXT    NOT NULL,
+  n      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, bucket)
+);
