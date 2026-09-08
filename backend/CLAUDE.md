@@ -110,6 +110,14 @@ test/
   (09-07 에 `tts.test.js`/`stt.test.js` 가 실제로 이것 때문에 깨졌다). 새 테스트는 파일 맨 위에서
   `DB_DRIVER`/`DB_PATH` 와 필요한 스위치를 **직접 핀으로 박을 것**.
 - `node:sqlite` requires Node ≥ 22.5 (repo assumes 24). No native build step, unlike `better-sqlite3`.
+- **`gemini.js`의 폴백값은 관측 결과가 아니다 — `error`를 먼저 볼 것.** `analyzeImage()`는
+  어떤 실패 경로에서든(키 없음·예산 소진·파싱 실패) `expression:'neutral'`,
+  `isEmergency:false`, `hasPerson:true` 를 돌려주는데 그건 **"보지 못했다"**는 뜻이다.
+  `routes/vision.js`가 `error`를 안 보고 그대로 쓰던 시절, 카메라가 보지도 않은 표정이
+  `robot_status`·`detections`에 남아 보호자에게 갔고 그 프레임의 진짜 낙상은 조용히
+  지워졌다(09-08 수정). **판정을 쓰기 전에 `error`를 확인하고, 없으면 아무것도 쓰지 말 것.**
+  `chat()`은 다르다 — 거기 mock은 진짜 한국어 답변이라 폴백이 정상 동작이고,
+  `source`/`degradedReason`으로 드러난다. `transcribeAudio()`는 라우트가 503/502로 알린다.
 - **`POST /api/stt`는 받아쓰기만 한다.** 웨이크워드 판정("돌봄아")과 응급 우회는
   프론트의 `lib/wakeword.js`에 그대로 둔다 — 서버로 옮기면 그 판정이 두 곳으로 갈라진다.
 - **받아쓰기를 못 하는 상태는 200이 아니라 503으로 알린다.** 빈 `text`로 조용히 성공시키면

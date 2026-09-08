@@ -24,6 +24,33 @@ process.env.PUBLIC_DIR = '';              // 실제 .env에 배포용 값이 있
 
 const { createApp } = require('../src/app');
 const { query, initDB, closeDB } = require('../src/db');
+const gemini = require('../src/services/gemini');
+
+/**
+ * analyzeImage 를 잠시 **성공 응답**으로 바꾼다.
+ *
+ * 왜 필요한가: 이 파일은 GEMINI_API_KEY='' 로 돌기 때문에 analyzeImage 는 언제나
+ * error 를 실어 돌려준다 — 즉 **성공한 분석이 존재할 수 없다.** 예전에는 그 폴백값
+ * (expression:'neutral')을 진짜 관측인 것처럼 써서 감정 이력을 시험했는데, 그건
+ * 고치려는 버그를 픽스처로 삼는 것이었다(라우트가 error 를 안 보던 시절의 습관).
+ * 성공 경로는 이렇게 명시적으로 재현한다.
+ *
+ * 라우트가 `gemini.analyzeImage(...)` 로 **호출 시점에 속성을 찾으므로** 교체가 먹는다.
+ */
+function stubVision(overrides = {}) {
+  const original = gemini.analyzeImage;
+  gemini.analyzeImage = async () => ({
+    hasPerson: true,
+    isEmergency: false,
+    expression: 'neutral',
+    confidence: 0.9,
+    summary: '어르신이 평온해 보입니다',
+    source: 'gemini',
+    error: null,
+    ...overrides,
+  });
+  return () => { gemini.analyzeImage = original; };
+}
 
 let server;
 let BASE;
@@ -195,11 +222,43 @@ test('비전: 유효한 이미지를 받아 최신 스냅샷으로 노출한다'
   const r = await post('/api/vision', { image: tinyPng });
   assert.strictEqual(r.s, 200);
   assert.ok(['gemini', 'mock'].includes(r.b.source));
-  assert.strictEqual(typeof r.b.isEmergency, 'boolean');
 
+  // **라이브 뷰는 Gemini 와 무관하다.** 이 테스트는 키 없이 도므로 분석은 실패하는데,
+  // 그래도 스냅샷은 남아야 한다 — 보호자가 방 안을 보는 길이 분석 실패에 딸려
+  // 끊기면 안 된다.
   const latest = await get('/api/vision/latest');
   assert.strictEqual(latest.b.image, tinyPng);
   assert.ok(latest.b.capturedAt);
+});
+
+test('비전: 분석에 실패하면 아무것도 판정하지 않는다 (없는 표정을 기록하지 않는다)', async () => {
+  // 테스트는 GEMINI_API_KEY='' 로 돌아 analyzeImage 가 error:'no_api_key' 를 돌려준다.
+  // 실제 운영에서 이 상태가 되는 흔한 경우가 **하루 예산 소진**이고, 그때는 카메라
+  // 주기(15초)마다 이 경로를 지난다.
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+  // 직전 표정을 'sad' 로 만들어 둔다. 폴백값 'neutral' 과 다르므로, 예전 코드였다면
+  // 여기서 "sad → neutral" 이라는 **없던 표정 변화**가 한 줄 기록됐다.
+  await post('/api/status', { seniorExpression: 'sad' });
+  const before = (await get('/api/detections?type=emotion&limit=200')).b.detections.length;
+
+  const r = await post('/api/vision', { image: tinyPng });
+  assert.strictEqual(r.s, 200);
+  assert.strictEqual(r.b.analyzed, false, '분석이 실패했는데 analyzed 가 false 가 아니다');
+  assert.ok(r.b.error, '실패 사유를 응답에 안 실어 주면 밖에서 구분할 수 없다');
+
+  // null 이어야 한다. false 로 주면 "확인했고 이상 없다"로 읽힌다 —
+  // 그 프레임에 진짜 낙상이 있었어도 조용히 지워지는 것이 원래 버그였다.
+  assert.strictEqual(r.b.isEmergency, null);
+  assert.strictEqual(r.b.expression, null);
+
+  // ① 표정을 덮어쓰지 않는다
+  assert.strictEqual((await get('/api/status')).b.seniorExpression, 'sad',
+    '분석에 실패했는데 카메라가 보지도 않은 표정으로 덮어썼다');
+
+  // ② 없던 표정 변화를 기록하지 않는다
+  const after = (await get('/api/detections?type=emotion&limit=200')).b.detections.length;
+  assert.strictEqual(after, before, '분석에 실패했는데 감정 기록이 늘었다');
 });
 
 test('감지 이벤트에 스냅샷을 첨부하면 파일로 저장되고 알림에서 열람 가능하다', async () => {
@@ -376,29 +435,33 @@ test('푸시 구독: 새 origin으로 구독하면 옛 터널 주소의 구독�
 });
 
 // ── 감정 이력 (detections type='emotion') ────────────────────────────────────
-// mock Gemini(GEMINI_API_KEY='')는 항상 expression:'neutral'을 준다. 그래서 직전 표정을
-// 다른 값으로 만들어 두는 방식으로 "변화"를 만든다.
+// 분석이 **성공했을 때만** 남는 기록이다. 키 없이 도는 이 파일에서는 성공 경로가
+// 존재하지 않으므로 stubVision() 으로 재현한다 (위 헬퍼의 주석 참고).
 
 test('감정 이력: 표정이 바뀔 때만 detections에 남는다', async () => {
   const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const restore = stubVision({ expression: 'neutral' });
+  try {
+    await post('/api/status', { seniorExpression: 'sad' });
+    const before = (await get('/api/detections?type=emotion')).b.detections.length;
 
-  await post('/api/status', { seniorExpression: 'sad' });
-  const before = (await get('/api/detections?type=emotion')).b.detections.length;
+    await post('/api/vision', { image: tinyPng });
+    const after = (await get('/api/detections?type=emotion')).b.detections;
 
-  await post('/api/vision', { image: tinyPng });
-  const after = (await get('/api/detections?type=emotion')).b.detections;
+    assert.strictEqual(after.length, before + 1, '표정이 바뀌었는데 기록되지 않았다');
+    assert.strictEqual(after[0].meta.expression, 'neutral');
+    assert.strictEqual(after[0].meta.previous, 'sad', '직전 표정이 meta에 없으면 추이를 못 읽는다');
 
-  assert.strictEqual(after.length, before + 1, '표정이 바뀌었는데 기록되지 않았다');
-  assert.strictEqual(after[0].meta.expression, 'neutral');
-  assert.strictEqual(after[0].meta.previous, 'sad', '직전 표정이 meta에 없으면 추이를 못 읽는다');
-
-  // 같은 표정이 다시 들어오면 남지 않는다 — 이 설계의 핵심.
-  await post('/api/vision', { image: tinyPng });
-  assert.strictEqual(
-    (await get('/api/detections?type=emotion')).b.detections.length,
-    after.length,
-    '표정이 그대로인데 행이 늘었다 (카메라 주기가 15초라 하루 수천 행이 된다)'
-  );
+    // 같은 표정이 다시 들어오면 남지 않는다 — 이 설계의 핵심.
+    await post('/api/vision', { image: tinyPng });
+    assert.strictEqual(
+      (await get('/api/detections?type=emotion')).b.detections.length,
+      after.length,
+      '표정이 그대로인데 행이 늘었다 (카메라 주기가 15초라 하루 수천 행이 된다)'
+    );
+  } finally {
+    restore();
+  }
 });
 
 test('감정 이력: 임계값 튜닝용 기본 목록에는 섞이지 않는다', async () => {
