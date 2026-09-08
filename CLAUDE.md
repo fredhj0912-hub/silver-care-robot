@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-**효돌이 (Hyodol-i)** — a local software prototype for a multimodal LLM-powered "silver care" companion robot for elderly users living alone. It's a kiosk-style web app meant to run full-screen on a Raspberry Pi 7" display (800×480): a robot face reacts with emotions, listens via voice (Web Speech API, gated by a wake word), talks back via TTS (browser SpeechSynthesis or server-side Gemini/Cloud TTS), reminds the senior to take their medication out loud and confirms it by voice, and can trigger emergency/SOS alerts to a guardian. Google Gemini powers conversation and vision analysis; both fall back to Korean-language mock logic when no API key is present or a call fails.
+**돌봄이 (Dolbom-i)** — a local software prototype for a multimodal LLM-powered "silver care" companion robot for elderly users living alone. It's a kiosk-style web app meant to run full-screen on the Pi's DSI touch display (the unit on hand measures **720×1280 portrait**, confirmed 2026-09-03 — earlier docs said 800×480 landscape and were wrong; the layout no longer assumes any fixed size): a robot face reacts with emotions, listens via voice (Web Speech API, gated by a wake word), talks back via TTS (browser SpeechSynthesis or server-side Gemini/Cloud TTS), reminds the senior to take their medication out loud and confirms it by voice, and can trigger emergency/SOS alerts to a guardian. Google Gemini powers conversation and vision analysis; both fall back to Korean-language mock logic when no API key is present or a call fails.
 
 The codebase (comments, prompts, UI copy) is primarily in Korean, since the product targets Korean-speaking senior users and guardians.
 
@@ -33,12 +33,16 @@ See TODO.md's AWS section for what's actually feasible before estimating this wo
 ## Repo layout
 
 - `backend/` — Express API server. `server.js` is now just the entry point (~40 lines); real logic lives under `src/`. SQLite (`node:sqlite`, no native build) replaced the old flat-file `database.json`. See `backend/CLAUDE.md`.
-- `frontend/` — Vite + React 19 app serving **two apps from one build**: `/` is the robot kiosk (dark, fixed 800×480), `/guardian/*` is the guardian PWA (light, phone, installable, receives Web Push for critical alerts). See `frontend/CLAUDE.md`.
+- `frontend/` — Vite + React 19 app serving **two apps from one build**: `/` is the robot kiosk (dark, sized to whatever the Pi panel is — 720×1280 portrait on the current unit), `/guardian/*` is the guardian PWA (light, phone, installable, receives Web Push for critical alerts). See `frontend/CLAUDE.md`.
 - `start-all.js` — root orchestrator, spawns backend (3001) + frontend (5173) for local dev.
 - `refresh-access.js` — SSHes into the EC2 box, reads the current cloudflared tunnel URL, and
   regenerates `ACCESS.html` (Pi link + phone link + QR codes). The tunnel URL changes on every
   instance restart; `ACCESS.html` is gitignored because this repo is public and the URL is
   effectively the access token.
+- `deploy/pi/` — 라즈베리파이 5 키오스크 배포 자산(셸 스크립트만). Chromium 실행기 +
+  XDG 자동실행 등록 + 터널 주소 교체 + 화면 회전 고정 + 사전 점검 + 와이파이 등록. **파이에서는 아무것도
+  빌드하지 않는다** — 앱은 EC2에서 서빙되고 파이는 그 주소를 여는 브라우저다.
+  절차와 알려진 한계는 `docs/deploy-raspberry-pi.md`.
 - `docs/architecture.md` — system diagrams (components, emergency alert flow, command queue, wake-word gate) referenced from "Architecture notes" below.
 - `docs/fall-detection.md` — contract for a future YOLOv8 fall-detection service (`POST /api/detections`); not yet implemented, only the interface + a mock detector exist.
 - `.agents/skills/` — gstack workflow skills. Not part of the application.
@@ -74,8 +78,8 @@ Both packages have test suites, but **different runners**: backend is `node --te
 
 - `backend/.env`: `DB_DRIVER` (`sqlite`|`pg`, default `sqlite`), `DATABASE_URL` (required when
   `DB_DRIVER=pg`; `postgres://user:pass@host:5432/db`), `DATABASE_SSL` (`0` disables TLS — local
-  PostgreSQL only, RDS requires it), `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-3.6-flash` — see gotcha below), `ROBOT_API_KEY` (LAN shared secret; when set, all routes require an `x-api-key` header), `PORT`, `TTS_PROVIDER` (`browser`|`gemini`|`cloud`, default `browser`), `DETECTION_THRESHOLD`, `ALERT_COOLDOWN_MS`, `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (Web Push; **all three required or push silently disables itself** — the startup banner warns when unset. Regenerate with `npx web-push generate-vapid-keys`).
-- `frontend/.env`: `VITE_ROBOT_API_KEY` (must match backend's `ROBOT_API_KEY` — ships in the client bundle, a LAN speed-bump, not real auth), `VITE_VISION_ENABLED` (default `false`, camera capture is opt-in), `VITE_VISION_INTERVAL_MS`, `VITE_VAPID_PUBLIC_KEY` (must match backend's `VAPID_PUBLIC_KEY`).
+  PostgreSQL only, RDS requires it), `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-3.6-flash` — see gotcha below), `ROBOT_API_KEY` (LAN shared secret; when set, all routes require an `x-api-key` header), `PORT`, `TTS_PROVIDER` (`browser`|`gemini`|`cloud`, default `browser`), `DETECTION_THRESHOLD`, `SNAPSHOT_KEEP` (보관할 카메라 스냅샷 수, 기본 200 — 넘으면 오래된 행·파일을 함께 삭제), `ALERT_COOLDOWN_MS`, `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (Web Push; **all three required or push silently disables itself** — the startup banner warns when unset. Regenerate with `npx web-push generate-vapid-keys`).
+- `frontend/.env`: `VITE_ROBOT_API_KEY` (must match backend's `ROBOT_API_KEY` — ships in the client bundle, a LAN speed-bump, not real auth), `VITE_VISION_ENABLED` (default `false`, Gemini 분석까지 하는 경로 — 대화와 같은 통을 쓴다), `VITE_VISION_INTERVAL_MS`, `VITE_SNAPSHOT_INTERVAL_MS` (분석 없이 사진만 올리는 경로 — Gemini를 안 쓴다. **켜는 스위치는 URL의 `?snapshot=1`** — 빌드에 박히는 `VITE_SNAPSHOT_ENABLED`로 켜면 그 주소를 연 모든 브라우저가 자기 웹캠으로 찍는다. 파이는 `KIOSK_SNAPSHOT=1`로 켠다), `VITE_VAPID_PUBLIC_KEY` (must match backend's `VAPID_PUBLIC_KEY`), `VITE_STT_MODE` (`server`|`browser`, default `server` — the Pi's Chromium cannot do Web Speech API, so `browser` is for dev machines only).
 - **Gotcha**: `gemini-3.7-flash` frequently returns 503 ("high demand") as of 2026-08. `services/gemini.js` retries transient errors and falls back from `GEMINI_MODEL` to `GEMINI_FALLBACK_MODEL` (default `gemini-3.5-flash`) — don't bump the default model without checking it's actually stable under load.
 - **Gotcha (Windows)**: PowerShell's `Get-Content`/`ConvertFrom-Json` mangle this repo's Korean UTF-8 content into garbage. Read files / parse JSON with Node or the Read/Bash tools, not PowerShell cmdlets — reserve PowerShell for process management (starting/stopping servers, freeing ports).
 
@@ -102,3 +106,22 @@ ones that matter when writing new code — everything else lives in that doc.
    failure mode. `notify.js` must always log the send outcome for the same reason — a push that
    silently failed is indistinguishable from one that was never needed.
 
+
+## Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+
+Key routing rules:
+- Product ideas/brainstorming → invoke /office-hours
+- Strategy/scope → invoke /plan-ceo-review
+- Architecture → invoke /plan-eng-review
+- Design system/plan review → invoke /design-consultation or /plan-design-review
+- Full review pipeline → invoke /autoplan
+- Bugs/errors → invoke /investigate
+- QA/testing site behavior → invoke /qa or /qa-only
+- Code review/diff check → invoke /review
+- Visual polish → invoke /design-review
+- Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Save progress → invoke /context-save
+- Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec

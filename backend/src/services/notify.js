@@ -31,7 +31,7 @@ async function send(alert) {
   }
 
   const payload = JSON.stringify({
-    title: '효돌이 응급 알림',
+    title: '돌봄이 응급 알림',
     body: alert.description,
     url: `/guardian/alerts/${alert.id}`,
   });

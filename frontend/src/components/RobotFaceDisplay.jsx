@@ -1,18 +1,104 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '../lib/api';
-import { createRecognizer, isSupported as isSTTSupported } from '../lib/stt';
-import { decideAction, pickAcknowledgeReply, ACTIVE_WINDOW_MS } from '../lib/wakeword';
+import { createRecognizer, isSupported as isSTTSupported, classifySttError } from '../lib/stt';
+import { decideAction, pickAcknowledgeReply, ACTIVE_WINDOW_MS, WAKE_GRAMMAR, containsWakeWord, isBypassUtterance } from '../lib/wakeword';
 import { useCameraMonitor } from '../lib/useCameraMonitor';
+import { readVadDebug } from '../lib/vad-debug';
+import { readWakeDebug } from '../lib/wake-debug';
+import { createWakeEngine } from '../lib/wake-engine';
+
+// VAD 관측 스위치(?vad=1). 모듈 로드 시점에 한 번만 읽는다 — stt.js가 VITE_STT_MODE를
+// 잡는 것과 같은 관례다. 켜면 화면에 오버레이가 뜨고 **받아쓰기 업로드가 멈춘다**.
+const VAD_DEBUG = readVadDebug(typeof window !== 'undefined' ? window.location.search : '');
 
 // 카메라 모니터링은 기본 비활성 — 켜는 것 자체가 사용자 동의와 비용이 따르는 결정이라
 // 명시적 옵트인으로 둔다. 켜려면 frontend/.env 에 VITE_VISION_ENABLED=true.
 const VISION_ENABLED = import.meta.env.VITE_VISION_ENABLED === 'true';
 const VISION_INTERVAL_MS = Number(import.meta.env.VITE_VISION_INTERVAL_MS) || 15000;
 
+// 분석 없이 사진만 올리는 경로. 보호자가 방 안을 보는 용도이고 **Gemini 를 안 쓴다**.
+//
+// ⚠️ 이건 **기기별 스위치라 URL 로 켠다**(`?snapshot=1`). `.env` 로만 켜면 그 값이
+// EC2 가 서빙하는 빌드 하나에 박혀서, 같은 주소를 연 브라우저는 전부 자기 웹캠으로
+// 찍어 올린다 — 개발용으로 노트북에서 키오스크를 열어 본 순간 보호자 화면에 방 안
+// 사진과 노트북 웹캠 사진이 섞인다. 찍어야 하는 건 파이에 달린 카메라 하나다.
+// 파이는 deploy/pi/set-url.sh 가 넣어 주는 주소에 이 파라미터를 달고 뜬다.
+//
+// VITE_SNAPSHOT_ENABLED 는 로컬 개발용 기본값으로만 남긴다. `?snapshot=0` 이 이긴다.
+// VITE_VISION_ENABLED 가 켜져 있으면 그쪽이 이긴다 — 카메라는 하나이고, 분석 경로가
+// 이미 사진을 남기므로 둘을 같이 돌릴 이유가 없다.
+function readSnapshotFlag(search = '') {
+  const q = new URLSearchParams(search).get('snapshot');
+  if (q === '1') return true;
+  if (q === '0') return false;
+  return import.meta.env.VITE_SNAPSHOT_ENABLED === 'true';
+}
+
+const SNAPSHOT_ENABLED = !VISION_ENABLED
+  && readSnapshotFlag(typeof window !== 'undefined' ? window.location.search : '');
+const SNAPSHOT_INTERVAL_MS = Number(import.meta.env.VITE_SNAPSHOT_INTERVAL_MS) || 30000;
+
+const CAMERA_ENABLED = VISION_ENABLED || SNAPSHOT_ENABLED;
+
+// 마이크를 언제 여는가 — 푸시투토크(기본) / 상시 청취.
+//
+// 상시 청취에서는 **방 안에서 나는 모든 소리가 받아쓰기 1건**이다(웨이크워드 판정이
+// 받아쓰기 *뒤*라 게이트가 닫혀 있어도 이미 지불된 뒤다). 2026-09-02 파이에서
+// 한 시간에 100건을 그렇게 태웠다. 그래서 기본값은 눌러야 듣는 ptt 다.
+//
+// ⚠️ **이 전환은 음성 응급 경로를 없앤다.** 쓰러져서 화면에 손이 못 닿는 어르신에게는
+// wakeword.js 의 우회 문구("살려줘" 등)가 닿을 길이 사라진다. 남는 대체 수단은 SOS
+// 버튼(항상 화면에 있다)이고, 근본 대체재인 낙상 감지는 아직 미구현이다.
+//
+// `?snapshot=1` 과 같은 패턴으로 **URL 이 env 를 이긴다** — 디버깅할 때 `?mic=always`.
+function readMicMode(search = '') {
+  const q = new URLSearchParams(search).get('mic');
+  if (q === 'always' || q === 'ptt') return q;
+  return import.meta.env.VITE_MIC_MODE === 'always' ? 'always' : 'ptt';
+}
+
+const MIC_MODE = readMicMode(typeof window !== 'undefined' ? window.location.search : '');
+const PTT_MODE = MIC_MODE === 'ptt';
+
+// 온디바이스 웨이크워드 관측 스위치(?wake=1). VAD_DEBUG 와 같은 관례로 모듈 로드 때 한 번 읽는다.
+const WAKE_DEBUG = readWakeDebug(typeof window !== 'undefined' ? window.location.search : '');
+
+// 관측 중에는 마이크를 상시로 연다 — TV 를 10분 틀어 놓고 오인식률을 재려면 그래야 한다.
+// **안전한 이유**: ?wake= 는 dryRun 을 함께 강제하므로 /api/stt 로 나가는 길이 아예 없다.
+// 이 상수 밖에서 PTT 가드를 푸는 곳을 새로 만들지 말 것(frontend/CLAUDE.md 의 경고).
+const PTT_ACTIVE = PTT_MODE && !WAKE_DEBUG.enabled;
+
+// 눌렀는데 아무 말이 없으면 스스로 닫는다. 마이크가 열린 채 잊히는 경로를 없앤다.
+const PTT_TIMEOUT_MS = 8000;
+
 const MOVE_ARROWS = { up: '⬆️', down: '⬇️', left: '⬅️', right: '➡️' };
 
+// 일시적 STT 오류가 이만큼 연속되면 음성 인식을 포기하고 텍스트 입력으로 안내한다.
+const STT_FAIL_LIMIT = 3;
+
+// 브라우저 TTS에 말을 시킨 뒤 이만큼 안에 onstart가 안 오면 '소리가 안 났다'로 본다.
+// 짧게 잡는 이유: 재생이 실제로 시작되는 데 걸리는 시간이 아니라, **한 번도 시작되지 않는**
+// 경우를 잡는 값이다. 파이에서는 speak()가 아예 무시되어 영영 오지 않는다.
+const VOICELESS_PROBE_MS = 1500;
+
+// 음성 인식이 안 될 때 화면에 뜨는 문구. 원인을 말해야 앞에 선 사람이 고칠 수 있다.
+const STT_UNAVAILABLE_TEXT = {
+  insecure: '안전하지 않은 주소로 열렸어요 (HTTPS 필요) · 아래에 글로 말씀해 주세요',
+  denied: '마이크를 쓸 수 없어요 · 아래에 글로 말씀해 주세요',
+  network: '음성 인식 서버에 닿지 않아요 · 아래에 글로 말씀해 주세요',
+  unsupported: '아래에 글로 말씀해 주세요',
+};
+
+// 화면에 뜨는 이동 화살표는 '방금 내린 명령'만 반영한다. 이보다 오래된 미처리 명령은
+// 네트워크가 끊겼다 돌아온 흔적이므로 지금 실행하면 안 된다.
+const MOVE_MAX_AGE_MS = 2000;
+
+// 말풍선은 말이 끝나도 바로 지우지 않는다 — 글로 다시 읽을 시간을 준다.
+const SPEECH_BUBBLE_HOLD_MS = 5000;
+
 /**
- * RobotFaceDisplay — 라즈베리파이 7인치 디스플레이(800×480) 전용 전체 화면 로봇 얼굴 컴포넌트.
+ * RobotFaceDisplay — 라즈베리파이 DSI 디스플레이 전용 전체 화면 로봇 얼굴 컴포넌트.
+ * (실물은 720×1280 세로. 09-03 실측 — 그 전에는 800×480 가로로 잘못 알고 있었다)
  * 
  * 핵심 기능:
  *  - 감정 기반 SVG 얼굴 표현 (neutral/happy/sad/concerned/thinking/sleeping)
@@ -34,6 +120,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
 
   // 음성 인식 상태: 'idle' | 'listening' | 'processing' | 'speaking'
   const [voiceState, setVoiceState] = useState('idle');
+  // 서버 TTS가 실패해 브라우저 TTS로 넘어갔는데 **소리가 실제로 나지 않은** 상태.
+  // 파이의 Chromium에는 speech-dispatcher가 없어 speak()가 조용히 무시된다(09-01 실측) —
+  // 그러면 화면에는 글이 뜨고 로봇은 벙어리가 되는데, 밖에서는 그 둘이 구별되지 않았다.
+  const [voiceless, setVoiceless] = useState(false);
 
   // Refs
   const recognitionRef = useRef(null);
@@ -42,6 +132,9 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   const isSpeakingRef = useRef(false);
   const shouldListenRef = useRef(true);
   const audioRef = useRef(null);          // 서버 TTS 오디오 재생 핸들
+  const speechWatchdogRef = useRef(null); // 발화 완료 콜백이 영영 안 올 때를 대비한 타이머
+  const voicelessTimerRef = useRef(null); // 브라우저 TTS가 실제로 소리를 냈는지 재는 타이머
+  const speechBubbleTimerRef = useRef(null); // 말풍선을 지우기까지의 유예 타이머
 
   // status.isEmergency 를 ref로도 들고 있는다.
   // speakText가 상태값에 직접 의존하면 비상 상태가 바뀔 때마다 콜백이 새로 만들어지고,
@@ -58,9 +151,76 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // 이 브라우저에서 음성 인식이 아예 안 되는 경우 (텍스트 입력만 안내)
   const [sttUnavailable, setSttUnavailable] = useState(false);
 
-  // 보호자 원격조종 이동 인디케이터 — 방향을 잠깐 보여주고 사라진다
-  const [moveDirection, setMoveDirection] = useState(null);
-  const moveIndicatorTimerRef = useRef(null);
+  // 음성 인식이 안 되는 '이유' — 'insecure' | 'unsupported' | 'denied' | 'network'.
+  // 이 화면 앞에는 devtools를 열어 둘 사람이 없다. 콘솔이 아니라 7인치 화면에 떠야 한다.
+  const [sttReason, setSttReason] = useState(null);
+
+  // 푸시투토크: 지금 듣는 중인지와 남은 시간(초). always 모드에서는 계속 null 이다.
+  // 카운트다운은 마이크가 **실제로 열린 뒤**(인식기의 onStart)에 시작한다 — 파이에서
+  // getUserMedia 가 수백 ms 걸리는데 미리 세면 그만큼을 그냥 날린다. 그 사이가 arming 이다.
+  const [pttArming, setPttArming] = useState(false);
+  const [pttSecondsLeft, setPttSecondsLeft] = useState(null);
+  const pttTimerRef = useRef(null);
+  const pttTickRef = useRef(null);
+
+  // 일시적 오류(주로 'network')의 연속 횟수. onresult가 오면 0으로 되돌린다.
+  const sttFailStreakRef = useRef(0);
+
+  // 보호자 원격조종 이동 인디케이터 — 방향을 잠깐 보여주고 사라진다.
+  // id를 함께 담는 이유는 같은 방향을 연속으로 눌렀을 때도 상태가 바뀌어
+  // 아래 자동 소멸 효과가 다시 걸리게 하기 위해서다.
+  const [moveIndicator, setMoveIndicator] = useState(null);
+  // ?vad=1 일 때만 채워진다. 꺼져 있으면 콜백 자체를 안 넘기므로 이 상태는 null로 남는다.
+  const [vadInfo, setVadInfo] = useState(null);
+  // 같은 move 명령을 폴링마다 다시 그리지 않도록 마지막으로 본 id를 기억한다
+  const lastSeenMoveIdRef = useRef(null);
+
+  // ──────────────────────────────────────────────
+  // 온디바이스 웨이크워드 관측 (?wake=1) — 관문 ② 를 API 0건으로 재는 자리
+  // ──────────────────────────────────────────────
+  const wakeEngineRef = useRef(null);
+  // 관문 ② 표가 그대로 나오게 센다: 놓침률 = 20 − wake, 오인식률 = 아무도 안 말했는데 wake.
+  const [wakeStats, setWakeStats] = useState({ utterances: 0, wake: 0, bypass: 0, last: null, engine: '준비 중' });
+
+  // **엔진은 마운트에 한 번만 만든다.** 인식기 효과는 콜백 신원이 바뀌면 다시 도는데,
+  // 거기에 걸어 두면 82MB 모델을 그때마다 새로 받는다.
+  useEffect(() => {
+    if (!WAKE_DEBUG.enabled) return undefined;
+    const engine = createWakeEngine({
+      mode: WAKE_DEBUG.mode,
+      modelUrl: WAKE_DEBUG.modelUrl,
+      phrases: WAKE_GRAMMAR,
+    });
+    wakeEngineRef.current = engine;
+    engine.ready.then((res) => {
+      // StrictMode는 개발에서 이 효과를 두 번 돌린다 — 먼저 만든 엔진은 이미 dispose된
+      // 뒤라 실패로 끝난다. 그 결과가 살아 있는 엔진의 상태를 덮으면 화면이 "실패"로
+      // 굳는다(모델은 멀쩡히 떠 있는데도). 지금 쓰는 엔진의 보고만 받는다.
+      if (wakeEngineRef.current !== engine) return;
+      setWakeStats((s) => ({
+        ...s,
+        engine: res?.ok ? (res.grammar ? '문법 제한' : '자유 발화') : `실패: ${res?.error || res?.reason || '알 수 없음'}`,
+      }));
+    });
+    return () => { engine.dispose(); wakeEngineRef.current = null; };
+  }, []);
+
+  /**
+   * 발화 하나가 끝날 때마다 엔진이 들은 것을 받는다. **판정은 여기서 하지 않는다** —
+   * 기존 containsWakeWord/isBypassUtterance 를 그대로 불러, 실제 게이트가 이 글자로
+   * 열렸을지를 센다. 그래야 나온 숫자가 Phase 1 의 동작을 그대로 예측한다.
+   */
+  const handleWakeObservation = useCallback(({ text, ms, verdict }) => {
+    const wake = containsWakeWord(text);
+    const bypass = isBypassUtterance(text);
+    setWakeStats((s) => ({
+      ...s,
+      utterances: s.utterances + 1,
+      wake: s.wake + (wake ? 1 : 0),
+      bypass: s.bypass + (bypass ? 1 : 0),
+      last: { text, ms, verdict, wake, bypass },
+    }));
+  }, []);
 
   // ──────────────────────────────────────────────
   // 카메라 모니터링 (기본 비활성 — VITE_VISION_ENABLED=true 로 켠다)
@@ -74,8 +234,9 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   }, [onStatusChange]);
 
   const { videoRef, canvasRef, cameraError } = useCameraMonitor({
-    enabled: VISION_ENABLED,
-    intervalMs: VISION_INTERVAL_MS,
+    enabled: CAMERA_ENABLED,
+    intervalMs: VISION_ENABLED ? VISION_INTERVAL_MS : SNAPSHOT_INTERVAL_MS,
+    analyze: VISION_ENABLED,
     onEmergency: handleVisionEmergency,
   });
 
@@ -93,16 +254,56 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // 이게 풀리면 로봇이 자기 말을 듣고 무한히 대답한다.
   // ──────────────────────────────────────────────
 
-  /** 말하기가 끝났을 때(정상/오류 모두) 공통으로 하는 뒷정리 */
+  /**
+   * 말하기가 끝났을 때(정상/오류/워치독 모두) 공통으로 하는 뒷정리.
+   * 워치독과 실제 완료 콜백이 겹칠 수 있으므로 **멱등**이어야 한다.
+   */
   const finishSpeaking = useCallback(() => {
+    clearTimeout(speechWatchdogRef.current);
+    speechWatchdogRef.current = null;
+    if (!isSpeakingRef.current) return;
+
     isSpeakingRef.current = false;
     if (!emergencyRef.current) setRobotEmotion('neutral');
     setVoiceState('idle');
     startListening();
+
+    // 말은 끝났지만 말풍선은 잠시 더 둔다 — 어르신이 글로 다시 읽을 시간.
+    clearTimeout(speechBubbleTimerRef.current);
+    speechBubbleTimerRef.current = setTimeout(() => setRobotSpeech(''), SPEECH_BUBBLE_HOLD_MS);
   }, []);
 
-  const speakWithBrowser = useCallback((text) => {
-    if (!window.speechSynthesis) return finishSpeaking();
+  /**
+   * 발화 완료 콜백이 영영 오지 않는 경우를 대비한 워치독.
+   *
+   * speech-dispatcher/espeak가 없는 리눅스에서는 `speechSynthesis.speak()`가 조용히
+   * 무시되어 onend/onerror가 **한 번도 오지 않는다.** 그러면 isSpeakingRef가 true로 잠기고
+   * startListening()이 영구 차단되어 **로봇이 완전히 귀머거리가 된다.**
+   * 워치독이 그 상태를 "한 문장 유실"로 낮춘다.
+   */
+  const armSpeechWatchdog = useCallback((text) => {
+    clearTimeout(speechWatchdogRef.current);
+    const budget = Math.min(30000, 3000 + text.length * 200);
+    speechWatchdogRef.current = setTimeout(() => {
+      console.warn(`발화 완료 신호가 ${budget}ms 안에 오지 않았습니다 — 강제로 듣기를 재개합니다.`);
+      finishSpeaking();
+    }, budget);
+  }, [finishSpeaking]);
+
+  /**
+   * 브라우저 SpeechSynthesis로 말한다.
+   *
+   * @param {boolean} expectSound 서버 TTS가 **실패해서** 여기로 넘어왔는가.
+   *   true일 때만 무음 여부를 화면에 드러낸다 — 개발 PC처럼 `TTS_PROVIDER=browser`로
+   *   정상 동작하는 경우까지 경고를 띄우면 곧 아무도 그 표시를 안 믿게 된다.
+   */
+  const speakWithBrowser = useCallback((text, { expectSound = false } = {}) => {
+    clearTimeout(voicelessTimerRef.current);
+
+    if (!window.speechSynthesis) {
+      if (expectSound) setVoiceless(true);
+      return finishSpeaking();
+    }
 
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -120,6 +321,9 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     utterance.pitch = 1.2;
 
     utterance.onstart = () => {
+      // 소리가 실제로 시작됐다 — 이것만이 무음이 아니라는 증거다
+      clearTimeout(voicelessTimerRef.current);
+      setVoiceless(false);
       if (!emergencyRef.current) {
         setRobotEmotion(prev => (prev === 'neutral' || prev === 'thinking') ? 'happy' : prev);
       }
@@ -127,15 +331,38 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     utterance.onend = finishSpeaking;
     utterance.onerror = finishSpeaking;
 
+    // speak()가 조용히 무시되면 onstart가 **한 번도** 오지 않는다. 워치독(최소 3초)은
+    // 듣기만 재개시킬 뿐 그 사실을 남기지 않으므로, 여기서 따로 짧게 재서 화면에 드러낸다.
+    //
+    // **speak() 앞에서 건다.** 뒤에 걸면 onstart를 동기로 부르는 구현에서 취소가
+    // 타이머보다 먼저 일어나, 말을 했는데도 무음이라고 표시하게 된다(테스트로 확인).
+    if (expectSound) {
+      voicelessTimerRef.current = setTimeout(() => {
+        console.warn('브라우저 TTS가 소리를 내지 못했습니다 — 화면 표시로만 전달됩니다.');
+        setVoiceless(true);
+      }, VOICELESS_PROBE_MS);
+    }
+
     window.speechSynthesis.speak(utterance);
-  }, [finishSpeaking]);
+    // 실제 재생이 시작되는 시점 기준으로 예산을 다시 잡는다
+    armSpeechWatchdog(text);
+  }, [finishSpeaking, armSpeechWatchdog]);
 
   const speakText = useCallback(async (text) => {
     if (!text) return;
 
+    // 무음 표시는 지금 말하는 문장에 대한 것이다 — 새 문장을 시작할 때 지운다
+    clearTimeout(voicelessTimerRef.current);
+    setVoiceless(false);
+    // 이전 말풍선을 지우려던 예약도 취소한다 — 안 그러면 새 말풍선이 뜬 채로
+    // 옛 타이머가 마저 돌아 방금 뜬 새 메시지를 지워 버린다.
+    clearTimeout(speechBubbleTimerRef.current);
+
     // 인식을 먼저 멈춘다 — 서버 응답을 기다리는 동안에도 자기 목소리를 들으면 안 된다
     isSpeakingRef.current = true;
     setVoiceState('speaking');
+    // 여기서부터 무장한다 — /api/tts 응답이 영영 안 와도 같은 교착에 빠지기 때문이다
+    armSpeechWatchdog(text);
     if (recognitionRef.current) recognitionRef.current.stop();
     window.speechSynthesis?.cancel();
 
@@ -147,10 +374,12 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       });
 
       // 204 = 서버가 브라우저 TTS로 처리하라는 신호 (provider=browser 또는 합성 실패)
+      // 이 헤더가 있으면 **합성 실패**다 — 즉 원래는 서버가 소리를 내 줬어야 하는 상황이고,
+      // 브라우저 TTS가 무음이면 어르신에게는 완전한 실패다. 그때만 무음 여부를 재 본다.
       if (res.status === 204 || !res.ok) {
         const serverError = res.headers.get('X-TTS-Error');
         if (serverError) console.warn('서버 TTS 실패 → 브라우저 TTS:', decodeURIComponent(serverError));
-        return speakWithBrowser(text);
+        return speakWithBrowser(text, { expectSound: Boolean(serverError) });
       }
 
       const blob = await res.blob();
@@ -165,15 +394,17 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       };
 
       audio.onplay = () => {
+        setVoiceless(false);
         if (!emergencyRef.current) {
           setRobotEmotion(prev => (prev === 'neutral' || prev === 'thinking') ? 'happy' : prev);
         }
       };
       audio.onended = cleanup;
       audio.onerror = () => {
+        // 서버는 음성을 줬는데 재생이 안 됐다 — 소리가 나야 하는 상황인 것은 확실하다
         URL.revokeObjectURL(url);
         audioRef.current = null;
-        speakWithBrowser(text);
+        speakWithBrowser(text, { expectSound: true });
       };
 
       await audio.play();
@@ -181,7 +412,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       console.warn('서버 TTS 요청 실패 → 브라우저 TTS:', err.message);
       speakWithBrowser(text);
     }
-  }, [speakWithBrowser, finishSpeaking]);
+  }, [speakWithBrowser, finishSpeaking, armSpeechWatchdog]);
 
   // ──────────────────────────────────────────────
   // AI 대화 요청
@@ -246,9 +477,29 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // ──────────────────────────────────────────────
   // 자동 음성 인식 (Always Listening)
   // ──────────────────────────────────────────────
-  const startListening = useCallback(() => {
+  const startListening = useCallback(({ manual = false } = {}) => {
     if (isSpeakingRef.current || !shouldListenRef.current) return;
+    // 푸시투토크에서는 **버튼을 누른 것만** 마이크를 연다. 여기 한 곳에서 막으면
+    // 발화 종료·응답 완료·오류 같은 기존 재개 지점을 하나씩 고칠 필요가 없다
+    // (그 중 하나만 빠뜨려도 마이크가 상시로 열려 예산이 새 나간다).
+    if (PTT_ACTIVE && !manual) return;
     recognitionRef.current?.start();
+  }, []);
+
+  /** 푸시투토크: 듣기를 닫고 타이머를 정리한다. 여러 경로에서 불리므로 **멱등**이다. */
+  const stopPtt = useCallback(() => {
+    clearTimeout(pttTimerRef.current);
+    clearInterval(pttTickRef.current);
+    pttTimerRef.current = null;
+    pttTickRef.current = null;
+    setPttArming(false);
+    setPttSecondsLeft(null);
+    recognitionRef.current?.stop();
+    // 상태줄을 반드시 여기서 되돌린다. ptt 모드에서는 인식기의 onEnd 가 먼저 return 하므로
+    // 이걸 빠뜨리면 마이크가 닫힌 뒤에도 화면은 "말씀하세요, 듣고 있어요"로 남고 안테나도
+    // 초록으로 켜져 있다 — 어르신이 죽은 마이크에 대고 계속 말하게 된다.
+    // (말하는 중이면 건드리지 않는다. 그 상태는 finishSpeaking 이 정리한다)
+    if (!isSpeakingRef.current) setVoiceState('idle');
   }, []);
 
   /** 대화 창을 열고 30초 타이머를 (다시) 건다 */
@@ -263,13 +514,54 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   }, []);
 
   /**
+   * 푸시투토크: 버튼을 눌렀다. 한 번 누름 = 한 발화.
+   *
+   * 로봇이 말하는 중이면 받지 않는다 — 자기 목소리를 자기가 받아쓰면 그것도 예산 2건이다.
+   */
+  const startPtt = useCallback(() => {
+    if (isSpeakingRef.current || sttUnavailable) return;
+    if (pttTimerRef.current) return;   // 이미 듣는 중이면 연타를 무시한다
+
+    openGate();   // 버튼을 누른 것 자체가 대화 의사 표시다
+    shouldListenRef.current = true;
+    setPttArming(true);
+    startListening({ manual: true });
+
+    // 마이크가 영영 안 열리는 경우(권한 거부·장치 없음)의 안전 시한. 실제 카운트다운은
+    // 아래 onStart 가 다시 건다 — 여기 타이머는 그때 교체된다.
+    pttTimerRef.current = setTimeout(stopPtt, PTT_TIMEOUT_MS);
+  }, [openGate, startListening, stopPtt, sttUnavailable]);
+
+  /** 마이크가 실제로 열렸다 — 여기서부터가 진짜 8초다. */
+  const beginPttCountdown = useCallback(() => {
+    setPttArming(false);
+    setPttSecondsLeft(Math.ceil(PTT_TIMEOUT_MS / 1000));
+
+    clearInterval(pttTickRef.current);
+    pttTickRef.current = setInterval(() => {
+      setPttSecondsLeft((n) => (n === null ? null : Math.max(0, n - 1)));
+    }, 1000);
+
+    clearTimeout(pttTimerRef.current);
+    pttTimerRef.current = setTimeout(() => {
+      // 눌렀는데 아무 말이 없었다. 조용히 닫는다 — 업로드가 없었으므로 예산은 0건이다.
+      stopPtt();
+    }, PTT_TIMEOUT_MS);
+  }, [stopPtt]);
+
+  /**
    * 인식된 발화를 어떻게 처리할지 결정한다.
    *
    * 이전에는 인식된 모든 발화를 그대로 /api/chat 으로 보내서
    * TV 소리, 혼잣말, 통화 소리에까지 로봇이 대답했다.
    */
   const handleTranscript = useCallback((transcript) => {
-    const decision = decideAction(transcript, gateActiveRef.current);
+    // 푸시투토크에서는 **버튼을 누른 것이 곧 의도 표명**이라 웨이크워드를 요구하지 않는다.
+    // 잡음 필터(isMeaningfulUtterance)와 응급 우회는 그대로 일한다.
+    const decision = decideAction(transcript, PTT_ACTIVE ? true : gateActiveRef.current);
+
+    // 한 번 누름 = 한 발화. 흘려보낸 말이든 아니든 여기서 마이크를 닫는다.
+    if (PTT_ACTIVE) stopPtt();
 
     if (decision.action === 'ignore') {
       // dormant 상태에서 흘려보낸 말. 인식은 계속 돌지만 API는 부르지 않는다.
@@ -289,86 +581,192 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     }
 
     sendVoiceMessage(decision.text);
-  }, [openGate, speakText, sendVoiceMessage]);
+  }, [openGate, speakText, sendVoiceMessage, stopPtt]);
 
   useEffect(() => {
-    if (!isSTTSupported()) {
-      console.warn('이 브라우저는 Web Speech API를 지원하지 않습니다. 텍스트 입력을 사용하세요.');
+    // 보안 컨텍스트(HTTPS 또는 localhost)가 아니면 음성 인식·카메라·서비스워커가 전부
+    // 조용히 죽는다. 파이를 http://<LAN IP>:3001 로 연 경우가 정확히 이것이다.
+    if (!window.isSecureContext) {
+      console.warn('보안 컨텍스트가 아닙니다 (HTTPS 필요) — 음성 인식을 쓸 수 없습니다.');
       setSttUnavailable(true);
+      setSttReason('insecure');
       return;
     }
 
+    if (!isSTTSupported()) {
+      console.warn('이 브라우저는 Web Speech API를 지원하지 않습니다. 텍스트 입력을 사용하세요.');
+      setSttUnavailable(true);
+      setSttReason('unsupported');
+      return;
+    }
+
+    let restartTimer = null;
+
+    /** 음성 인식을 포기하고 텍스트 입력으로 안내한다 (재시작 루프도 멈춘다) */
+    const disableStt = (reason) => {
+      shouldListenRef.current = false;
+      // **인식기를 실제로 멈춘다.** 브라우저 STT는 오류가 나면 세션이 스스로 끝나서
+      // shouldListenRef 만으로 충분했지만, 서버 STT의 세션은 스스로 끝나지 않는다.
+      // 이걸 빠뜨려서 포기한 뒤에도 마이크가 계속 돌며 발화마다 업로드했고,
+      // 한 시간에 100건을 올려 Gemini 할당량을 태웠다(2026-09-02 파이 실측).
+      recognitionRef.current?.stop();
+      setSttUnavailable(true);
+      setSttReason(reason);
+      setVoiceState('idle');
+      // 버튼이 화면에서 사라져도 타이머는 안 사라진다 — 여기서 같이 닫는다.
+      stopPtt();
+    };
+
     const recognizer = createRecognizer({
+      vadOptions: VAD_DEBUG.vadOptions,
+      // 관측 모드에서는 발화 경계만 화면에 보여 주고 Gemini로 올리지 않는다.
+      // ?wake= 도 업로드를 막는다. 관문 ② 측정이 예산을 태울 수 있는 경로를 남기지 않는다.
+      dryRun: VAD_DEBUG.enabled || WAKE_DEBUG.enabled,
+      wakeEngine: wakeEngineRef.current,
+      onWake: WAKE_DEBUG.enabled ? handleWakeObservation : undefined,
+      // 푸시투토크는 발화 하나를 잡으면 인식기가 스스로 캡처를 닫는다. 화면의 stopPtt 는
+      // 받아쓰기 결과가 비면 아예 안 불리므로(빈 결과는 onResult 를 건너뛴다) 여기서 막아야
+      // 한 번 누름에 업로드가 여러 건 나가지 않는다.
+      oneShot: PTT_ACTIVE,
+      onVad: VAD_DEBUG.enabled
+        ? (info) => setVadInfo((prev) => ({
+            ...info,
+            // 직전 발화의 판정은 다음 발화가 끝날 때까지 남겨 둔다 — 안 그러면
+            // ended가 한 프레임 만에 지나가 눈으로 볼 수가 없다.
+            last: info.verdict === 'ended' || info.verdict === 'discarded'
+              ? { verdict: info.verdict, ms: Math.round(info.speechMs) }
+              : prev?.last,
+          }))
+        : undefined,
       onStart: () => {
         if (!isSpeakingRef.current) setVoiceState('listening');
+        // 마이크가 진짜로 열린 시점이다. 8초는 여기서부터 센다.
+        // ?wake= 관측 중에는 카운트다운을 걸지 않는다 — 8초 뒤 stopPtt 가 마이크를 닫아
+        // TV 10분 오인식률을 잴 수가 없어진다. 버튼은 그대로 두되 시한만 빠진다.
+        if (PTT_ACTIVE) beginPttCountdown();
       },
-      onResult: (text) => handleTranscript(text),
-      onError: (err) => console.error('음성 인식 오류:', err),
+      onResult: (text) => {
+        sttFailStreakRef.current = 0;  // 한 번이라도 들렸으면 연속 실패가 아니다
+        handleTranscript(text);
+      },
+      onError: (err) => {
+        console.error('음성 인식 오류:', err);
+        if (classifySttError(err) === 'fatal') {
+          disableStt('denied');
+          return;
+        }
+        // 일시적 오류는 연속 횟수를 센다. 구글 음성 키 없이 빌드된 Chromium은
+        // 매 세션 'network'로 끝나므로, 세지 않으면 영원히 재시작만 반복한다.
+        sttFailStreakRef.current += 1;
+        if (sttFailStreakRef.current >= STT_FAIL_LIMIT) disableStt('network');
+      },
       onEnd: () => {
         // TTS 출력 중이 아니고 계속 들어야 하면 자동 재시작.
         // 브라우저 STT는 장시간 세션에서 조용히 끊기므로 이 재시작이 필수다.
-        if (!isSpeakingRef.current && shouldListenRef.current) {
-          setTimeout(() => startListening(), 300);
-        }
+        // 다만 실패가 이어지면 간격을 늘린다 — 예전에는 고정 300ms였고,
+        // 영구 실패 상태에서는 초당 3회짜리 무한 루프가 됐다.
+        if (isSpeakingRef.current || !shouldListenRef.current) return;
+        // 푸시투토크는 스스로 다시 열지 않는다. 대신 화면을 닫힌 상태로 맞춘다 —
+        // 인식기가 발화 하나를 잡고 캡처를 닫은 순간이 곧 "이제 안 듣는다"이다.
+        // (stopPtt 는 멱등이라 여기서 다시 불려도 안전하다)
+        if (PTT_ACTIVE) { stopPtt(); return; }
+        const delay = Math.min(300 * 2 ** sttFailStreakRef.current, 10000);
+        restartTimer = setTimeout(() => startListening(), delay);
       },
     });
 
     recognitionRef.current = recognizer;
     shouldListenRef.current = true;
 
-    const initTimer = setTimeout(() => startListening(), 1000);
+    // 푸시투토크는 마운트 때 마이크를 열지 않는다 — 버튼을 눌러야 열린다.
+    const initTimer = PTT_ACTIVE ? null : setTimeout(() => startListening({ manual: true }), 1000);
 
     return () => {
       clearTimeout(initTimer);
+      clearTimeout(restartTimer);
       clearTimeout(gateTimerRef.current);
+      clearTimeout(speechWatchdogRef.current);
+      clearTimeout(voicelessTimerRef.current);
+      clearTimeout(speechBubbleTimerRef.current);
+      clearTimeout(pttTimerRef.current);
+      clearInterval(pttTickRef.current);
+      pttTimerRef.current = null;
+      pttTickRef.current = null;
+      // **화면 상태도 되돌린다.** 이 효과는 상태값이 바뀌면 누르는 도중에도 다시 돌 수
+      // 있는데, 그때 타이머만 지우고 여기를 빼먹으면 버튼이 숫자가 멈춘 채
+      // "🔴 듣고 있어요"로 굳는다 — 닫을 타이머까지 이미 지워진 뒤라 영영 안 풀린다.
+      setPttArming(false);
+      setPttSecondsLeft(null);
       shouldListenRef.current = false;
       recognizer.abort();
     };
-  }, [handleTranscript, startListening]);
+  }, [handleTranscript, startListening, beginPttCountdown, stopPtt, handleWakeObservation]);
 
   // ──────────────────────────────────────────────
-  // 보호자 명령 큐 폴링 (speak / move)
+  // 보호자 명령 큐 폴링
   //
   // 예전에는 deprecated GET /api/remote-message/poll 을 썼다 — SSE(command.issued)가
   // 이미 있는데도 프론트가 옮겨가지 않았던 것. 이제 현재 API(/api/commands/pending)로
   // 조회하고 ack 한다. 완전한 SSE 전환은 이번 범위 밖이라 폴링 방식은 유지한다.
+  //
+  // **speak만 소비(ack)하고 move는 보기만 한다.** move의 소비자는 실물 구동부를 돌리는
+  // 프로세스 하나뿐이어야 한다 — 여기서 ack해 버리면 모터가 명령을 영영 못 받는다.
+  // 화살표를 계속 그리는 이유는, 구동부가 아직 없을 때 화면에 아무 반응이 없으면
+  // "원격조종이 고장난 것"과 구분이 안 되기 때문이다.
   // ──────────────────────────────────────────────
   useEffect(() => {
+    const pollSpeak = async () => {
+      const res = await apiFetch('/api/commands/pending?kind=speak');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      for (const command of data.commands) {
+        // 발화의 출처 라벨. 보호자 메시지가 기본이고, 복약 스케줄러처럼
+        // 시스템이 넣은 명령은 payload.label로 자기 이름을 밝힌다.
+        const label = command.payload.label || '보호자님 메시지';
+        setRobotSpeech(`${label}: ${command.payload.text}`);
+        // 보호자가 말을 걸었으니 어르신이 바로 대답할 수 있게 창을 열어둔다.
+        // 이때 "돌봄아"부터 다시 불러야 한다면 대화가 끊긴다.
+        openGate();
+        speakText(command.payload.text);
+        onStatusChange();
+        await apiFetch(`/api/commands/${command.id}/ack`, { method: 'POST' });
+      }
+    };
+
+    const observeMove = async () => {
+      const res = await apiFetch(`/api/commands/pending?kind=move&maxAgeMs=${MOVE_MAX_AGE_MS}`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const latest = data.commands[data.commands.length - 1];
+      if (!latest || latest.id === lastSeenMoveIdRef.current) return;
+
+      lastSeenMoveIdRef.current = latest.id;
+      setMoveIndicator({ id: latest.id, direction: latest.payload.direction });
+    };
+
     const pollCommands = async () => {
       try {
-        const res = await apiFetch('/api/commands/pending');
-        if (!res.ok) return;
-        const data = await res.json();
-
-        for (const command of data.commands) {
-          if (command.kind === 'speak') {
-            // 발화의 출처 라벨. 보호자 메시지가 기본이고, 복약 스케줄러처럼
-            // 시스템이 넣은 명령은 payload.label로 자기 이름을 밝힌다.
-            const label = command.payload.label || '보호자님 메시지';
-            setRobotSpeech(`${label}: ${command.payload.text}`);
-            // 보호자가 말을 걸었으니 어르신이 바로 대답할 수 있게 창을 열어둔다.
-            // 이때 "효돌아"부터 다시 불러야 한다면 대화가 끊긴다.
-            openGate();
-            speakText(command.payload.text);
-            onStatusChange();
-          } else if (command.kind === 'move') {
-            setMoveDirection(command.payload.direction);
-            clearTimeout(moveIndicatorTimerRef.current);
-            moveIndicatorTimerRef.current = setTimeout(() => setMoveDirection(null), 1500);
-          }
-          await apiFetch(`/api/commands/${command.id}/ack`, { method: 'POST' });
-        }
+        await pollSpeak();
+        await observeMove();
       } catch (err) {
         console.error('Command poll error:', err);
       }
     };
 
     const interval = setInterval(pollCommands, 2500);
-    return () => {
-      clearInterval(interval);
-      clearTimeout(moveIndicatorTimerRef.current);
-    };
+    return () => clearInterval(interval);
   }, [onStatusChange, speakText, openGate]);
+
+  // 인디케이터의 소멸은 **자기 상태에만** 묶는다. 명령 폴링 효과에 얹어 두면
+  // 그 효과가 재실행될 때 정리 함수가 타이머를 지워 표시가 화면에 박제된다
+  // (09-01 파이 실측에서 실제로 겪었다).
+  useEffect(() => {
+    if (!moveIndicator) return undefined;
+    const timer = setTimeout(() => setMoveIndicator(null), 1500);
+    return () => clearTimeout(timer);
+  }, [moveIndicator]);
 
   // ──────────────────────────────────────────────
   // 긴급 알람 사운드
@@ -429,7 +827,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // ──────────────────────────────────────────────
   const resolveActiveAlert = async () => {
     try {
-      const res = await apiFetch('/api/alerts?resolved=false&limit=1');
+      // 경보를 켠 것은 critical 이므로 해제 대상도 critical 이어야 한다. 등급을 안 주면
+      // 어르신이 본 적도 없는 아침의 warning 이 대신 해제되고(resolved_by=senior 로
+      // 기록까지 오염된다) 정작 경보는 안 꺼진다.
+      const res = await apiFetch('/api/alerts?resolved=false&severity=critical&limit=1');
       if (res.ok) {
         const data = await res.json();
         const activeAlert = data.alerts[0];
@@ -485,7 +886,8 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   // 어르신이 말을 걸었는데 반응이 없으면 로봇이 고장난 줄 안다 —
   // 지금 불러야 하는 상태인지 아닌지가 화면에서 분명해야 한다.
   const getStateColor = () => {
-    if (sttUnavailable) return '#64748b';
+    // 고칠 수 있는 실패(주소·권한·음성 서버)는 회색이 아니라 주황으로 — 눈에 띄어야 한다
+    if (sttUnavailable) return sttReason && sttReason !== 'unsupported' ? '#f59e0b' : '#64748b';
     switch (voiceState) {
       case 'listening': return isGateActive ? '#10b981' : '#64748b';
       case 'processing': return '#f59e0b';
@@ -495,9 +897,11 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   };
 
   const getStateText = () => {
-    if (sttUnavailable) return '아래에 글로 말씀해 주세요';
+    if (sttUnavailable) return STT_UNAVAILABLE_TEXT[sttReason] || STT_UNAVAILABLE_TEXT.unsupported;
+    // 푸시투토크에서는 "돌봄아 하고 불러주세요"가 거짓말이 된다 — 안 듣고 있기 때문이다.
+    if (PTT_MODE && voiceState === 'idle') return '아래 버튼을 누르고 말씀해 주세요';
     switch (voiceState) {
-      case 'listening': return isGateActive ? '말씀하세요, 듣고 있어요' : '"효돌아" 하고 불러주세요';
+      case 'listening': return isGateActive ? '말씀하세요, 듣고 있어요' : '"돌봄아" 하고 불러주세요';
       case 'processing': return '생각하는 중...';
       case 'speaking': return '말하는 중...';
       default: return '준비 중...';
@@ -587,16 +991,23 @@ function RobotFaceDisplay({ status, onStatusChange }) {
         }}></div>
 
         <svg width="100%" height="100%" viewBox="0 0 300 300" preserveAspectRatio="xMidYMid meet">
-          {eyebrows}
-          {eyeLeftPath}
-          {eyeRightPath}
-          {robotEmotion === 'happy' && (
-            <>
-              <circle cx="75" cy="145" r="14" fill="#10b981" opacity="0.2" />
-              <circle cx="225" cy="145" r="14" fill="#10b981" opacity="0.2" />
-            </>
-          )}
-          {mouthPath}
+          {/* 이목구비만 얼굴 중심 기준으로 키운다. 좌표를 하나씩 고치면 감정 7종 ×
+              눈·눈썹·입을 전부 손봐야 하고 그 과정에서 표정 사이 균형이 깨진다.
+              한 곳에서 배율만 바꾸면 모든 표정이 같은 비율로 따라온다.
+              (선 굵기도 함께 커지므로 멀리서 보는 어르신에게 유리하다)
+              물결(아래 원)은 얼굴 상자에 꽉 차 있어 여기서 제외한다 — 같이 키우면 잘린다. */}
+          <g transform="translate(150 145) scale(1.3) translate(-150 -145)">
+            {eyebrows}
+            {eyeLeftPath}
+            {eyeRightPath}
+            {robotEmotion === 'happy' && (
+              <>
+                <circle cx="75" cy="145" r="14" fill="#10b981" opacity="0.2" />
+                <circle cx="225" cy="145" r="14" fill="#10b981" opacity="0.2" />
+              </>
+            )}
+            {mouthPath}
+          </g>
           {voiceState === 'listening' && isGateActive && (
             <circle cx="150" cy="150" r="140" stroke="var(--accent-emerald)" strokeWidth="2" fill="none" opacity="0.3" className="ripple-animation" />
           )}
@@ -611,7 +1022,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   return (
     <div className="kiosk-container">
       {/* 카메라 캡처용 숨은 엘리먼트. 화면에 보이지 않고 프레임을 찍어 서버로 보내는 용도. */}
-      {VISION_ENABLED && (
+      {CAMERA_ENABLED && (
         <>
           <video ref={videoRef} playsInline muted style={{ display: 'none' }} />
           <canvas ref={canvasRef} style={{ display: 'none' }} />
@@ -629,18 +1040,80 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       )}
 
       {/* 보호자 원격조종 이동 인디케이터 — 명령을 받았다는 시각 피드백 */}
-      {moveDirection && (
+      {moveIndicator && (
         <div className="move-indicator">
-          {MOVE_ARROWS[moveDirection]} 이동 중
+          {MOVE_ARROWS[moveIndicator.direction]} 이동 중
         </div>
       )}
 
-      {/* 효돌이 답변 말풍선 자막 */}
+      {/* 카메라를 못 잡았을 때 — 대화는 정상이라는 것까지 알려준다 */}
+      {cameraError && (
+        <div className="camera-error-chip">📷 카메라 없음 · 대화는 정상</div>
+      )}
+
+      {/* VAD 관측 오버레이 (?vad=1). 파이 앞에서 임계값을 할당량 0건으로 맞추기 위한 것이라
+          어르신에게 보일 화면이 아니다 — 파라미터를 떼면 통째로 사라진다. */}
+      {VAD_DEBUG.enabled && (
+        <div className="vad-debug">
+          <div className="vad-debug-bar">
+            {/* 임계값은 0.02 근처의 작은 값이라 막대를 0~0.1로 잡아야 눈에 보인다 */}
+            <span className="vad-debug-fill" style={{ width: `${Math.min(100, (vadInfo?.rms ?? 0) * 1000)}%` }} />
+            <span
+              className="vad-debug-mark"
+              style={{ left: `${Math.min(100, (vadInfo?.startThreshold ?? 0) * 1000)}%` }}
+            />
+          </div>
+          <div className="vad-debug-row">
+            <b>RMS {(vadInfo?.rms ?? 0).toFixed(4)}</b>
+            <span>start {vadInfo?.startThreshold ?? '—'} / end {vadInfo?.endThreshold ?? '—'}</span>
+          </div>
+          <div className="vad-debug-row">
+            <span className={`vad-debug-verdict is-${vadInfo?.verdict ?? 'idle'}`}>
+              {vadInfo?.verdict ?? 'idle'} {Math.round(vadInfo?.speechMs ?? 0)}ms
+            </span>
+            <span>
+              직전: {vadInfo?.last ? `${vadInfo.last.verdict} ${vadInfo.last.ms}ms` : '—'}
+            </span>
+            <span className="vad-debug-badge">업로드 안 함</span>
+          </div>
+        </div>
+      )}
+
+      {/* 온디바이스 웨이크워드 관측 오버레이 (?wake=1). docs/plan-wake-word.md 관문 ②를
+          여기 숫자로 채운다 — "돌봄아" 20번 / "살려줘" 20번 / TV 10분.
+          VAD 오버레이가 좌상단을 쓰므로 이쪽은 좌하단이다. 겹치지 않게. */}
+      {WAKE_DEBUG.enabled && (
+        <div className="wake-debug">
+          <div className="wake-debug-row">
+            <b>웨이크 관측</b>
+            <span>{WAKE_DEBUG.mode === 'free' ? '자유 발화' : '문법'} · {wakeStats.engine}</span>
+            <span className="vad-debug-badge">업로드 안 함</span>
+          </div>
+          <div className="wake-debug-row">
+            {/* 놓침률 = 부른 횟수 − 웨이크. 오인식률 = 아무도 안 불렀는데 오른 웨이크. */}
+            <span>발화 <b>{wakeStats.utterances}</b></span>
+            <span>웨이크 <b>{wakeStats.wake}</b></span>
+            {/* ⚠️ 안전 지표 — 이게 안 나오면 "응급 경로가 돌아왔다"고 쓸 수 없다 */}
+            <span className="wake-debug-safety">응급 <b>{wakeStats.bypass}</b></span>
+          </div>
+          <div className="wake-debug-last">
+            {wakeStats.last
+              ? `${wakeStats.last.wake ? '🟢' : wakeStats.last.bypass ? '🔴' : '⚪'} “${wakeStats.last.text || '(빈 결과)'}” · ${wakeStats.last.ms}ms · ${wakeStats.last.verdict}`
+              : '아직 들은 발화가 없습니다'}
+          </div>
+        </div>
+      )}
+
+      {/* 돌봄이 답변 말풍선 자막 */}
       {robotSpeech && (
         <div className="speech-bubble-container">
           <div className="speech-bubble">
-            <span className="speech-sender">🤖 효돌이:</span>
+            <span className="speech-sender">🤖 돌봄이:</span>
             <p className="speech-text">{robotSpeech}</p>
+            {/* 소리가 안 났다는 사실은 화면에 적지 않으면 아무 데도 남지 않는다 */}
+            {voiceless && (
+              <p className="speech-voiceless">🔇 소리가 나지 않아 글로만 전해 드렸어요</p>
+            )}
           </div>
         </div>
       )}
@@ -663,6 +1136,23 @@ function RobotFaceDisplay({ status, onStatusChange }) {
           {getStateText()}
         </span>
       </div>
+
+      {/* 푸시투토크 버튼 — 이 화면에서 마이크가 열리는 **유일한** 지점이다.
+          어르신이 쓰고 720×1280 세로 패널이라 터치 타깃을 크게 잡는다. */}
+      {PTT_MODE && !sttUnavailable && (
+        <div className="ptt-area">
+          <button
+            type="button"
+            onClick={pttArming || pttSecondsLeft !== null ? stopPtt : startPtt}
+            className={`ptt-btn ${pttSecondsLeft === null ? '' : 'is-listening'}`}
+            disabled={voiceState === 'speaking' || isChatLoading}
+          >
+            {pttSecondsLeft !== null
+              ? `🔴 듣고 있어요 · ${pttSecondsLeft}초`
+              : pttArming ? '🎤 마이크를 여는 중…' : '🎤 눌러서 말하기'}
+          </button>
+        </div>
+      )}
 
       {/* 텍스트 대화 테스트 입력창 */}
       <form onSubmit={handleTextSubmit} className="text-chat-form">

@@ -48,7 +48,7 @@ self.addEventListener('fetch', (event) => {
 
 // critical 알림 전용 (backend/src/services/notify.js). warning은 푸시로 오지 않는다.
 self.addEventListener('push', (event) => {
-  let data = { title: '효돌이 응급 알림', body: '', url: '/guardian/alerts' };
+  let data = { title: '돌봄이 응급 알림', body: '', url: '/guardian/alerts' };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch {

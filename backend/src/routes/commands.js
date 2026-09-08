@@ -49,7 +49,13 @@ router.post('/commands', asyncHandler(async (req, res) => {
 
 /** 로봇이 미처리 명령을 조회한다. 조회만으로는 큐에서 사라지지 않는다. */
 router.get('/commands/pending', asyncHandler(async (req, res) => {
-  res.json({ commands: await commandsRepo.pending({ kind: req.query.kind, limit: req.query.limit }) });
+  res.json({
+    commands: await commandsRepo.pending({
+      kind: req.query.kind,
+      limit: req.query.limit,
+      maxAgeMs: req.query.maxAgeMs,
+    }),
+  });
 }));
 
 /** 로봇이 명령을 실제로 수행한 뒤 호출한다. */

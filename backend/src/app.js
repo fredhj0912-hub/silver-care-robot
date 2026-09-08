@@ -13,8 +13,10 @@ const commandRoutes = require('./routes/commands');
 const controlRoutes = require('./routes/control');
 const eventRoutes = require('./routes/events');
 const ttsRoutes = require('./routes/tts');
+const sttRoutes = require('./routes/stt');
 const pushRoutes = require('./routes/push');
 const medicationRoutes = require('./routes/medications');
+const snapshotRoutes = require('./routes/snapshots');
 
 /**
  * 사설 네트워크에서 온 요청만 허용한다.
@@ -66,10 +68,13 @@ function createApp() {
   app.use('/api', chatRoutes);
   app.use('/api', alertRoutes);
   app.use('/api', visionRoutes);
+  // /api/snapshots (목록·업로드). 이미지 서빙 /api/snapshots/:filename 은 alertRoutes 에 있다
+  app.use('/api', snapshotRoutes);
   app.use('/api', commandRoutes);
   app.use('/api', controlRoutes);
   app.use('/api', eventRoutes);
   app.use('/api', ttsRoutes);
+  app.use('/api', sttRoutes);
   app.use('/api', pushRoutes);
   app.use('/api', medicationRoutes);
 
@@ -91,7 +96,7 @@ function createApp() {
 
 function landingPage() {
   return `<!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><title>효돌이 백엔드 서버 상태</title>
+<html lang="ko"><head><meta charset="utf-8"><title>돌봄이 백엔드 서버 상태</title>
 <style>
   body { font-family: system-ui, sans-serif; background:#1a1a24; color:#f8fafc; padding:3rem; text-align:center; }
   .card { background:#22222e; padding:2rem; border-radius:16px; display:inline-block; border:1px solid rgba(255,255,255,.08); }
@@ -101,7 +106,7 @@ function landingPage() {
   code { background:rgba(255,255,255,.06); padding:.15rem .4rem; border-radius:4px; }
 </style></head><body>
 <div class="card">
-  <h1>🤖 효돌이 백엔드 API 서버</h1>
+  <h1>🤖 돌봄이 백엔드 API 서버</h1>
   <p>상태: <span class="badge">정상 작동 중</span></p>
   <p>포트: <code>${config.port}</code> &nbsp; 모델: <code>${config.geminiModel}</code></p>
   <p style="color:#64748b;font-size:.9rem;margin-top:1.5rem">

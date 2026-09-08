@@ -9,6 +9,23 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;             // 디코딩된 원본 이�
 const MAX_JSON_BODY_BYTES = 12 * 1024 * 1024;        // base64는 원본보다 ~33% 크다
 const MAX_JSON_BODY = `${MAX_JSON_BODY_BYTES}b`;     // express.json 이 이해하는 형식
 
+// 서버측 STT로 올라오는 발화 오디오. 16kHz 모노 16bit WAV라 10초 발화가 약 320KB,
+// base64로 감싸도 ~430KB다. 10배 넘는 여유를 두되 MAX_JSON_BODY_BYTES 아래에 둔다 —
+// 마이크가 켜진 채 방치돼도 한 요청이 서버를 오래 붙들지 않게 하는 것이 목적이다.
+const MAX_AUDIO_BYTES = 6 * 1024 * 1024;             // base64 data URI 문자열 기준
+
+/**
+ * 숫자 환경변수. `Number(x) || 기본값` 은 **0을 기본값으로 되돌려 버린다** —
+ * TTS_RETRIES=0("재시도하지 마라")이나 GEMINI_DAILY_BUDGET=0("호출하지 마라")처럼
+ * 0이 의미 있는 값인 설정이 있어 그 형태를 쓸 수 없다.
+ */
+function numberFromEnv(raw, fallback) {
+  // trim 이 필요한 이유: Number(' ') 은 0 이다. `GEMINI_DAILY_BUDGET= ` 한 칸이
+  // "하루 0건"으로 조용히 바뀌면 로봇이 온종일 mock 으로만 답한다.
+  const trimmed = raw === undefined || raw === null ? '' : String(raw).trim();
+  return trimmed !== '' && Number.isFinite(Number(trimmed)) ? Number(trimmed) : fallback;
+}
+
 const config = {
   port: Number(process.env.PORT) || 3001,
 
@@ -21,9 +38,26 @@ const config = {
   geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
   geminiFallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash',
 
+  // 개발용 킬 스위치. 0이면 API 키가 있어도 Gemini 를 아예 부르지 않는다 —
+  // Claude 가 로컬에서 붙어 작업하는 동안 호출이 **구조적으로 0건**이 된다.
+  // (getClient() 가 null 을 돌려주므로 전부 기존 mock 경로로 간다)
+  geminiEnabled: process.env.GEMINI_ENABLED !== '0',
+
+  // 하루 예산 상한 (services/budget.js). 무료 등급의 실제 통은 대화+받아쓰기 합쳐 40,
+  // TTS 별도 20이라 여유를 남긴 값이다. **결제를 켜면 이 숫자가 곧 요금 상한**이다.
+  // `|| 36` 이 아닌 이유: 0("아무 호출도 하지 마라")이 조용히 기본값으로 바뀌면 안 된다.
+  geminiDailyBudget: numberFromEnv(process.env.GEMINI_DAILY_BUDGET, 36),
+  ttsDailyBudget: numberFromEnv(process.env.TTS_DAILY_BUDGET, 18),
+
   // 일시적 오류(429/503) 재시도. 대화 지연이 길어지면 어르신이 로봇이 고장난 줄 안다.
   geminiRetries: Number(process.env.GEMINI_RETRIES) || 1,
   geminiRetryDelayMs: Number(process.env.GEMINI_RETRY_DELAY_MS) || 400,
+
+  // 받아쓰기 마감시한. 대화(chat)와 달리 **늦게 온 받아쓰기는 쓸모가 없다** —
+  // 어르신은 이미 돌아섰고, 그 사이에 한 다른 말과 뒤섞인다.
+  // 2026-09-02 실측: 잘 되면 3초, 503 재시도 체인에 걸리면 20~52초까지 갔다.
+  // 시한을 넘기면 실패로 처리해 화면에 드러낸다 — 조용히 기다리는 것이 제일 나쁘다.
+  sttTimeoutMs: Number(process.env.STT_TIMEOUT_MS) || 12000,
 
   // AWS 공용 리전 (지금은 S3 스냅샷 저장소만 사용).
   awsRegion: process.env.AWS_REGION || 'us-west-2',
@@ -54,6 +88,12 @@ const config = {
   snapshotStorage: process.env.SNAPSHOT_STORAGE || 'local',
   s3Bucket: process.env.S3_BUCKET || '',
 
+  // 보관할 카메라 스냅샷 개수. 넘으면 오래된 것부터 행과 파일을 함께 지운다.
+  // 30초 간격 · 장당 40KB 안팎이면 200장은 약 8MB / 약 1시간 40분치다.
+  // **응급 알림에 붙은 증거 사진은 이 상한과 무관하다** — 그건 alerts 테이블이
+  // 참조하는 별개 파일이라 여기서 지우지 않는다.
+  snapshotKeep: Number(process.env.SNAPSHOT_KEEP) || 200,
+
   // TTS — 'browser' | 'gemini' | 'cloud'
   //
   //  browser  브라우저 SpeechSynthesis. 지연 0, 무료. 목소리 캐릭터를 고를 수 없다.
@@ -69,8 +109,22 @@ const config = {
   ttsVoice: process.env.TTS_VOICE || (process.env.TTS_PROVIDER === 'cloud' ? 'ko-KR-Chirp3-HD-Leda' : 'Leda'),
   ttsSpeakingRate: Number(process.env.TTS_SPEAKING_RATE) || 1.0,
   ttsPitch: Number(process.env.TTS_PITCH) || 0,
+  // 일시 오류(503 등)를 몇 번 더 시도할지. **기본값을 1로 잡은 이유**: TTS도 하루 20건이고,
+  // 503 재시도가 그 카운트에 잡히는지 확인된 바 없다. 할당량 소진은 아예 재시도하지 않는다.
+  // `|| 1`이 아니라 이 형태인 이유: TTS_RETRIES=0("재시도하지 마라")이 살아남아야 한다.
+  ttsRetries: Number.isFinite(Number(process.env.TTS_RETRIES)) && process.env.TTS_RETRIES !== ''
+    ? Number(process.env.TTS_RETRIES)
+    : 1,
+  ttsRetryDelayMs: Number(process.env.TTS_RETRY_DELAY_MS) || 600,
+
+  // 합성 한 번의 시한. 없으면 응답하지 않는 연결에 **영원히** 매달린다 —
+  // 2026-09-06에 EC2 예열이 첫 문구에서 몇 분째 멈춰 있던 원인이 이것이었다.
+  // 늦게 온 음성은 쓸모가 없다는 점에서 받아쓰기(STT_TIMEOUT_MS)와 같은 판단이고,
+  // Gemini TTS 는 정상일 때도 문장당 5초쯤 걸리므로 그보다 넉넉히 잡는다.
+  ttsTimeoutMs: Number(process.env.TTS_TIMEOUT_MS) || 20000,
 
   maxImageBytes: MAX_IMAGE_BYTES,
+  maxAudioBytes: MAX_AUDIO_BYTES,
   maxJsonBody: MAX_JSON_BODY,
   maxJsonBodyBytes: MAX_JSON_BODY_BYTES,
   maxChatChars: 1000,
@@ -105,6 +159,11 @@ function describeStartup() {
   if (!config.geminiApiKey) {
     lines.push('⚠️  GEMINI_API_KEY 미설정 → mock 대화 모드로 동작합니다');
     lines.push('   🔗 https://aistudio.google.com/ 에서 API 키를 발급받으세요');
+  }
+  if (!config.geminiEnabled) {
+    lines.push('🔌 GEMINI_ENABLED=0 → Gemini 호출을 하지 않습니다 (대화·받아쓰기·TTS 전부 mock)');
+  } else {
+    lines.push(`📊 하루 예산: 대화/받아쓰기 ${config.geminiDailyBudget}건 · TTS ${config.ttsDailyBudget}건`);
   }
   if (!config.robotApiKey) {
     lines.push('⚠️  ROBOT_API_KEY 미설정 → 모든 API가 인증 없이 열려 있습니다');

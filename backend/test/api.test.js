@@ -24,6 +24,33 @@ process.env.PUBLIC_DIR = '';              // 실제 .env에 배포용 값이 있
 
 const { createApp } = require('../src/app');
 const { query, initDB, closeDB } = require('../src/db');
+const gemini = require('../src/services/gemini');
+
+/**
+ * analyzeImage 를 잠시 **성공 응답**으로 바꾼다.
+ *
+ * 왜 필요한가: 이 파일은 GEMINI_API_KEY='' 로 돌기 때문에 analyzeImage 는 언제나
+ * error 를 실어 돌려준다 — 즉 **성공한 분석이 존재할 수 없다.** 예전에는 그 폴백값
+ * (expression:'neutral')을 진짜 관측인 것처럼 써서 감정 이력을 시험했는데, 그건
+ * 고치려는 버그를 픽스처로 삼는 것이었다(라우트가 error 를 안 보던 시절의 습관).
+ * 성공 경로는 이렇게 명시적으로 재현한다.
+ *
+ * 라우트가 `gemini.analyzeImage(...)` 로 **호출 시점에 속성을 찾으므로** 교체가 먹는다.
+ */
+function stubVision(overrides = {}) {
+  const original = gemini.analyzeImage;
+  gemini.analyzeImage = async () => ({
+    hasPerson: true,
+    isEmergency: false,
+    expression: 'neutral',
+    confidence: 0.9,
+    summary: '어르신이 평온해 보입니다',
+    source: 'gemini',
+    error: null,
+    ...overrides,
+  });
+  return () => { gemini.analyzeImage = original; };
+}
 
 let server;
 let BASE;
@@ -54,7 +81,7 @@ test('인증: 키가 없으면 401, /api/health 는 공개', async () => {
 test('PUBLIC_DIR 미설정이면 / 는 기존 상태 페이지를 유지한다', async () => {
   const res = await fetch(BASE + '/');
   assert.strictEqual(res.status, 200);
-  assert.match(await res.text(), /효돌이 백엔드 API 서버/);
+  assert.match(await res.text(), /돌봄이 백엔드 API 서버/);
 });
 
 test('알 수 없는 경로는 HTML이 아니라 JSON 404를 반환한다', async () => {
@@ -88,6 +115,44 @@ test('모든 알림을 해제하면 비상 상태가 내려간다', async () => 
     await post('/api/alerts/resolve', { id: a.id, by: 'guardian' });
   }
   assert.strictEqual((await get('/api/status')).b.isEmergency, false);
+});
+
+test('warning이 미해결로 남아 있어도 critical 해제만으로 비상이 풀린다', async () => {
+  // warning 은 비상 모드를 켜지도, 푸시를 보내지도, 스스로 해제되지도 않는다 —
+  // 아무도 존재를 모르는 채 쌓인다. 그게 경보 해제를 막으면 어르신은 버튼을 몇 번
+  // 눌러야 하는지 알 수 없다.
+  const warning = await post('/api/chat', { text: '오늘 좀 어지럽네' });
+  assert.strictEqual(warning.b.alert.severity, 'warning');
+  assert.strictEqual((await get('/api/status')).b.isEmergency, false);
+
+  const critical = await post('/api/alerts', { description: '해제 대상 critical' });
+  assert.strictEqual((await get('/api/status')).b.isEmergency, true);
+
+  // 키오스크의 해제 버튼이 고르는 목록 — 아침의 warning 이 아니라 방금 그 critical 이어야 한다.
+  const open = await get('/api/alerts?resolved=false&severity=critical&limit=1');
+  assert.strictEqual(open.b.alerts[0].id, critical.b.alert.id);
+
+  const res = await post('/api/alerts/resolve', { id: critical.b.alert.id, by: 'senior' });
+  assert.strictEqual(res.b.isEmergency, false);
+  assert.strictEqual((await get('/api/status')).b.isEmergency, false);
+
+  // 어르신이 누른 해제가 warning 을 대신 지우지 않았는지 (기록 오염)
+  const stillOpen = await get('/api/alerts?resolved=false');
+  assert.ok(stillOpen.b.alerts.some((a) => a.id === warning.b.alert.id));
+
+  // 뒤 테스트가 깨끗한 DB 를 보도록 정리한다
+  await post('/api/alerts/resolve', { id: warning.b.alert.id, by: 'guardian' });
+});
+
+test('critical 2건 중 1건만 해제하면 비상 상태는 유지된다', async () => {
+  const first = await post('/api/alerts', { description: 'critical 1' });
+  const second = await post('/api/alerts', { description: 'critical 2' });
+
+  const afterFirst = await post('/api/alerts/resolve', { id: first.b.alert.id, by: 'guardian' });
+  assert.strictEqual(afterFirst.b.isEmergency, true);
+
+  const afterSecond = await post('/api/alerts/resolve', { id: second.b.alert.id, by: 'guardian' });
+  assert.strictEqual(afterSecond.b.isEmergency, false);
 });
 
 test('수동 SOS 버튼: 기본값이 채워지고 쿨다운을 무시하고 항상 알림을 만든다', async () => {
@@ -128,6 +193,25 @@ test('명령 큐: 조회해도 큐가 비지 않고, ack 해야 사라진다 (�
   assert.ok(!after.some((c) => c.id === id), 'ack 후에도 명령이 남아 있다');
 });
 
+test('명령 큐: maxAgeMs를 주면 오래된 명령은 빼고 준다', async () => {
+  // 이동 명령은 지나면 의미가 없다 — 네트워크가 30초 끊겼다 돌아온 구동부가 낡은 "앞으로"를
+  // 실행하면 안 된다. 반대로 보호자 speak 메시지는 늦더라도 반드시 전달돼야 하므로
+  // 제한을 주지 않았을 때의 동작(무제한)은 그대로여야 한다.
+  const fresh = (await post('/api/commands', { kind: 'move', payload: { direction: 'left' } })).b.command.id;
+  const stale = (await post('/api/commands', { kind: 'move', payload: { direction: 'right' } })).b.command.id;
+  await query(
+    'UPDATE outbound_commands SET ts = ? WHERE id = ?',
+    [new Date(Date.now() - 60000).toISOString(), stale]
+  );
+
+  const limited = (await get('/api/commands/pending?kind=move&maxAgeMs=2000')).b.commands.map((c) => c.id);
+  assert.ok(limited.includes(fresh), '방금 내린 명령이 빠졌다');
+  assert.ok(!limited.includes(stale), '오래된 명령이 그대로 나왔다');
+
+  const unlimited = (await get('/api/commands/pending?kind=move')).b.commands.map((c) => c.id);
+  assert.ok(unlimited.includes(stale), '제한이 없는데도 오래된 명령이 사라졌다');
+});
+
 test('보호자 메시지는 대화 로그에도 기록된다', async () => {
   const r = await get('/api/messages?sender=guardian&limit=10');
   assert.ok(r.b.messages.some((m) => m.text === '약 드실 시간이에요'));
@@ -138,11 +222,43 @@ test('비전: 유효한 이미지를 받아 최신 스냅샷으로 노출한다'
   const r = await post('/api/vision', { image: tinyPng });
   assert.strictEqual(r.s, 200);
   assert.ok(['gemini', 'mock'].includes(r.b.source));
-  assert.strictEqual(typeof r.b.isEmergency, 'boolean');
 
+  // **라이브 뷰는 Gemini 와 무관하다.** 이 테스트는 키 없이 도므로 분석은 실패하는데,
+  // 그래도 스냅샷은 남아야 한다 — 보호자가 방 안을 보는 길이 분석 실패에 딸려
+  // 끊기면 안 된다.
   const latest = await get('/api/vision/latest');
   assert.strictEqual(latest.b.image, tinyPng);
   assert.ok(latest.b.capturedAt);
+});
+
+test('비전: 분석에 실패하면 아무것도 판정하지 않는다 (없는 표정을 기록하지 않는다)', async () => {
+  // 테스트는 GEMINI_API_KEY='' 로 돌아 analyzeImage 가 error:'no_api_key' 를 돌려준다.
+  // 실제 운영에서 이 상태가 되는 흔한 경우가 **하루 예산 소진**이고, 그때는 카메라
+  // 주기(15초)마다 이 경로를 지난다.
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+  // 직전 표정을 'sad' 로 만들어 둔다. 폴백값 'neutral' 과 다르므로, 예전 코드였다면
+  // 여기서 "sad → neutral" 이라는 **없던 표정 변화**가 한 줄 기록됐다.
+  await post('/api/status', { seniorExpression: 'sad' });
+  const before = (await get('/api/detections?type=emotion&limit=200')).b.detections.length;
+
+  const r = await post('/api/vision', { image: tinyPng });
+  assert.strictEqual(r.s, 200);
+  assert.strictEqual(r.b.analyzed, false, '분석이 실패했는데 analyzed 가 false 가 아니다');
+  assert.ok(r.b.error, '실패 사유를 응답에 안 실어 주면 밖에서 구분할 수 없다');
+
+  // null 이어야 한다. false 로 주면 "확인했고 이상 없다"로 읽힌다 —
+  // 그 프레임에 진짜 낙상이 있었어도 조용히 지워지는 것이 원래 버그였다.
+  assert.strictEqual(r.b.isEmergency, null);
+  assert.strictEqual(r.b.expression, null);
+
+  // ① 표정을 덮어쓰지 않는다
+  assert.strictEqual((await get('/api/status')).b.seniorExpression, 'sad',
+    '분석에 실패했는데 카메라가 보지도 않은 표정으로 덮어썼다');
+
+  // ② 없던 표정 변화를 기록하지 않는다
+  const after = (await get('/api/detections?type=emotion&limit=200')).b.detections.length;
+  assert.strictEqual(after, before, '분석에 실패했는데 감정 기록이 늘었다');
 });
 
 test('감지 이벤트에 스냅샷을 첨부하면 파일로 저장되고 알림에서 열람 가능하다', async () => {
@@ -316,4 +432,53 @@ test('푸시 구독: 새 origin으로 구독하면 옛 터널 주소의 구독�
     '사라진 터널 주소의 구독이 남아 있다'
   );
   assert.strictEqual(rows[0].origin, 'https://new.example');
+});
+
+// ── 감정 이력 (detections type='emotion') ────────────────────────────────────
+// 분석이 **성공했을 때만** 남는 기록이다. 키 없이 도는 이 파일에서는 성공 경로가
+// 존재하지 않으므로 stubVision() 으로 재현한다 (위 헬퍼의 주석 참고).
+
+test('감정 이력: 표정이 바뀔 때만 detections에 남는다', async () => {
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const restore = stubVision({ expression: 'neutral' });
+  try {
+    await post('/api/status', { seniorExpression: 'sad' });
+    const before = (await get('/api/detections?type=emotion')).b.detections.length;
+
+    await post('/api/vision', { image: tinyPng });
+    const after = (await get('/api/detections?type=emotion')).b.detections;
+
+    assert.strictEqual(after.length, before + 1, '표정이 바뀌었는데 기록되지 않았다');
+    assert.strictEqual(after[0].meta.expression, 'neutral');
+    assert.strictEqual(after[0].meta.previous, 'sad', '직전 표정이 meta에 없으면 추이를 못 읽는다');
+
+    // 같은 표정이 다시 들어오면 남지 않는다 — 이 설계의 핵심.
+    await post('/api/vision', { image: tinyPng });
+    assert.strictEqual(
+      (await get('/api/detections?type=emotion')).b.detections.length,
+      after.length,
+      '표정이 그대로인데 행이 늘었다 (카메라 주기가 15초라 하루 수천 행이 된다)'
+    );
+  } finally {
+    restore();
+  }
+});
+
+test('감정 이력: 임계값 튜닝용 기본 목록에는 섞이지 않는다', async () => {
+  const list = (await get('/api/detections')).b.detections;
+  assert.ok(list.length > 0, '감지 이벤트가 없어 이 검증이 의미를 갖지 못한다');
+  assert.ok(
+    !list.some((d) => d.type === 'emotion'),
+    '감정 행이 감지 목록을 밀어내고 있다 (LIMIT 100 안에서 낙상 기록이 사라진다)'
+  );
+});
+
+test('일일 요약: seniorEmotionCounts는 어르신 표정을 센다 (로봇 발화와 별개)', async () => {
+  const summary = (await get('/api/summary/daily')).b;
+  assert.ok(
+    summary.seniorEmotionCounts.neutral >= 1,
+    '카메라가 남긴 표정이 하루 요약에 집계되지 않았다'
+  );
+  // 로봇 발화 집계는 지우지 않고 그대로 둔다 — 다른 의미의 지표다.
+  assert.strictEqual(typeof summary.emotionCounts, 'object');
 });

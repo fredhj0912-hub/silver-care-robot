@@ -1,6 +1,6 @@
 {
-  "name": "효돌이 — 어르신 안부",
-  "short_name": "효돌이",
+  "name": "돌봄이 — 어르신 안부",
+  "short_name": "돌봄이",
   "description": "혼자 계신 어르신의 하루를 확인하고, 응급 상황을 바로 알려주는 보호자용 앱",
   "start_url": "/guardian",
   "scope": "/",

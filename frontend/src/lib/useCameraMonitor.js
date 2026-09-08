@@ -2,15 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from './api';
 
 /**
- * 카메라로 주기적으로 프레임을 찍어 /api/vision 에 보낸다.
+ * 카메라로 주기적으로 프레임을 찍어 서버로 보낸다.
  *
- * 이전에는 백엔드에 완성된 비전 파이프라인(Gemini Vision + 낙상 판정)이 있었지만
- * 프론트엔드가 /api/vision 을 한 번도 호출하지 않아 도달 불가능한 코드였다.
+ * 보내는 곳이 두 가지이고, 그 차이가 하루 예산을 가른다:
  *
- * 기본은 비활성 — 카메라를 켜는 건 사용자 동의와 비용이 함께 따르는 일이라
- * 명시적으로 켜야 한다(VITE_VISION_ENABLED=true).
+ *   analyze: true   → POST /api/vision    Gemini Vision 이 표정·낙상을 판정한다.
+ *                                          **대화와 같은 통(하루 40건)을 쓴다** —
+ *                                          15초 간격이면 10분 만에 하루치가 사라지고
+ *                                          대화와 받아쓰기까지 같이 죽는다(09-04 실측).
+ *   analyze: false  → POST /api/snapshots  사진만 올린다. **Gemini 를 안 부른다.**
+ *                                          보호자가 방 안을 보는 데는 이걸로 충분하다.
+ *
+ * 기본은 비활성 — 카메라를 켜는 건 사용자 동의가 따르는 일이라 명시적으로 켜야 한다.
  */
-export function useCameraMonitor({ enabled, intervalMs = 15000, onEmergency }) {
+export function useCameraMonitor({ enabled, intervalMs = 15000, analyze = true, onEmergency }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -70,7 +75,7 @@ export function useCameraMonitor({ enabled, intervalMs = 15000, onEmergency }) {
       const dataUri = canvas.toDataURL('image/jpeg', 0.7);
 
       try {
-        const res = await apiFetch('/api/vision', {
+        const res = await apiFetch(analyze ? '/api/vision' : '/api/snapshots', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image: dataUri }),
@@ -78,6 +83,7 @@ export function useCameraMonitor({ enabled, intervalMs = 15000, onEmergency }) {
         if (res.ok) {
           const data = await res.json();
           setLastCaptureAt(new Date().toISOString());
+          // 응급 판정은 분석 경로에만 있다 — 사진만 올릴 때는 서버가 아무 판정도 하지 않는다.
           if (data.isEmergency) onEmergencyRef.current?.(data);
         }
       } catch (err) {
@@ -93,7 +99,7 @@ export function useCameraMonitor({ enabled, intervalMs = 15000, onEmergency }) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
-  }, [enabled, intervalMs]);
+  }, [enabled, intervalMs, analyze]);
 
   return { videoRef, canvasRef, cameraError, lastCaptureAt };
 }

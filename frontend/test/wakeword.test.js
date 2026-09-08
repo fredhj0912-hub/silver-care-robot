@@ -17,15 +17,15 @@ import {
 
 test('웨이크워드와 STT 오인식 변형을 인식한다', () => {
   const shouldMatch = [
-    '효돌아',
-    '효돌이',
-    '효돌아 뭐해',
-    '효 돌아 이리 와봐',        // STT가 띄어쓰기를 넣은 경우
-    '요돌아',                     // 흔한 오인식
-    '표돌아 밥 먹었니',
-    '휴돌이',
-    '효도리야',
-    '효돌아!',
+    '돌봄아',
+    '돌봄이',
+    '돌봄아 뭐해',
+    '돌 봄아 이리 와봐',        // STT가 띄어쓰기를 넣은 경우
+    '돌보마',                     // 받침 ㅁ이 뭉개진 흔한 오인식
+    '도봄아 밥 먹었니',
+    '돌봉아',
+    '돌봄이',                     // 이름만 부른 경우
+    '돌봄아!',
   ];
   for (const t of shouldMatch) {
     assert.ok(containsWakeWord(t), `인식 실패: "${t}"`);
@@ -35,10 +35,13 @@ test('웨이크워드와 STT 오인식 변형을 인식한다', () => {
 test('관계 없는 말을 웨이크워드로 오인하지 않는다', () => {
   const shouldNotMatch = [
     '오늘 날씨 좋네',
-    '효자손 어디 갔지',
     '돌아가신 어머니 생각이 나',
-    '효과가 좋더라',
     '밥 먹었어',
+    // 이름이 곧 일상어라 아래가 통과하면 로봇이 아무 때나 끼어든다
+    '요즘 돌봄 서비스가 좋더라',
+    '돌봄이 필요한 나이지',
+    '아기 좀 돌봐 줘',
+    '도움이 필요해',
     '',
   ];
   for (const t of shouldNotMatch) {
@@ -47,10 +50,14 @@ test('관계 없는 말을 웨이크워드로 오인하지 않는다', () => {
 });
 
 test('웨이크워드를 떼고 용건만 남긴다', () => {
-  assert.strictEqual(stripWakeWord('효돌아 오늘 날씨 어때'), '오늘 날씨 어때');
-  assert.strictEqual(stripWakeWord('효돌이, 밥 먹었니?'), ', 밥 먹었니?'.replace(/^,\s*/, '') || '밥 먹었니?');
-  assert.strictEqual(stripWakeWord('효돌아'), '');
-  assert.strictEqual(stripWakeWord('효돌아!!'), '');
+  assert.strictEqual(stripWakeWord('돌봄아 오늘 날씨 어때'), '오늘 날씨 어때');
+  assert.strictEqual(stripWakeWord('돌봄아, 밥 먹었니?'), '밥 먹었니?');
+  // 이름만 부르면 남길 용건이 없다
+  assert.strictEqual(stripWakeWord('돌봄이'), '');
+  // 문장 안의 "돌봄이"는 이름이 아니라 일상어다 — 떼지 않는다
+  assert.strictEqual(stripWakeWord('돌봄이 필요한 나이지'), '돌봄이 필요한 나이지');
+  assert.strictEqual(stripWakeWord('돌봄아'), '');
+  assert.strictEqual(stripWakeWord('돌봄아!!'), '');
 });
 
 test('응급 발화는 웨이크워드 없이도 통과한다 (안전 핵심)', () => {
@@ -100,13 +107,13 @@ test('active: 창이 열려 있으면 웨이크워드 없이 대화가 이어진
 });
 
 test('웨이크워드만 부르면 창만 열고 API를 부르지 않는다', () => {
-  const d = decideAction('효돌아', false);
+  const d = decideAction('돌봄아', false);
   assert.strictEqual(d.action, 'acknowledge');
   assert.strictEqual(d.reason, 'wake-only');
 });
 
 test('웨이크워드 + 용건은 용건만 전송한다', () => {
-  const d = decideAction('효돌아 오늘 날씨 어때', false);
+  const d = decideAction('돌봄아 오늘 날씨 어때', false);
   assert.strictEqual(d.action, 'send');
   assert.strictEqual(d.text, '오늘 날씨 어때');
 });

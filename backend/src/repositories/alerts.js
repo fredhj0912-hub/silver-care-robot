@@ -32,12 +32,13 @@ async function byId(id) {
   return toApi(await queryOne('SELECT * FROM alerts WHERE id = ?', [Number(id)]));
 }
 
-async function list({ resolved = null, type = null, from = null, to = null, before = null, limit = 50 } = {}) {
+async function list({ resolved = null, type = null, severity = null, from = null, to = null, before = null, limit = 50 } = {}) {
   const where = [];
   const params = [];
 
   if (resolved !== null && resolved !== undefined) { where.push('resolved = ?'); params.push(resolved ? 1 : 0); }
   if (type) { where.push('type = ?'); params.push(type); }
+  if (severity) { where.push('severity = ?'); params.push(severity); }
   if (from) { where.push('ts >= ?'); params.push(from); }
   if (to) { where.push('ts <= ?'); params.push(to); }
   if (before) { where.push('id < ?'); params.push(Number(before)); }
@@ -64,9 +65,20 @@ async function unresolved() {
   return rows.map(toApi);
 }
 
-async function unresolvedCount(tx = null) {
+/**
+ * 미해결 알림 수. `severity`를 주면 그 등급만 센다.
+ *
+ * 등급을 주는 쪽과 안 주는 쪽이 둘 다 옳다: 비상 상태 해제(emergency.resolveAlert)는
+ * critical만 봐야 하고 — warning은 비상 모드를 켜지 않으므로 끄는 것도 막으면 안 된다 —
+ * 보호자 일일 요약(routes/status.js)은 관찰 신호까지 전부 세는 게 맞다.
+ */
+async function unresolvedCount({ severity = null } = {}, tx = null) {
   const run = tx ? tx.queryOne : queryOne;
-  const row = await run('SELECT COUNT(*) AS n FROM alerts WHERE resolved = 0', []);
+  const where = ['resolved = 0'];
+  const params = [];
+  if (severity) { where.push('severity = ?'); params.push(severity); }
+
+  const row = await run(`SELECT COUNT(*) AS n FROM alerts WHERE ${where.join(' AND ')}`, params);
   return Number(row.n);
 }
 

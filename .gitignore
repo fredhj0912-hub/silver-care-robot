@@ -22,6 +22,10 @@ tools/
 # 현재 보안 모델이 깨진다. npm run access 로 각자 로컬에서 생성한다.
 ACCESS.html
 
+# 파이 키오스크 설정. 정상 위치는 파이의 ~/.config/hyodol/kiosk.env 지만, 레포 안에서
+# 편집하다 실수로 커밋하는 것을 막는다 — 여기에도 터널 주소가 들어간다.
+deploy/pi/kiosk.env
+
 # 환경변수 변형 — RDS 접속 정보(호스트/사용자/비밀번호)가 여기 들어간다.
 # .env 만 막혀 있어서 .env.production 같은 변형이 그대로 올라갈 수 있었다.
 # .env.example 은 값이 비어 있는 순수 템플릿이라 추적을 유지한다.
@@ -40,3 +44,8 @@ ACCESS.html
 # 한 번 올라가면 히스토리에서 지워도 이미 유출된 것으로 취급해야 한다.
 *.pem
 *.key
+
+# 온디바이스 웨이크워드용 Vosk 한국어 모델(87MB). 레포가 공개라 커밋하지 않는다 —
+# 각자 alphacephei.com/vosk/models 에서 받아 tar.gz 로 만들어 여기에 둔다.
+# 채택되면 S3 고정 주소로 옮기고 VITE_WAKE_MODEL_URL 로 가리킨다(관문 ③).
+frontend/public/models/

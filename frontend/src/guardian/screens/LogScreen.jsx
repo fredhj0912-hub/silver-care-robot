@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { usePagedList } from '../../lib/useGuardianData';
 import { formatTime, formatDay, dayKey } from '../format';
 
-const SENDER_NAME = { senior: '어르신', robot: '효돌이', guardian: '나' };
+const SENDER_NAME = { senior: '어르신', robot: '돌봄이', guardian: '나' };
 
 /**
  * 대화 로그 — 감시 기록이 아니라, 오늘 부모님이 무슨 이야기를 하셨는지 읽는 화면.

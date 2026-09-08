@@ -4,7 +4,7 @@ Guidance specific to the Vite/React kiosk app. See root `CLAUDE.md` for project-
 
 ## Layout
 
-Two apps ship from this one package: the **kiosk** at `/` (dark, fixed 800×480, for the robot's Pi display) and the **guardian PWA** at `/guardian/*` (light, phone-sized, for the adult child checking on their parent). Routing lives in `App.jsx`.
+Two apps ship from this one package: the **kiosk** at `/` (dark, for the robot's Pi display — **720×1280 세로**로 실측됐다, 09-03) and the **guardian PWA** at `/guardian/*` (light, phone-sized, for the adult child checking on their parent). Routing lives in `App.jsx`.
 
 ```
 src/
@@ -26,8 +26,21 @@ src/
     wakeword.js                    pure functions: containsWakeWord/isBypassUtterance/decideAction/
                                      stripWakeWord. Tested in test/wakeword.test.js — the safety-critical
                                      file (emergency-bypass logic lives here).
-    stt.js                         createRecognizer() — wraps Web Speech API behind an adapter so a future
-                                     Cloud STT swap doesn't touch RobotFaceDisplay.jsx
+    stt.js                         createRecognizer() — dispatches on VITE_STT_MODE ('server' default |
+                                     'browser'). Same return contract either way, so RobotFaceDisplay.jsx
+                                     and the wake-word gate are implementation-agnostic.
+    server-recognizer.js           the 'server' implementation: Web Audio raw PCM capture -> VAD ->
+                                     WAV -> POST /api/stt. The Pi's Chromium has no Web Speech API
+                                     (docs/deploy-raspberry-pi.md §3). stop() pauses capture but keeps
+                                     the mic open — reopening prompts for permission on the Pi.
+    vad.js                         pure state machine: RMS energy in, utterance boundaries out.
+                                     Testable with plain numbers — no audio needed.
+    wake-engine.js                 온디바이스 웨이크워드 엔진 어댑터(Vosk). vosk-browser 를
+                                     **동적 import** 하므로 ?wake= 없이는 82MB 모델도 wasm 도
+                                     안 받는다. stt.js 가 인식기를 고르는 것과 같은 패턴.
+    wake-debug.js                  ?wake= 스위치 (vad-debug.js 와 같은 꼴). 관측 전용.
+    wav.js                         encodeWav()/wavToDataUri()/rms(). Gemini accepts no webm, so we
+                                     never touch MediaRecorder.
     useCameraMonitor.js             React hook: captures a frame every intervalMs, POSTs to /api/vision,
                                      off by default (VITE_VISION_ENABLED)
     useGuardianData.js              SSE subscription (+30s fallback poll) and usePagedList() cursor helper
@@ -39,11 +52,16 @@ public/
 test/
   setup.js                         vitest setupFile: jest-dom matchers, RTL cleanup, Notification stub
   wakeword.test.js                 pure functions (no DOM)
+  vad.test.js, wav.test.js         pure functions (no DOM, no audio) — VAD is fed plain RMS numbers
+  server-recognizer.test.js        the recognizer contract against a fake AudioContext
+  RobotFaceDisplay.server-stt.test.jsx  the same gate wiring in the DEFAULT ('server') mode
   HomeScreen.test.jsx              guardian home: emergency-vs-note branch, resolve, offline notice
   AlertsScreen.test.jsx            alert history: empty state, resolve button gating, reload after resolve
   MedicationScreen.test.jsx        복약: 등록 시 UTC 변환, 복용 버튼 게이팅, 시리즈 삭제
   useGuardianData.test.jsx         SSE 정체 감지·재연결, 폴백 폴링 중에는 오프라인 안내 안 함
   RobotFaceDisplay.test.jsx        키오스크가 웨이크워드 게이트를 실제로 통과시키는지 (STT/TTS 스텁)
+  RobotFaceDisplay.ptt.test.jsx    푸시투토크(기본): **안 눌렀으면 /api/stt 가 안 나가는지**
+  wake-engine.test.js              엔진 어댑터 계약 (가짜 vosk 모듈 주입. wasm·오디오 없음)
 ```
 
 ## Conventions
@@ -51,6 +69,16 @@ test/
 - **Voice-related state changes go through `setRobotEmotion`/`setVoiceState`**, not direct style/DOM writes — the SVG face and antenna color derive from these plus `status.isEmergency`.
 - **`isSpeakingRef`/`shouldListenRef` gate self-hearing prevention** (recognition stops before TTS starts, restarts on end/error). Route any new speech-output path through `speakText`/`finishSpeaking` — don't bypass this gate.
 - **`emergencyRef`/`gateActiveRef` exist so long-lived callbacks/effects can read current `status.isEmergency`/gate state without retriggering.** Read the ref; don't add the state value to a dependency array just to read its current value.
+- **마이크는 기본적으로 닫혀 있다** (`VITE_MIC_MODE`, 기본 `ptt`). 여는 곳은 화면의
+  푸시투토크 버튼 **한 곳뿐**이고, `startListening()` 이 `manual: true` 가 아닌 호출을
+  전부 막는다. 새 자동 재개 지점을 만들지 말 것 — 하나만 새도 마이크가 상시로 열린다.
+  ⚠️ 이 모드에는 **음성 응급 경로가 없다**(마이크가 닫혀 있으면 우회 문구가 닿지 않는다).
+  그래서 **SOS 버튼은 항상 화면에 있어야 한다** — 지금 유일한 대체 수단이다.
+- **온디바이스 웨이크워드는 아직 관측 단계다** (`?wake=1`, `docs/plan-wake-word.md` 관문 ②).
+  엔진이 뭐라 하든 **업로드 판정은 아직 안 바뀐다** — `server-recognizer.js` 는 `onWake` 로
+  보고만 한다. 그 판정을 가로채는 것이 Phase 1 이고, 그 전에 놓침률·오인식률·**응급 문구**
+  **놓침률**을 숫자로 통과해야 한다. `?wake=` 는 `dryRun` 을 강제하므로 측정에 할당량이 안 든다.
+  마이크를 상시로 여는 길은 `PTT_ACTIVE` 상수 **한 곳뿐**이다 — 새 우회로를 만들지 말 것.
 - **New chat-triggering input (voice, text, button) should go through `decideAction()`** from `lib/wakeword.js`, not call `sendVoiceMessage` directly — that's how the wake-word gate and emergency bypass stay consistent across input methods.
 - **TTS**: `speakText` tries `POST /api/tts` first, falls back to browser `SpeechSynthesis` on a 204 or any failure. Always design for the fallback path being the one that's actually live.
 
@@ -73,9 +101,21 @@ uses Vitest while the backend stays on `node --test`.
   없는 발화가 `/api/chat`을 부르지 않는지, 응급 우회 발화는 통과하는지. 판정 로직 자체는
   `wakeword.test.js`가 덮으므로 되풀이하지 말 것. 얼굴 렌더·TTS 재생·카메라 경로는 여전히
   미검증이니 키오스크 변경은 `npm run dev`로 실제 백엔드에 붙여 확인한다.
-- **`stt.js`는 모듈 로드 시점에 `window.SpeechRecognition`을 붙잡는다.** 그래서
-  `RobotFaceDisplay.test.jsx`는 스텁을 먼저 심고 컴포넌트를 **동적 import**한다 —
-  정적 import로 바꾸면 스텁이 늦어 STT 경로가 통째로 죽는다.
+- **`stt.js`는 모듈 로드 시점에 `window.SpeechRecognition`과 `VITE_STT_MODE`를 붙잡는다.**
+  그래서 `RobotFaceDisplay.test.jsx`는 `vi.stubEnv`와 스텁을 먼저 심고 컴포넌트를
+  **동적 import**한다 — 정적 import로 바꾸면 둘 다 늦어 STT 경로가 통째로 죽는다.
+- **`RobotFaceDisplay.test.jsx`·`.server-stt`·`.tts` 세 파일은 `VITE_MIC_MODE=always` 를
+  핀으로 박고 돈다** — 기본값이 푸시투토크로 바뀐 뒤에도 상시 청취 배선이 살아 있는지
+  보는 것이 그 파일들의 목적이기 때문이다. 기본 경로는 `RobotFaceDisplay.ptt.test.jsx` 가 덮는다.
+  (`vi.resetModules()` 로 모듈을 다시 부르는 테스트는 그 자리에서 핀을 다시 박아야 한다 —
+  `afterEach` 의 `unstubAllEnvs` 가 이미 걷어 간 뒤다)
+- **기본 모드는 `server`인데 `RobotFaceDisplay.test.jsx`는 `browser`로 고정해 돈다**
+  (이벤트를 손으로 흘려보내야 해서). 그러면 **실제 배포 경로를 아무도 안 지나가므로**,
+  같은 배선을 server 모드로 한 번 더 덮는 `RobotFaceDisplay.server-stt.test.jsx`가 있다.
+  둘 중 하나만 고치고 넘어가지 말 것.
+- **인식기 계약은 화면 테스트로 다 안 덮인다.** 빈 받아쓰기를 흘려보내도 웨이크워드
+  게이트가 걸러 주기 때문에 컴포넌트 레벨에서는 가드를 지워도 통과한다(변이 테스트로 확인).
+  `server-recognizer.test.js`가 그 층을 맡는다.
 
 ## Guardian app conventions
 
@@ -88,6 +128,17 @@ uses Vitest while the backend stays on `node --test`.
 ## Gotchas
 
 - Kiosk-only globals in `index.css` (`user-select:none`, page-scroll lock via `body:has(.kiosk-root)`, hidden scrollbars) are scoped to `.kiosk-root`. Moving them back onto `*` or bare `body` breaks guardian-app scrolling.
+- **얼굴은 화면 크기를 전제하지 않는다.** 09-03에 실물 패널이 800×480 가로가 아니라
+  **720×1280 세로**인 것을 확인했고, 그때까지 얼굴에 걸려 있던 `vh`/픽셀 상한 때문에
+  화면이 큰데도 얼굴이 340px에 묶여 있었다. 지금은 `.robot-face`가 **남는 자리를 채운다** —
+  세로는 `.face-area`의 높이, 가로는 화면 너비가 한계다(정사각형이라 둘 중 작은 쪽).
+  고정값으로 되돌리지 말 것: 화면이 바뀌면 다시 어긋난다.
+  말풍선이 뜨면 `.face-area`가 줄고 얼굴도 따라 줄어든다 — 우선순위는 **읽어야 할 글 > 얼굴**이고,
+  이 성질이 없으면 얼굴이 글을 덮는다(09-02에 실제로 그랬다).
+  `.face-area`의 `padding-top`은 안테나가 잘리지 않게 비워 둔 자리다.
+- **이목구비는 SVG 안에서 한 겹으로 묶여 있다**(`<g transform="… scale(1.3) …">`). 얼굴 상자가
+  커져도 `viewBox 300` 기준 좌표라 비율이 그대로여서, 09-03에 배율을 한 곳에서 키웠다.
+  감정 7종의 눈·눈썹·입 좌표를 개별로 고치면 표정 사이 균형이 깨진다 — 배율만 바꿀 것.
 - The service worker never caches `/api/*` — a stale "평온해요" is worse than no answer. Keep it that way.
 - **`main.jsx` registers `sw.js` in PROD builds only**, so `npm run dev` has no service worker and therefore no push at all. Testing push means `npm run build && npm run preview` (port 4173) — not the dev server. Web Push also requires HTTPS, so a phone test needs a tunnel; `vite.config.js` allows `.trycloudflare.com` in both `server` and `preview` for that.
 - `VITE_*` env vars are inlined into the client bundle at build time — `VITE_ROBOT_API_KEY` is visible in devtools. LAN speed-bump only, not real auth.
