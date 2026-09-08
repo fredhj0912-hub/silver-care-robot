@@ -31,7 +31,7 @@ const SAMPLE_RATE = 16000;
 // 2의 거듭제곱이어야 한다. 4096 @ 16kHz = 256ms — VAD 판정에 충분히 촘촘하다.
 const FRAME_SIZE = 4096;
 
-export function createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, dryRun, oneShot }) {
+export function createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, onWake, dryRun, oneShot, wakeEngine }) {
   let stream = null;
   let audioContext = null;
   let processor = null;
@@ -105,6 +105,11 @@ export function createServerRecognizer({ onResult, onStart, onEnd, onError, vadO
       // 복사해서 담는다 — inputBuffer는 다음 프레임에서 재사용된다.
       buffered.push(new Float32Array(input));
       bufferedLength += input.length;
+
+      // 온디바이스 웨이크워드 엔진에도 같은 프레임을 흘린다. event.inputBuffer를 그대로
+      // 넘기는 이유: vosk-browser의 acceptWaveform이 16kHz mono AudioBuffer를 받는데
+      // 여기가 이미 정확히 그 형태라 변환 코드가 없다. **API는 0건이다** — 파이 안에서만 돈다.
+      wakeEngine?.feed(event.inputBuffer);
     }
 
     // 관측은 idle 프레임까지 흘려보낸다 — 임계값을 맞추려면 "말하지 않을 때
@@ -121,6 +126,16 @@ export function createServerRecognizer({ onResult, onStart, onEnd, onError, vadO
     });
 
     if (verdict === 'idle') return;
+
+    // 발화가 끝났으니(버려졌든 아니든) 엔진에게 여태 들은 것을 물어본다. **관측만 한다** —
+    // 업로드 판정은 아직 아래 그대로다. 여기서 판정을 가로채는 것이 다음 단계(Phase 1)이고,
+    // 그 전에 관문 ②(놓침률·오인식률·응급 문구 놓침률)를 숫자로 통과해야 한다.
+    // 버려진 발화까지 물어보는 이유: 안 물어보면 그 조각이 엔진 안에 남아 다음 발화에 섞인다.
+    if (wakeEngine && (verdict === 'ended' || verdict === 'discarded')) {
+      wakeEngine.finish().then((res) => {
+        if (!destroyed) onWake?.({ ...res, verdict });
+      });
+    }
 
     // 너무 짧아 버리는 경우. onEnd를 부르지 않는다 — 세션은 계속 살아 있다.
     if (verdict === 'discarded') { dropBuffer(); return; }

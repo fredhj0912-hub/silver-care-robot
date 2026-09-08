@@ -138,12 +138,14 @@ function createBrowserRecognizer({ onResult, onStart, onEnd, onError, lang }) {
  * @param {object} [opts.vadOptions]  server 모드 전용 — VAD 임계값 덮어쓰기
  * @param {(info: object) => void} [opts.onVad]  server 모드 전용 — 프레임마다 VAD 관측값
  * @param {boolean} [opts.dryRun]  server 모드 전용 — 발화를 잡되 업로드하지 않는다
+ * @param {object} [opts.wakeEngine]  server 모드 전용 — 온디바이스 웨이크워드 엔진(lib/wake-engine.js)
+ * @param {(info: object) => void} [opts.onWake]  server 모드 전용 — 발화마다 엔진이 들은 것
  * @returns {{start: () => void, stop: () => void, abort: () => void, isSupported: boolean}}
  */
-export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko-KR', vadOptions, onVad, dryRun, oneShot }) {
+export function createRecognizer({ onResult, onStart, onEnd, onError, lang = 'ko-KR', vadOptions, onVad, onWake, dryRun, oneShot, wakeEngine }) {
   if (STT_MODE === 'browser') {
     // browser 모드에는 우리 VAD가 없다 — 경계를 Web Speech API가 잡는다.
     return createBrowserRecognizer({ onResult, onStart, onEnd, onError, lang });
   }
-  return createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, dryRun, oneShot });
+  return createServerRecognizer({ onResult, onStart, onEnd, onError, vadOptions, onVad, onWake, dryRun, oneShot, wakeEngine });
 }

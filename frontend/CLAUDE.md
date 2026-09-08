@@ -35,6 +35,10 @@ src/
                                      the mic open — reopening prompts for permission on the Pi.
     vad.js                         pure state machine: RMS energy in, utterance boundaries out.
                                      Testable with plain numbers — no audio needed.
+    wake-engine.js                 온디바이스 웨이크워드 엔진 어댑터(Vosk). vosk-browser 를
+                                     **동적 import** 하므로 ?wake= 없이는 82MB 모델도 wasm 도
+                                     안 받는다. stt.js 가 인식기를 고르는 것과 같은 패턴.
+    wake-debug.js                  ?wake= 스위치 (vad-debug.js 와 같은 꼴). 관측 전용.
     wav.js                         encodeWav()/wavToDataUri()/rms(). Gemini accepts no webm, so we
                                      never touch MediaRecorder.
     useCameraMonitor.js             React hook: captures a frame every intervalMs, POSTs to /api/vision,
@@ -57,6 +61,7 @@ test/
   useGuardianData.test.jsx         SSE 정체 감지·재연결, 폴백 폴링 중에는 오프라인 안내 안 함
   RobotFaceDisplay.test.jsx        키오스크가 웨이크워드 게이트를 실제로 통과시키는지 (STT/TTS 스텁)
   RobotFaceDisplay.ptt.test.jsx    푸시투토크(기본): **안 눌렀으면 /api/stt 가 안 나가는지**
+  wake-engine.test.js              엔진 어댑터 계약 (가짜 vosk 모듈 주입. wasm·오디오 없음)
 ```
 
 ## Conventions
@@ -69,6 +74,11 @@ test/
   전부 막는다. 새 자동 재개 지점을 만들지 말 것 — 하나만 새도 마이크가 상시로 열린다.
   ⚠️ 이 모드에는 **음성 응급 경로가 없다**(마이크가 닫혀 있으면 우회 문구가 닿지 않는다).
   그래서 **SOS 버튼은 항상 화면에 있어야 한다** — 지금 유일한 대체 수단이다.
+- **온디바이스 웨이크워드는 아직 관측 단계다** (`?wake=1`, `docs/plan-wake-word.md` 관문 ②).
+  엔진이 뭐라 하든 **업로드 판정은 아직 안 바뀐다** — `server-recognizer.js` 는 `onWake` 로
+  보고만 한다. 그 판정을 가로채는 것이 Phase 1 이고, 그 전에 놓침률·오인식률·**응급 문구**
+  **놓침률**을 숫자로 통과해야 한다. `?wake=` 는 `dryRun` 을 강제하므로 측정에 할당량이 안 든다.
+  마이크를 상시로 여는 길은 `PTT_ACTIVE` 상수 **한 곳뿐**이다 — 새 우회로를 만들지 말 것.
 - **New chat-triggering input (voice, text, button) should go through `decideAction()`** from `lib/wakeword.js`, not call `sendVoiceMessage` directly — that's how the wake-word gate and emergency bypass stay consistent across input methods.
 - **TTS**: `speakText` tries `POST /api/tts` first, falls back to browser `SpeechSynthesis` on a 204 or any failure. Always design for the fallback path being the one that's actually live.
 

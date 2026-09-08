@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '../lib/api';
 import { createRecognizer, isSupported as isSTTSupported, classifySttError } from '../lib/stt';
-import { decideAction, pickAcknowledgeReply, ACTIVE_WINDOW_MS } from '../lib/wakeword';
+import { decideAction, pickAcknowledgeReply, ACTIVE_WINDOW_MS, WAKE_GRAMMAR, containsWakeWord, isBypassUtterance } from '../lib/wakeword';
 import { useCameraMonitor } from '../lib/useCameraMonitor';
 import { readVadDebug } from '../lib/vad-debug';
+import { readWakeDebug } from '../lib/wake-debug';
+import { createWakeEngine } from '../lib/wake-engine';
 
 // VAD 관측 스위치(?vad=1). 모듈 로드 시점에 한 번만 읽는다 — stt.js가 VITE_STT_MODE를
 // 잡는 것과 같은 관례다. 켜면 화면에 오버레이가 뜨고 **받아쓰기 업로드가 멈춘다**.
@@ -57,6 +59,14 @@ function readMicMode(search = '') {
 
 const MIC_MODE = readMicMode(typeof window !== 'undefined' ? window.location.search : '');
 const PTT_MODE = MIC_MODE === 'ptt';
+
+// 온디바이스 웨이크워드 관측 스위치(?wake=1). VAD_DEBUG 와 같은 관례로 모듈 로드 때 한 번 읽는다.
+const WAKE_DEBUG = readWakeDebug(typeof window !== 'undefined' ? window.location.search : '');
+
+// 관측 중에는 마이크를 상시로 연다 — TV 를 10분 틀어 놓고 오인식률을 재려면 그래야 한다.
+// **안전한 이유**: ?wake= 는 dryRun 을 함께 강제하므로 /api/stt 로 나가는 길이 아예 없다.
+// 이 상수 밖에서 PTT 가드를 푸는 곳을 새로 만들지 말 것(frontend/CLAUDE.md 의 경고).
+const PTT_ACTIVE = PTT_MODE && !WAKE_DEBUG.enabled;
 
 // 눌렀는데 아무 말이 없으면 스스로 닫는다. 마이크가 열린 채 잊히는 경로를 없앤다.
 const PTT_TIMEOUT_MS = 8000;
@@ -164,6 +174,53 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   const [vadInfo, setVadInfo] = useState(null);
   // 같은 move 명령을 폴링마다 다시 그리지 않도록 마지막으로 본 id를 기억한다
   const lastSeenMoveIdRef = useRef(null);
+
+  // ──────────────────────────────────────────────
+  // 온디바이스 웨이크워드 관측 (?wake=1) — 관문 ② 를 API 0건으로 재는 자리
+  // ──────────────────────────────────────────────
+  const wakeEngineRef = useRef(null);
+  // 관문 ② 표가 그대로 나오게 센다: 놓침률 = 20 − wake, 오인식률 = 아무도 안 말했는데 wake.
+  const [wakeStats, setWakeStats] = useState({ utterances: 0, wake: 0, bypass: 0, last: null, engine: '준비 중' });
+
+  // **엔진은 마운트에 한 번만 만든다.** 인식기 효과는 콜백 신원이 바뀌면 다시 도는데,
+  // 거기에 걸어 두면 82MB 모델을 그때마다 새로 받는다.
+  useEffect(() => {
+    if (!WAKE_DEBUG.enabled) return undefined;
+    const engine = createWakeEngine({
+      mode: WAKE_DEBUG.mode,
+      modelUrl: WAKE_DEBUG.modelUrl,
+      phrases: WAKE_GRAMMAR,
+    });
+    wakeEngineRef.current = engine;
+    engine.ready.then((res) => {
+      // StrictMode는 개발에서 이 효과를 두 번 돌린다 — 먼저 만든 엔진은 이미 dispose된
+      // 뒤라 실패로 끝난다. 그 결과가 살아 있는 엔진의 상태를 덮으면 화면이 "실패"로
+      // 굳는다(모델은 멀쩡히 떠 있는데도). 지금 쓰는 엔진의 보고만 받는다.
+      if (wakeEngineRef.current !== engine) return;
+      setWakeStats((s) => ({
+        ...s,
+        engine: res?.ok ? (res.grammar ? '문법 제한' : '자유 발화') : `실패: ${res?.error || res?.reason || '알 수 없음'}`,
+      }));
+    });
+    return () => { engine.dispose(); wakeEngineRef.current = null; };
+  }, []);
+
+  /**
+   * 발화 하나가 끝날 때마다 엔진이 들은 것을 받는다. **판정은 여기서 하지 않는다** —
+   * 기존 containsWakeWord/isBypassUtterance 를 그대로 불러, 실제 게이트가 이 글자로
+   * 열렸을지를 센다. 그래야 나온 숫자가 Phase 1 의 동작을 그대로 예측한다.
+   */
+  const handleWakeObservation = useCallback(({ text, ms, verdict }) => {
+    const wake = containsWakeWord(text);
+    const bypass = isBypassUtterance(text);
+    setWakeStats((s) => ({
+      ...s,
+      utterances: s.utterances + 1,
+      wake: s.wake + (wake ? 1 : 0),
+      bypass: s.bypass + (bypass ? 1 : 0),
+      last: { text, ms, verdict, wake, bypass },
+    }));
+  }, []);
 
   // ──────────────────────────────────────────────
   // 카메라 모니터링 (기본 비활성 — VITE_VISION_ENABLED=true 로 켠다)
@@ -425,7 +482,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     // 푸시투토크에서는 **버튼을 누른 것만** 마이크를 연다. 여기 한 곳에서 막으면
     // 발화 종료·응답 완료·오류 같은 기존 재개 지점을 하나씩 고칠 필요가 없다
     // (그 중 하나만 빠뜨려도 마이크가 상시로 열려 예산이 새 나간다).
-    if (PTT_MODE && !manual) return;
+    if (PTT_ACTIVE && !manual) return;
     recognitionRef.current?.start();
   }, []);
 
@@ -501,10 +558,10 @@ function RobotFaceDisplay({ status, onStatusChange }) {
   const handleTranscript = useCallback((transcript) => {
     // 푸시투토크에서는 **버튼을 누른 것이 곧 의도 표명**이라 웨이크워드를 요구하지 않는다.
     // 잡음 필터(isMeaningfulUtterance)와 응급 우회는 그대로 일한다.
-    const decision = decideAction(transcript, PTT_MODE ? true : gateActiveRef.current);
+    const decision = decideAction(transcript, PTT_ACTIVE ? true : gateActiveRef.current);
 
     // 한 번 누름 = 한 발화. 흘려보낸 말이든 아니든 여기서 마이크를 닫는다.
-    if (PTT_MODE) stopPtt();
+    if (PTT_ACTIVE) stopPtt();
 
     if (decision.action === 'ignore') {
       // dormant 상태에서 흘려보낸 말. 인식은 계속 돌지만 API는 부르지 않는다.
@@ -563,11 +620,14 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     const recognizer = createRecognizer({
       vadOptions: VAD_DEBUG.vadOptions,
       // 관측 모드에서는 발화 경계만 화면에 보여 주고 Gemini로 올리지 않는다.
-      dryRun: VAD_DEBUG.enabled,
+      // ?wake= 도 업로드를 막는다. 관문 ② 측정이 예산을 태울 수 있는 경로를 남기지 않는다.
+      dryRun: VAD_DEBUG.enabled || WAKE_DEBUG.enabled,
+      wakeEngine: wakeEngineRef.current,
+      onWake: WAKE_DEBUG.enabled ? handleWakeObservation : undefined,
       // 푸시투토크는 발화 하나를 잡으면 인식기가 스스로 캡처를 닫는다. 화면의 stopPtt 는
       // 받아쓰기 결과가 비면 아예 안 불리므로(빈 결과는 onResult 를 건너뛴다) 여기서 막아야
       // 한 번 누름에 업로드가 여러 건 나가지 않는다.
-      oneShot: PTT_MODE,
+      oneShot: PTT_ACTIVE,
       onVad: VAD_DEBUG.enabled
         ? (info) => setVadInfo((prev) => ({
             ...info,
@@ -581,7 +641,9 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       onStart: () => {
         if (!isSpeakingRef.current) setVoiceState('listening');
         // 마이크가 진짜로 열린 시점이다. 8초는 여기서부터 센다.
-        if (PTT_MODE) beginPttCountdown();
+        // ?wake= 관측 중에는 카운트다운을 걸지 않는다 — 8초 뒤 stopPtt 가 마이크를 닫아
+        // TV 10분 오인식률을 잴 수가 없어진다. 버튼은 그대로 두되 시한만 빠진다.
+        if (PTT_ACTIVE) beginPttCountdown();
       },
       onResult: (text) => {
         sttFailStreakRef.current = 0;  // 한 번이라도 들렸으면 연속 실패가 아니다
@@ -607,7 +669,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
         // 푸시투토크는 스스로 다시 열지 않는다. 대신 화면을 닫힌 상태로 맞춘다 —
         // 인식기가 발화 하나를 잡고 캡처를 닫은 순간이 곧 "이제 안 듣는다"이다.
         // (stopPtt 는 멱등이라 여기서 다시 불려도 안전하다)
-        if (PTT_MODE) { stopPtt(); return; }
+        if (PTT_ACTIVE) { stopPtt(); return; }
         const delay = Math.min(300 * 2 ** sttFailStreakRef.current, 10000);
         restartTimer = setTimeout(() => startListening(), delay);
       },
@@ -617,7 +679,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
     shouldListenRef.current = true;
 
     // 푸시투토크는 마운트 때 마이크를 열지 않는다 — 버튼을 눌러야 열린다.
-    const initTimer = PTT_MODE ? null : setTimeout(() => startListening(), 1000);
+    const initTimer = PTT_ACTIVE ? null : setTimeout(() => startListening({ manual: true }), 1000);
 
     return () => {
       clearTimeout(initTimer);
@@ -638,7 +700,7 @@ function RobotFaceDisplay({ status, onStatusChange }) {
       shouldListenRef.current = false;
       recognizer.abort();
     };
-  }, [handleTranscript, startListening, beginPttCountdown, stopPtt]);
+  }, [handleTranscript, startListening, beginPttCountdown, stopPtt, handleWakeObservation]);
 
   // ──────────────────────────────────────────────
   // 보호자 명령 큐 폴링
@@ -1013,6 +1075,31 @@ function RobotFaceDisplay({ status, onStatusChange }) {
               직전: {vadInfo?.last ? `${vadInfo.last.verdict} ${vadInfo.last.ms}ms` : '—'}
             </span>
             <span className="vad-debug-badge">업로드 안 함</span>
+          </div>
+        </div>
+      )}
+
+      {/* 온디바이스 웨이크워드 관측 오버레이 (?wake=1). docs/plan-wake-word.md 관문 ②를
+          여기 숫자로 채운다 — "돌봄아" 20번 / "살려줘" 20번 / TV 10분.
+          VAD 오버레이가 좌상단을 쓰므로 이쪽은 좌하단이다. 겹치지 않게. */}
+      {WAKE_DEBUG.enabled && (
+        <div className="wake-debug">
+          <div className="wake-debug-row">
+            <b>웨이크 관측</b>
+            <span>{WAKE_DEBUG.mode === 'free' ? '자유 발화' : '문법'} · {wakeStats.engine}</span>
+            <span className="vad-debug-badge">업로드 안 함</span>
+          </div>
+          <div className="wake-debug-row">
+            {/* 놓침률 = 부른 횟수 − 웨이크. 오인식률 = 아무도 안 불렀는데 오른 웨이크. */}
+            <span>발화 <b>{wakeStats.utterances}</b></span>
+            <span>웨이크 <b>{wakeStats.wake}</b></span>
+            {/* ⚠️ 안전 지표 — 이게 안 나오면 "응급 경로가 돌아왔다"고 쓸 수 없다 */}
+            <span className="wake-debug-safety">응급 <b>{wakeStats.bypass}</b></span>
+          </div>
+          <div className="wake-debug-last">
+            {wakeStats.last
+              ? `${wakeStats.last.wake ? '🟢' : wakeStats.last.bypass ? '🔴' : '⚪'} “${wakeStats.last.text || '(빈 결과)'}” · ${wakeStats.last.ms}ms · ${wakeStats.last.verdict}`
+              : '아직 들은 발화가 없습니다'}
           </div>
         </div>
       )}

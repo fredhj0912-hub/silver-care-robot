@@ -306,3 +306,76 @@ test('vadOptions로 넘긴 임계값이 실제 판정에 쓰인다', async () =>
   frame(0.01);   // 기본값(0.02) 아래, 넘긴 값(0.005) 위
   expect(onVad.mock.calls[0][0]).toMatchObject({ verdict: 'started', startThreshold: 0.005 });
 });
+
+/**
+ * 온디바이스 웨이크워드 엔진 배선 (?wake=1).
+ *
+ * ⚠️ 지금은 **관측만 한다** — 엔진이 뭐라 하든 업로드 판정은 아직 안 바뀐다.
+ * 그게 다음 단계(docs/plan-wake-word.md Phase 1)이고, 그 전에 관문 ②를 통과해야 한다.
+ * 여기서 지키는 것은 "관측을 붙였다고 기존 동작이 달라지지 않는다"이다.
+ */
+test('엔진이 붙어 있으면 발화 프레임을 그대로 흘려보낸다', async () => {
+  const fed = [];
+  const engine = {
+    feed: (buf) => fed.push(buf),
+    finish: async () => ({ text: '돌봄아', ms: 12, ready: true }),
+  };
+  const seen = [];
+  const rec = createServerRecognizer({
+    onResult: () => {}, onWake: (info) => seen.push(info), wakeEngine: engine, dryRun: true,
+  });
+  rec.start();
+  await vi.waitFor(() => expect(frameHandler).toBeTruthy());
+
+  utter();
+  // 침묵(idle) 프레임은 엔진에 안 간다 — 발화 구간만 먹인다
+  expect(fed.length).toBeGreaterThan(0);
+  expect(fed.length).toBeLessThan(9);
+
+  await vi.waitFor(() => expect(seen).toHaveLength(1));
+  expect(seen[0]).toMatchObject({ text: '돌봄아', verdict: 'ended' });
+  rec.abort();
+});
+
+test('관측 중에는 /api/stt 가 한 번도 안 나간다', async () => {
+  const engine = { feed: () => {}, finish: async () => ({ text: '돌봄아', ms: 5, ready: true }) };
+  const rec = createServerRecognizer({
+    onResult: () => {}, onWake: () => {}, wakeEngine: engine, dryRun: true,
+  });
+  rec.start();
+  await vi.waitFor(() => expect(frameHandler).toBeTruthy());
+
+  utter();
+  utter();
+  await new Promise((r) => setTimeout(r, 10));
+  // 이게 이 스위치의 존재 이유다 — 관문 ②를 재는 데 예산이 한 건도 안 들어야 한다
+  expect(fetch).not.toHaveBeenCalled();
+  rec.abort();
+});
+
+test('버려진 발화도 엔진에서 비운다 — 다음 발화에 섞이면 안 된다', async () => {
+  let finishes = 0;
+  const engine = { feed: () => {}, finish: async () => { finishes += 1; return { text: '', ms: 1, ready: true }; } };
+  const rec = createServerRecognizer({
+    onResult: () => {}, onWake: () => {}, wakeEngine: engine, dryRun: true,
+  });
+  rec.start();
+  await vi.waitFor(() => expect(frameHandler).toBeTruthy());
+
+  // 한 프레임짜리 짧은 소리 = 'discarded'
+  frame(0.2);
+  for (let i = 0; i < 5; i++) frame(0.001);
+  await vi.waitFor(() => expect(finishes).toBe(1));
+  rec.abort();
+});
+
+test('엔진이 없으면 아무것도 달라지지 않는다 (회귀)', async () => {
+  const rec = createServerRecognizer({ onResult: () => {} });
+  rec.start();
+  await vi.waitFor(() => expect(frameHandler).toBeTruthy());
+
+  utter();
+  // 평소 경로는 그대로 업로드한다
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  rec.abort();
+});

@@ -151,6 +151,18 @@ export function decideAction(transcript, isActive) {
   return { action: 'ignore', text: '', reason: 'dormant' };
 }
 
+/**
+ * 온디바이스 웨이크워드 엔진에 줄 문구 목록 (lib/wake-engine.js).
+ *
+ * 로컬 ASR의 어휘를 이 목록으로 좁히면 **자유 발화 WER(28.1)이 상관없어진다** — 우리는
+ * 문장을 받아쓰려는 게 아니라 "이 소리에 이름이나 살려달라는 말이 들어 있나"만 가리면 된다.
+ *
+ * ⚠️ 판정 자체는 여기가 아니라 위의 containsWakeWord/isBypassUtterance가 그대로 한다.
+ * 이 배열은 **엔진에게 무엇을 들을지 알려주는 힌트일 뿐**이고, 엔진이 문법 제한을
+ * 지원하지 않으면 자유 발화로 떨어져도 판정 결과는 같은 함수에서 나온다.
+ */
+export const WAKE_GRAMMAR = [...WAKE_VARIANTS, ...WAKE_EXACT, ...BYPASS_PHRASES];
+
 /** 웨이크워드만 불렀을 때 로봇이 돌려줄 응답 (API 호출 없이 즉시) */
 export const ACKNOWLEDGE_REPLIES = [
   '네 어르신, 듣고 있어요.',

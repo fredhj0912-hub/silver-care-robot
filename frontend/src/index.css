@@ -159,6 +159,43 @@
   border: 1px solid var(--accent-amber);
 }
 
+/* 온디바이스 웨이크워드 관측 오버레이 (?wake=1) — docs/plan-wake-word.md 관문 ②용.
+   VAD 오버레이와 같은 이유로 겹쳐 띄운다(레이아웃을 밀면 얼굴이 말풍선을 덮는다).
+   좌하단인 이유: 좌상단은 VAD 가, 우상단은 진단 배지가 쓴다. SOS 버튼은 하단 중앙이라
+   왼쪽 끝은 비어 있다 — 그래도 pointer-events 를 꺼서 눌림을 가로채지 않게 한다. */
+.wake-debug {
+  position: fixed;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  width: 20rem;
+  max-width: calc(100vw - 1rem);
+  z-index: 200;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.wake-debug-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+/* 응급 문구 놓침률은 다른 지표와 무게가 다르다 — 눈에 띄게 둔다 */
+.wake-debug-safety { color: var(--accent-crimson); }
+.wake-debug-last {
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border-glass);
+  color: var(--text-secondary);
+  /* 로컬 ASR 이 뱉는 글자는 길 수 있다. 넘치면 줄이 늘어나되 오버레이는 안 커진다. */
+  overflow-wrap: anywhere;
+}
+
 
 html, body, #root {
   width: 100%;
