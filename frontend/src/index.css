@@ -518,12 +518,30 @@ body:has(.kiosk-root) {
 
 /* 보호자가 긴 메시지를 보내면 말풍선이 화면을 다 먹고 얼굴이 사라진다.
    어르신은 스크롤을 못 하므로 넘치는 줄은 잘라 낸다 — 이 화면은 읽는 곳이지
-   보관하는 곳이 아니고, 같은 내용을 로봇이 소리로도 읽어 준다. */
+   보관하는 곳이 아니고, **같은 내용을 로봇이 소리로도 읽어 준다.**
+   (Gemini 답변은 프롬프트가 50자로 못박아 3줄에 들어간다. 길이가 문제되는 것은
+   길이 제한이 없는 `/guardian/send` 메시지 쪽이다.) */
 .speech-text {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 소리가 안 났을 때는 위 근거가 통째로 무너진다 — "로봇이 소리로도 읽어 준다"가
+   거짓이 되는 순간이 정확히 이때고, 그러면 잘린 글이 **유일한 전달 수단**이다.
+   그래서 무음 안내(.speech-voiceless)가 떠 있을 때만 클램프를 푼다.
+   JSX 는 안 건드린다 — 그 줄이 곧 무음 신호라 :has() 로 그대로 읽을 수 있다.
+
+   ⚠️ 그래도 상한은 둔다. 얼굴은 .face-area 의 padding-top 28px 까지만 줄어들고,
+   그 아래로 넘치면 키오스크가 overflow:hidden 이라 **SOS 버튼이 화면 밖으로 밀린다.**
+   720×1280 실측(09-08): 말풍선을 뺀 고정 높이 합이 약 240px 이라 얼굴이
+   817px 까지 여유가 있다. 55vh(=704px)면 그 안에 넉넉히 들어가고 18줄쯤 —
+   보호자가 보낼 만한 길이는 다 담긴다. 이 값을 올릴 때는 SOS 를 다시 자로 잴 것. */
+.speech-bubble:has(.speech-voiceless) .speech-text {
+  -webkit-line-clamp: unset;
+  display: block;
+  max-height: 55vh;
 }
 
 .kiosk-container:has(.speech-bubble-container) .ptt-btn {
